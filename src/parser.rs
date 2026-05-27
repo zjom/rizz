@@ -5,28 +5,81 @@ use std::{
 
 use std::rc::Rc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Position {
+    pub byte: usize,
+    pub line: usize,
+    pub col: usize,
+}
+
+impl Position {
+    fn new() -> Self {
+        Self {
+            byte: 0,
+            line: 1,
+            col: 1,
+        }
+    }
+    fn advance(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.byte += 1;
+            if b == b'\n' {
+                self.line += 1;
+                self.col = 1;
+            } else {
+                self.col += 1;
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "line {}, column {} (byte {})",
+            self.line, self.col, self.byte
+        )
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("expected open brace at byte {pos}")]
-    MissingOpenBrace { pos: usize },
-    #[error("expected close brace at byte {pos}")]
-    MissingCloseBrace { pos: usize },
-    #[error("unexpected close brace at byte {pos}")]
-    UnexpectedCloseBrace { pos: usize },
+    #[error("expected open brace at {at}")]
+    MissingOpenBrace { at: Position },
+    #[error("expected close brace at {at}")]
+    MissingCloseBrace { at: Position },
+    #[error("unexpected close brace at {at}")]
+    UnexpectedCloseBrace { at: Position },
 
-    #[error("str not utf-8")]
-    UTF8Error(#[from] std::str::Utf8Error),
-    #[error("string not utf-8")]
-    FromUTF8Error(#[from] std::string::FromUtf8Error),
+    #[error("str not utf-8 at {at}: {source}")]
+    UTF8Error {
+        source: std::str::Utf8Error,
+        at: Position,
+    },
+    #[error("string not utf-8 at {at}: {source}")]
+    FromUTF8Error {
+        source: std::string::FromUtf8Error,
+        at: Position,
+    },
 
-    #[error("parse float error")]
-    ParseFloatError(#[from] std::num::ParseFloatError),
+    #[error("parse float error at {at}: {source}")]
+    ParseFloatError {
+        source: std::num::ParseFloatError,
+        at: Position,
+    },
 
-    #[error("parse int error")]
-    ParseIntError(#[from] std::num::ParseIntError),
+    #[error("parse int error at {at}: {source}")]
+    ParseIntError {
+        source: std::num::ParseIntError,
+        at: Position,
+    },
 
-    #[error("io error encountered during parsing: {0}")]
-    IOError(#[from] std::io::Error),
+    #[error("io error encountered during parsing at {at}: {source}")]
+    IOError {
+        source: std::io::Error,
+        at: Position,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,7 +98,7 @@ pub enum Sexp {
 
 pub struct Parser<R: Read> {
     reader: BufReader<R>,
-    pos: usize,
+    pos: Position,
     list_depth: usize,
     sexp_nil: Rc<Sexp>,
     idents: HashSet<Rc<str>>,
@@ -61,7 +114,7 @@ where
     pub fn new(r: R) -> Self {
         Self {
             reader: BufReader::new(r),
-            pos: 0,
+            pos: Position::new(),
             sexp_nil: Rc::new(Sexp::Unit),
             idents: HashSet::new(),
             list_depth: 0,
@@ -75,6 +128,15 @@ where
 
     pub fn idents(&self) -> &HashSet<Rc<str>> {
         &self.idents
+    }
+
+    /// Current parser position — points at the next byte to be consumed.
+    pub fn position(&self) -> Position {
+        self.at()
+    }
+
+    fn at(&self) -> Position {
+        self.pos
     }
 
     /// Parses the contents of a list after the opening `(` has been consumed,
@@ -132,12 +194,17 @@ where
         let mut buf = vec![self.read_byte()?]; // read the first byte in case it's `-`
         self.read_while(&mut buf, |b| b.is_ascii_digit() || *b == b'.')?;
 
-        let s = str::from_utf8(&buf)?;
+        let at = self.at();
+        let s = str::from_utf8(&buf).map_err(|e| ParseError::UTF8Error { source: e, at })?;
         if s.contains('.') {
-            let n: f64 = s.parse()?;
+            let n: f64 = s
+                .parse()
+                .map_err(|e| ParseError::ParseFloatError { source: e, at })?;
             Ok(Atomic::Float(n))
         } else {
-            let n: i64 = s.parse()?;
+            let n: i64 = s
+                .parse()
+                .map_err(|e| ParseError::ParseIntError { source: e, at })?;
             Ok(Atomic::Int(n))
         }
     }
@@ -147,7 +214,8 @@ where
         let n = self.read_while(&mut buf, |b| !IDENT_SEPARATORS.contains(b))?;
         assert!(n > 0);
 
-        let s = str::from_utf8(&buf)?;
+        let at = self.at();
+        let s = str::from_utf8(&buf).map_err(|e| ParseError::UTF8Error { source: e, at })?;
         match self.idents.get(s) {
             Some(ident) => Ok(Atomic::Ident(ident.clone())),
             None => {
@@ -168,17 +236,25 @@ where
         let n = self.read_until(&mut buf, b'"')?;
         if buf.last() != Some(&b'"') {
             // read_until hit EOF before finding the closing quote.
-            return Err(ParseError::IOError(
-                std::io::ErrorKind::UnexpectedEof.into(),
-            ));
+            return Err(ParseError::IOError {
+                source: std::io::ErrorKind::UnexpectedEof.into(),
+                at: self.at(),
+            });
         }
-        let buf = &buf[0..n - 1]; // skip closing `"`
-        let s = str::from_utf8(buf)?.into();
+        let inner = &buf[0..n - 1]; // skip closing `"`
+        let at = self.at();
+        let s: Rc<str> = str::from_utf8(inner)
+            .map_err(|e| ParseError::UTF8Error { source: e, at })?
+            .into();
         Ok(Atomic::Str(s))
     }
 
     fn peek_one(&mut self) -> Result<u8, ParseError> {
-        let avail = self.reader.fill_buf()?;
+        let at = self.at();
+        let avail = match self.reader.fill_buf() {
+            Ok(a) => a,
+            Err(e) => return Err(ParseError::IOError { source: e, at }),
+        };
         if avail.is_empty() {
             return Err(self.eof_err());
         }
@@ -191,7 +267,11 @@ where
     /// than `buf.len()`, fills the prefix and leaves the rest of `buf`
     /// untouched.
     fn peek_many(&mut self, buf: &mut [u8]) -> Result<(), ParseError> {
-        let avail = self.reader.fill_buf()?;
+        let at = self.at();
+        let avail = match self.reader.fill_buf() {
+            Ok(a) => a,
+            Err(e) => return Err(ParseError::IOError { source: e, at }),
+        };
         if avail.is_empty() {
             return Err(self.eof_err());
         }
@@ -202,21 +282,34 @@ where
 
     fn eof_err(&self) -> ParseError {
         if self.list_depth > 0 {
-            ParseError::MissingCloseBrace { pos: self.pos }
+            ParseError::MissingCloseBrace { at: self.at() }
         } else {
-            ParseError::IOError(std::io::ErrorKind::UnexpectedEof.into())
+            ParseError::IOError {
+                source: std::io::ErrorKind::UnexpectedEof.into(),
+                at: self.at(),
+            }
         }
     }
 
     fn read_until(&mut self, buf: &mut Vec<u8>, byte: u8) -> Result<usize, ParseError> {
-        let n = self.reader.read_until(byte, buf)?;
-        self.pos += n;
+        let start = buf.len();
+        let at = self.at();
+        let n = match self.reader.read_until(byte, buf) {
+            Ok(n) => n,
+            Err(e) => return Err(ParseError::IOError { source: e, at }),
+        };
+        self.advance(&buf[start..]);
         Ok(n)
     }
+
     fn read_byte(&mut self) -> Result<u8, ParseError> {
         let mut buf = [0u8; 1];
-        self.reader.read_exact(&mut buf)?;
-        self.pos += 1;
+        let at = self.at();
+        if let Err(e) = self.reader.read_exact(&mut buf) {
+            return Err(ParseError::IOError { source: e, at });
+        }
+        // `at` snapshots the position of the byte we just read; advance afterwards.
+        self.advance(&buf);
 
         match buf[0] {
             b'(' => {
@@ -225,7 +318,7 @@ where
             b')' => {
                 self.list_depth
                     .checked_sub(1)
-                    .ok_or(ParseError::UnexpectedCloseBrace { pos: self.pos - 1 })?;
+                    .ok_or(ParseError::UnexpectedCloseBrace { at })?;
             }
             _ => {}
         }
@@ -234,92 +327,71 @@ where
     }
 
     fn skip_open(&mut self) -> Result<(), ParseError> {
+        let at = self.at();
         if self.read_byte()? != b'(' {
-            Err(ParseError::MissingOpenBrace { pos: self.pos - 1 })
+            Err(ParseError::MissingOpenBrace { at })
         } else {
             Ok(())
         }
     }
 
+    /// Updates `pos`, `line`, `col` to reflect having consumed `bytes`.
+    /// `\n` increments `line` and resets `col` to 1; every other byte
+    /// increments `col` by 1.
+    fn advance(&mut self, bytes: &[u8]) {
+        self.pos.advance(bytes);
+    }
+
     fn read_while<P: FnMut(&u8) -> bool>(
         &mut self,
         buf: &mut Vec<u8>,
-        p: P,
+        mut p: P,
     ) -> Result<usize, ParseError> {
-        let n = read_while(&mut self.reader, buf, p)?;
-        self.pos += n;
-        Ok(n)
+        let start = buf.len();
+        let mut read = 0;
+        loop {
+            let (used, total) = {
+                let available = match self.reader.fill_buf() {
+                    Ok(b) => b,
+                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => {
+                        return Err(ParseError::IOError {
+                            source: e,
+                            at: self.at(),
+                        });
+                    }
+                };
+                if available.is_empty() {
+                    break;
+                }
+                let used = available.iter().take_while(|b| p(b)).count();
+                buf.extend_from_slice(&available[..used]);
+                (used, available.len())
+            };
+            self.reader.consume(used);
+            read += used;
+            if used < total {
+                break;
+            }
+        }
+        self.advance(&buf[start..]);
+        Ok(read)
     }
 
     fn skip_whitespace(&mut self) -> Result<(), ParseError> {
-        match skip_while(&mut self.reader, |p| WHITESPACE.contains(p)) {
-            Ok(n) => {
-                self.pos += n;
-                Ok(())
-            }
+        let mut throwaway = Vec::new();
+        match self.read_while(&mut throwaway, |b| WHITESPACE.contains(b)) {
+            Ok(_) => Ok(()),
             Err(_) => {
                 if self.list_depth > 0 {
-                    Err(ParseError::UnexpectedCloseBrace { pos: self.pos })
+                    Err(ParseError::UnexpectedCloseBrace { at: self.at() })
                 } else {
-                    Err(ParseError::IOError(
-                        std::io::ErrorKind::UnexpectedEof.into(),
-                    ))
+                    Err(ParseError::IOError {
+                        source: std::io::ErrorKind::UnexpectedEof.into(),
+                        at: self.at(),
+                    })
                 }
             }
-        }
-    }
-}
-
-fn skip_while<R: BufRead + ?Sized, P: FnMut(&u8) -> bool>(
-    r: &mut R,
-    mut p: P,
-) -> std::io::Result<usize> {
-    let mut read = 0;
-    loop {
-        let (used, total) = {
-            let available = match r.fill_buf() {
-                Ok(n) => n,
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
-            };
-            if available.is_empty() {
-                return Ok(read); // EOF
-            }
-            let used = available.iter().take_while(|b| p(b)).count();
-            (used, available.len())
-        };
-        r.consume(used);
-        read += used;
-        if used < total {
-            return Ok(read);
-        }
-    }
-}
-
-fn read_while<R: BufRead + ?Sized, P: FnMut(&u8) -> bool>(
-    r: &mut R,
-    buf: &mut Vec<u8>,
-    mut p: P,
-) -> std::io::Result<usize> {
-    let mut read = 0;
-    loop {
-        let (used, total) = {
-            let available = match r.fill_buf() {
-                Ok(n) => n,
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
-            };
-            if available.is_empty() {
-                return Ok(read); // EOF
-            }
-            let used = available.iter().take_while(|b| p(b)).count();
-            buf.extend_from_slice(&available[..used]);
-            (used, available.len())
-        };
-        r.consume(used);
-        read += used;
-        if used < total {
-            return Ok(read);
         }
     }
 }
@@ -555,7 +627,11 @@ mod tests {
     fn int_overflow_is_error() {
         // i64::MAX + 1
         let err = parse_str("(9223372036854775808)").unwrap_err();
-        assert!(matches!(err, ParseError::ParseIntError(_)), "got {:?}", err);
+        assert!(
+            matches!(err, ParseError::ParseIntError { .. }),
+            "got {:?}",
+            err
+        );
     }
 
     #[test]
@@ -563,7 +639,7 @@ mod tests {
         // Two dots: read_while collects "1.2.3", parse::<f64>() fails.
         let err = parse_str("(1.2.3)").unwrap_err();
         assert!(
-            matches!(err, ParseError::ParseFloatError(_)),
+            matches!(err, ParseError::ParseFloatError { .. }),
             "got {:?}",
             err
         );
@@ -613,7 +689,7 @@ mod tests {
     fn empty_input_is_error() {
         let err = parse_str("").unwrap_err();
         // skip_whitespace -> skip_open -> read_byte -> UnexpectedEof
-        assert!(matches!(err, ParseError::IOError(_)), "got {:?}", err);
+        assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
     }
 
     #[test]
@@ -629,7 +705,7 @@ mod tests {
     #[test]
     fn unterminated_string_then_eof_errors() {
         let err = parse_str(r#"("abc"#).unwrap_err();
-        assert!(matches!(err, ParseError::IOError(_)), "got {:?}", err);
+        assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
     }
 
     // ----- pos tracking on error -----
@@ -638,19 +714,94 @@ mod tests {
     fn missing_open_brace_reports_position() {
         let err = parse_str("x").unwrap_err();
         match err {
-            ParseError::MissingOpenBrace { pos } => assert_eq!(pos, 0),
+            ParseError::MissingOpenBrace { at } => {
+                assert_eq!(at.byte, 0);
+                assert_eq!(at.line, 1);
+                assert_eq!(at.col, 1);
+            }
             other => panic!("expected MissingOpenBrace, got {:?}", other),
         }
     }
 
     #[test]
     fn missing_open_brace_position_accounts_for_skipped_whitespace() {
-        // skip_whitespace consumes three spaces (pos = 3), then read_byte
-        // reads 'x' (pos = 4), then skip_open reports pos - 1 = 3.
+        // skip_whitespace consumes three spaces (byte = 3), then skip_open
+        // snapshots position before reading 'x'.
         let err = parse_str("   x").unwrap_err();
         match err {
-            ParseError::MissingOpenBrace { pos } => assert_eq!(pos, 3),
+            ParseError::MissingOpenBrace { at } => {
+                assert_eq!(at.byte, 3);
+                assert_eq!(at.line, 1);
+                assert_eq!(at.col, 4);
+            }
             other => panic!("expected MissingOpenBrace, got {:?}", other),
+        }
+    }
+
+    // ----- line/column tracking -----
+
+    #[test]
+    fn position_tracks_lines_after_newlines() {
+        // After parsing "(a\nb)" the parser sits just past ')':
+        // byte=5, line=2, col=3
+        let mut p = Parser::new("(a\nb)".as_bytes());
+        p.parse().unwrap();
+        let pos = p.position();
+        assert_eq!(pos.byte, 5);
+        assert_eq!(pos.line, 2);
+        assert_eq!(pos.col, 3);
+    }
+
+    #[test]
+    fn missing_open_brace_reports_line_and_col() {
+        // Two newlines, two spaces, then 'x' — 'x' is at line 3, col 3.
+        let err = parse_str("\n\n  x").unwrap_err();
+        match err {
+            ParseError::MissingOpenBrace { at } => {
+                assert_eq!(at.byte, 4);
+                assert_eq!(at.line, 3);
+                assert_eq!(at.col, 3);
+            }
+            other => panic!("expected MissingOpenBrace, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn unexpected_close_brace_reports_line_and_col() {
+        // Newline then ')' at top-level — ')' is at line 2, col 1.
+        let err = parse_str("\n)").unwrap_err();
+        match err {
+            ParseError::UnexpectedCloseBrace { at } => {
+                assert_eq!(at.byte, 1);
+                assert_eq!(at.line, 2);
+                assert_eq!(at.col, 1);
+            }
+            other => panic!("expected UnexpectedCloseBrace, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn missing_close_brace_reports_line_and_col() {
+        // Unterminated list across two lines — EOF reached at line 2, col 3.
+        let err = parse_str("(1\n2").unwrap_err();
+        match err {
+            ParseError::MissingCloseBrace { at } => {
+                assert_eq!(at.line, 2);
+                assert_eq!(at.col, 2);
+            }
+            other => panic!("expected MissingCloseBrace, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_int_error_reports_line_and_col() {
+        // Overflow on line 2.
+        let err = parse_str("(\n9223372036854775808)").unwrap_err();
+        match err {
+            ParseError::ParseIntError { at, .. } => {
+                assert_eq!(at.line, 2);
+            }
+            other => panic!("expected ParseIntError, got {:?}", other),
         }
     }
 
