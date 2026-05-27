@@ -11,4 +11,7 @@ pub enum EvaluatorError {
 
     #[error("arity mismatch, expected:{expected} got: {got}")]
     ArityMismatch { expected: usize, got: usize },
+
+    #[error("type mismatch, expected:{expected} got: {got}")]
+    TypeMismatch { expected: Rc<str>, got: Rc<str> },
 }
