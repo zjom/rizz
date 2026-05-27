@@ -11,6 +11,12 @@ pub fn parse_and_run<R: Read>(r: R) -> Result<Rc<Value>, RispError> {
     Ok(evaluator::eval(Rc::new(form), &Env::new())?)
 }
 
+pub fn parse_and_run_with_env<R: Read>(r: R, env: &Env) -> Result<Rc<Value>, RispError> {
+    let sexp = parser::Parser::new(r).parse()?;
+    let form: Value = sexp.into();
+    Ok(evaluator::eval(Rc::new(form), env)?)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RispError {
     #[error(transparent)]
