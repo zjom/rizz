@@ -100,7 +100,6 @@ pub struct Parser<R: Read> {
     reader: BufReader<R>,
     pos: Position,
     list_depth: usize,
-    sexp_nil: Rc<Sexp>,
     idents: HashSet<Rc<str>>,
 }
 
@@ -115,7 +114,6 @@ where
         Self {
             reader: BufReader::new(r),
             pos: Position::new(),
-            sexp_nil: Rc::new(Sexp::Unit),
             idents: HashSet::new(),
             list_depth: 0,
         }
@@ -157,23 +155,26 @@ where
         // Tail is either another list element (implicit cons) or `)` (nil terminator).
         let tail = if self.peek_one()? == b')' {
             self.read_byte()?;
-            self.sexp_nil.clone()
+            Sexp::Unit
         } else {
-            Rc::new(self.parse_list_tail()?)
+            self.parse_list_tail()?
         };
 
-        Ok(Sexp::Exp { head, tail })
+        Ok(Sexp::Exp {
+            head: Rc::new(head),
+            tail: Rc::new(tail),
+        })
     }
-    fn parse_expr(&mut self) -> Result<Rc<Sexp>, ParseError> {
+    fn parse_expr(&mut self) -> Result<Sexp, ParseError> {
         self.skip_whitespace()?;
         let sexp = match self.peek_one()? {
             b'(' => {
                 self.read_byte()?; // consume '('
-                Rc::new(self.parse_list_tail()?)
+                self.parse_list_tail()?
             }
             _ => {
                 let t = self.parse_atom()?;
-                Rc::new(Sexp::Atom(t))
+                Sexp::Atom(t)
             }
         };
         Ok(sexp)
