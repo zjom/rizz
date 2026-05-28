@@ -1,11 +1,11 @@
 //! End-to-end tests: source text -> parse -> eval -> value, through the public
 //! `parse_and_run` API. Emphasis on nested forms.
 
-use lirsp::evaluator::Value;
+use risp::evaluator::Value;
 use std::rc::Rc;
 
 fn run(src: &str) -> Rc<Value> {
-    lirsp::parse_and_run(src.as_bytes())
+    risp::parse_and_run(src.as_bytes())
         .map(|(v, _)| v)
         .unwrap_or_else(|e| panic!("eval of `{src}` failed: {e}"))
 }
@@ -50,7 +50,10 @@ fn comparisons_over_computed_operands() {
 fn nested_if_selects_correct_branch() {
     assert_eq!(*run("(if (< 1 2) (+ 10 20) (- 0 1))"), Value::Int(30));
     assert_eq!(*run("(if (> 1 2) (+ 10 20) (* 6 7))"), Value::Int(42));
-    assert_eq!(*run("(if (< 1 2) (if (> 5 3) 100 200) 300)"), Value::Int(100));
+    assert_eq!(
+        *run("(if (< 1 2) (if (> 5 3) 100 200) 300)"),
+        Value::Int(100)
+    );
     assert_eq!(*run("(if (> 1 2) 999 (if (< 5 3) 200 42))"), Value::Int(42));
 }
 
@@ -82,7 +85,10 @@ fn callee_bindings_do_not_leak_to_caller() {
     // The inner call binds its own `n` = 99; evaluating it as the first argument
     // must not change the outer `n` = 7 seen by the second argument.
     // Expected (+ 99 7) = 106; a leaking env would yield (+ 99 99) = 198.
-    assert_eq!(*run("((fn f (n) (+ ((fn g (n) n) 99) n)) 7)"), Value::Int(106));
+    assert_eq!(
+        *run("((fn f (n) (+ ((fn g (n) n) 99) n)) 7)"),
+        Value::Int(106)
+    );
 }
 
 #[test]
@@ -148,10 +154,10 @@ fn combined_nested_program() {
 
 #[test]
 fn unknown_identifier_in_nested_form_is_error() {
-    assert!(lirsp::parse_and_run("(+ 1 (* 2 nope))".as_bytes()).is_err());
+    assert!(risp::parse_and_run("(+ 1 (* 2 nope))".as_bytes()).is_err());
 }
 
 #[test]
 fn division_by_zero_in_nested_form_is_error() {
-    assert!(lirsp::parse_and_run("(/ (+ 5 5) (- 3 3))".as_bytes()).is_err());
+    assert!(risp::parse_and_run("(/ (+ 5 5) (- 3 3))".as_bytes()).is_err());
 }
