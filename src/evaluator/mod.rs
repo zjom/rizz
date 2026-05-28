@@ -1,7 +1,9 @@
+mod env;
 mod error;
 mod eval;
-mod types;
+mod value;
 
+pub use env::*;
 pub use error::*;
 pub use eval::*;
-pub use types::*;
+pub use value::*;

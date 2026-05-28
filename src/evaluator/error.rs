@@ -9,9 +9,17 @@ pub enum EvaluatorError {
     #[error("cannot call {:?}", value)]
     NotCallable { value: Rc<Value> },
 
-    #[error("arity mismatch, expected:{expected} got: {got}")]
-    ArityMismatch { expected: usize, got: usize },
+    #[error("{name} failed due to arity mismatch, expected:{expected} got: {got}")]
+    ArityMismatch {
+        name: Rc<str>,
+        expected: usize,
+        got: usize,
+    },
 
-    #[error("type mismatch, expected:{expected} got: {got}")]
-    TypeMismatch { expected: Rc<str>, got: Rc<str> },
+    #[error("{name} failed due to type mismatch, expected:{expected} got: {got}")]
+    TypeMismatch {
+        name: Rc<str>,
+        expected: Rc<str>,
+        got: Rc<str>,
+    },
 }
