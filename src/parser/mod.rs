@@ -14,6 +14,8 @@ mod error;
 mod position;
 
 pub use error::*;
+use im::{HashMap, Vector};
+use ordered_float::OrderedFloat;
 use position::Position;
 use std::{
     collections::HashSet,
@@ -23,21 +25,28 @@ use std::{
 use std::rc::Rc;
 
 /// A leaf token: a string literal, integer, float, or identifier.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Atomic {
     Str(Rc<str>),
     Int(i64),
-    Float(f64),
+    Float(OrderedFloat<f64>),
     Ident(Rc<str>),
 }
 
 /// A parsed s-expression. Lists are cons chains of `Exp { head, tail }` ending
 /// in `Unit`, which also stands for the empty list `()` (nil).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Sexp {
     Unit,
     Atom(Atomic),
     Exp { head: Rc<Sexp>, tail: Rc<Sexp> },
+    Collection(Collection),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Collection {
+    Array(Vector<Rc<Sexp>>),
+    Map(HashMap<Rc<Sexp>, Rc<Sexp>>),
 }
 
 /// A streaming recursive-descent parser over any [`Read`] source.
@@ -126,6 +135,10 @@ where
                 self.read_byte()?; // consume '('
                 self.parse_list_tail()?
             }
+            b'[' | b'{' => {
+                let xs = self.parse_collection()?;
+                Sexp::Collection(xs)
+            }
             _ => {
                 let t = self.parse_atom()?;
                 Sexp::Atom(t)
@@ -134,13 +147,20 @@ where
         Ok(sexp)
     }
 
+    fn parse_collection(&mut self) -> Result<Collection, ParseError> {
+        match self.peek_one()? {
+            b'[' => self.parse_array(),
+            b'{' => self.parse_map(),
+            _ => unreachable!(),
+        }
+    }
+
     fn parse_atom(&mut self) -> Result<Atomic, ParseError> {
         let mut buf = [0u8; 2];
         self.peek_many(&mut buf)?;
         match buf {
             [b'"', _] => self.parse_str(),
             [b'0'..=b'9', _] | [b'-', b'0'..=b'9'] => self.parse_number(),
-
             _ => self.parse_ident(),
         }
     }
@@ -155,7 +175,7 @@ where
             let n: f64 = s
                 .parse()
                 .map_err(|e| ParseError::ParseFloatError { source: e, at })?;
-            Ok(Atomic::Float(n))
+            Ok(Atomic::Float(n.into()))
         } else {
             let n: i64 = s
                 .parse()
@@ -181,8 +201,8 @@ where
         }
     }
 
-    // parses double quoted str including the opening `"` and closing `"`
-    // panics if first byte isn't `"`
+    /// parses double quoted str including the opening `"` and closing `"`
+    /// panics if first byte isn't `"`
     fn parse_str(&mut self) -> Result<Atomic, ParseError> {
         let b = self.read_byte()?;
         assert_eq!(b, b'"');
@@ -202,6 +222,76 @@ where
             .map_err(|e| ParseError::UTF8Error { source: e, at })?
             .into();
         Ok(Atomic::Str(s))
+    }
+
+    /// parses map including the opening `{` and closing `}`
+    /// panics if first byte isn't `{`
+    fn parse_map(&mut self) -> Result<Collection, ParseError> {
+        assert_eq!(b'{', self.read_byte()?);
+        self.parse_map_inner(HashMap::new())
+    }
+
+    /// parse map accumulating helper
+    /// first byte must NOT be `{` or `,`
+    /// consumes closing `}`
+    fn parse_map_inner(
+        &mut self,
+        acc: HashMap<Rc<Sexp>, Rc<Sexp>>,
+    ) -> Result<Collection, ParseError> {
+        let k = self.parse_expr()?;
+        self.skip_whitespace()?;
+
+        match self.read_byte()? {
+            b':' => {}
+            other => {
+                return Err(ParseError::ExpectedToken {
+                    expected: ':',
+                    at: self.at(),
+                    got: other.into(),
+                });
+            }
+        }
+
+        let v = self.parse_expr()?;
+        self.skip_whitespace()?;
+
+        let acc = acc.update(Rc::new(k), Rc::new(v));
+
+        match self.read_byte()? {
+            b'}' => Ok(Collection::Map(acc)),
+            b',' => self.parse_map_inner(acc),
+            other => Err(ParseError::ExpectedCommaOrToken {
+                expected: '}',
+                at: self.at(),
+                got: other.into(),
+            }),
+        }
+    }
+
+    /// parses array including the opening `[` and closing `]`
+    /// panics if first byte isn't `[`
+    fn parse_array(&mut self) -> Result<Collection, ParseError> {
+        assert_eq!(b'[', self.read_byte()?);
+        self.parse_array_inner(vec![])
+    }
+
+    /// parse array accumulating helper
+    /// first byte must NOT be `[` or `,`
+    /// consumes closing `]`
+    fn parse_array_inner(&mut self, mut acc: Vec<Rc<Sexp>>) -> Result<Collection, ParseError> {
+        let expr = self.parse_expr()?;
+        acc.push(Rc::new(expr));
+        self.skip_whitespace()?;
+
+        match self.read_byte()? {
+            b']' => Ok(Collection::Array(acc.into())),
+            b',' => self.parse_array_inner(acc),
+            other => Err(ParseError::ExpectedCommaOrToken {
+                expected: ']',
+                at: self.at(),
+                got: other.into(),
+            }),
+        }
     }
 
     fn peek_one(&mut self) -> Result<u8, ParseError> {
@@ -237,7 +327,11 @@ where
 
     fn eof_err(&self) -> ParseError {
         if self.list_depth > 0 {
-            ParseError::MissingCloseBrace { at: self.at() }
+            ParseError::ExpectedToken {
+                expected: ')',
+                at: self.at(),
+                got: '\0',
+            }
         } else {
             ParseError::IOError {
                 source: std::io::ErrorKind::UnexpectedEof.into(),
@@ -274,7 +368,7 @@ where
                 self.list_depth = self
                     .list_depth
                     .checked_sub(1)
-                    .ok_or(ParseError::UnexpectedCloseBrace { at })?;
+                    .ok_or(ParseError::UnexpectedCloseParen { at })?;
             }
             _ => {}
         }
@@ -284,10 +378,13 @@ where
 
     fn skip_open(&mut self) -> Result<(), ParseError> {
         let at = self.at();
-        if self.read_byte()? != b'(' {
-            Err(ParseError::MissingOpenBrace { at })
-        } else {
-            Ok(())
+        match self.read_byte()? {
+            b'(' => Ok(()),
+            other => Err(ParseError::ExpectedToken {
+                expected: '(',
+                at,
+                got: other.into(),
+            }),
         }
     }
 
@@ -340,7 +437,7 @@ where
             Ok(_) => Ok(()),
             Err(_) => {
                 if self.list_depth > 0 {
-                    Err(ParseError::UnexpectedCloseBrace { at: self.at() })
+                    Err(ParseError::UnexpectedCloseParen { at: self.at() })
                 } else {
                     Err(ParseError::IOError {
                         source: std::io::ErrorKind::UnexpectedEof.into(),
@@ -354,6 +451,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
 
     // ----- helpers -----
@@ -383,13 +482,21 @@ mod tests {
         Sexp::Atom(Atomic::Int(n))
     }
     fn float(f: f64) -> Sexp {
-        Sexp::Atom(Atomic::Float(f))
+        Sexp::Atom(Atomic::Float(f.into()))
     }
     fn ident(s: &str) -> Sexp {
         Sexp::Atom(Atomic::Ident(s.into()))
     }
     fn string(s: &str) -> Sexp {
         Sexp::Atom(Atomic::Str(s.into()))
+    }
+
+    fn map(m: HashMap<Rc<Sexp>, Rc<Sexp>>) -> Sexp {
+        Sexp::Collection(Collection::Map(m))
+    }
+
+    fn array(m: &[Rc<Sexp>]) -> Sexp {
+        Sexp::Collection(Collection::Array(m.into()))
     }
 
     // ----- empty / trivial -----
@@ -601,6 +708,27 @@ mod tests {
         );
     }
 
+    // ----- collections -----
+    #[test]
+    fn map_of_ints() {
+        let mut m = HashMap::new();
+        m.insert(Rc::new(int(1)), Rc::new(int(1)));
+        m.insert(Rc::new(int(2)), Rc::new(int(5)));
+        assert_eq!(parse_ok("({1:1, 2: 5})"), list(vec![map(m)]));
+    }
+
+    #[test]
+    fn array_of_ints() {
+        let elems = [Rc::new(int(1)), Rc::new(int(2)), Rc::new(int(3))];
+        assert_eq!(parse_ok("([1, 2, 3])"), list(vec![array(&elems)]));
+    }
+
+    #[test]
+    fn single_element_array() {
+        let elems = [Rc::new(int(42))];
+        assert_eq!(parse_ok("([42])"), list(vec![array(&elems)]));
+    }
+
     // ----- identifiers: lexer boundaries -----
 
     #[test]
@@ -635,7 +763,7 @@ mod tests {
     fn missing_open_paren_is_error() {
         let err = parse_str("foo)").unwrap_err();
         assert!(
-            matches!(err, ParseError::MissingOpenBrace { .. }),
+            matches!(err, ParseError::ExpectedToken { expected: '(', .. }),
             "got {:?}",
             err
         );
@@ -652,7 +780,7 @@ mod tests {
     fn unterminated_list_is_missing_close_brace_error() {
         let err = parse_str("(1 2").unwrap_err();
         assert!(
-            matches!(err, ParseError::MissingCloseBrace { .. }),
+            matches!(err, ParseError::ExpectedToken { expected: ')', .. }),
             "got {:?}",
             err
         );
@@ -670,7 +798,7 @@ mod tests {
     fn missing_open_brace_reports_position() {
         let err = parse_str("x").unwrap_err();
         match err {
-            ParseError::MissingOpenBrace { at } => {
+            ParseError::ExpectedToken { at, .. } => {
                 assert_eq!(at.byte, 0);
                 assert_eq!(at.line, 1);
                 assert_eq!(at.col, 1);
@@ -685,7 +813,7 @@ mod tests {
         // snapshots position before reading 'x'.
         let err = parse_str("   x").unwrap_err();
         match err {
-            ParseError::MissingOpenBrace { at } => {
+            ParseError::ExpectedToken { at, .. } => {
                 assert_eq!(at.byte, 3);
                 assert_eq!(at.line, 1);
                 assert_eq!(at.col, 4);
@@ -713,7 +841,7 @@ mod tests {
         // Two newlines, two spaces, then 'x' — 'x' is at line 3, col 3.
         let err = parse_str("\n\n  x").unwrap_err();
         match err {
-            ParseError::MissingOpenBrace { at } => {
+            ParseError::ExpectedToken { at, .. } => {
                 assert_eq!(at.byte, 4);
                 assert_eq!(at.line, 3);
                 assert_eq!(at.col, 3);
@@ -727,7 +855,7 @@ mod tests {
         // Newline then ')' at top-level — ')' is at line 2, col 1.
         let err = parse_str("\n)").unwrap_err();
         match err {
-            ParseError::UnexpectedCloseBrace { at } => {
+            ParseError::UnexpectedCloseParen { at } => {
                 assert_eq!(at.byte, 1);
                 assert_eq!(at.line, 2);
                 assert_eq!(at.col, 1);
@@ -741,7 +869,7 @@ mod tests {
         // Unterminated list across two lines — EOF reached at line 2, col 3.
         let err = parse_str("(1\n2").unwrap_err();
         match err {
-            ParseError::MissingCloseBrace { at } => {
+            ParseError::ExpectedToken { at, .. } => {
                 assert_eq!(at.line, 2);
                 assert_eq!(at.col, 2);
             }

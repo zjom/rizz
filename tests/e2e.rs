@@ -32,7 +32,7 @@ fn deeply_nested_arithmetic() {
 
 #[test]
 fn nested_float_arithmetic() {
-    assert_eq!(*run("(* (+ 1.5 0.5) (- 4.0 1.0))"), Value::Float(6.0));
+    assert_eq!(*run("(* (+ 1.5 0.5) (- 4.0 1.0))"), Value::Float(6.0.into()));
 }
 
 // ----- nested comparisons -----
@@ -148,6 +148,41 @@ fn combined_nested_program() {
         *run("(if (= (+ 1 1) 2) ((fn sq (x) (* x x)) (+ 2 1)) 0)"),
         Value::Int(9)
     );
+}
+
+// ----- collections -----
+
+#[test]
+fn array_literal_evaluates_elements() {
+    // Bound via `let` so the array is not in head (call) position; `let`
+    // returns the value it bound.
+    let v = run("(let xs [1, (+ 1 2), 4])");
+    match &*v {
+        Value::Array(xs) => {
+            assert_eq!(xs.len(), 3);
+            assert_eq!(xs[0], Value::Int(1));
+            assert_eq!(xs[1], Value::Int(3));
+            assert_eq!(xs[2], Value::Int(4));
+        }
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
+#[test]
+fn map_literal_evaluates_values() {
+    let v = run("(let m {1: (+ 2 3)})");
+    match &*v {
+        Value::Map(m) => {
+            assert_eq!(m.len(), 1);
+            assert_eq!(m.get(&Value::Int(1)), Some(&Value::Int(5)));
+        }
+        other => panic!("expected map, got {other:?}"),
+    }
+}
+
+#[test]
+fn array_in_head_position_is_not_callable() {
+    assert!(risp::parse_and_run("([1, 2, 3])".as_bytes()).is_err());
 }
 
 // ----- errors surface (not panics) through nested forms -----

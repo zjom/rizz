@@ -1,8 +1,15 @@
-use std::{fmt::Debug, rc::Rc};
+use std::{
+    fmt::Debug,
+    hash::{Hash, Hasher},
+    rc::Rc,
+};
+
+use im::{HashMap, Vector};
+use ordered_float::OrderedFloat;
 
 use crate::{
     Env,
-    parser::{Atomic, Sexp},
+    parser::{Atomic, Collection, Sexp},
     runtime::RuntimeError,
 };
 
@@ -15,20 +22,25 @@ use crate::{
 /// (possibly updated) environment.
 pub type BuiltinFn = Rc<dyn Fn(&[Rc<Value>], &Env) -> Result<(Rc<Value>, Env), RuntimeError>>;
 
-/// A runtime value. The first five variants are data (and double as the AST
-/// the runtime walks); the last two are the two kinds of callable.
+/// A runtime value. Most variants are data (and double as the AST the runtime
+/// walks); `BuiltinFn` and `Closure` are the two kinds of callable.
 ///
 /// Lists are `Cons` chains terminated by `Unit`, mirroring [`crate::parser::Sexp`].
+/// `Array` and `Map` mirror [`crate::parser::Collection`]. Floats are wrapped in
+/// [`OrderedFloat`] so that `Value` can be `Hash + Eq` and thus serve as a `Map`
+/// key.
 #[derive(Clone)]
 pub enum Value {
     Str(Rc<str>),
     Int(i64),
-    Float(f64),
+    Float(OrderedFloat<f64>),
     Ident(Rc<str>),
     Unit,
     Cons { head: Rc<Value>, tail: Rc<Value> },
     BuiltinFn(BuiltinFn),
     Closure(Rc<Closure>),
+    Array(Rc<Vector<Value>>),
+    Map(Rc<HashMap<Value, Value>>),
 }
 
 /// A user-defined function: its `name`, parameter names, body form, and the
@@ -64,6 +76,8 @@ impl Value {
             Self::Cons { .. } => "cons",
             Self::BuiltinFn(_) => "builtin",
             Self::Closure(_) => "closure",
+            Self::Array(_) => "array",
+            Self::Map(_) => "map",
         }
     }
 
@@ -75,12 +89,14 @@ impl Value {
         match self {
             Self::Str(s) => !s.is_empty(),
             Self::Int(n) => *n != 0,
-            Self::Float(n) => *n != 0.,
+            Self::Float(n) => n.0 != 0.,
             Self::Ident(s) => !s.is_empty(),
             Self::Unit => false,
             Self::BuiltinFn(_) => true,
             Self::Closure(_) => true,
             Self::Cons { .. } => true,
+            Self::Array(xs) => !xs.is_empty(),
+            Self::Map(m) => !m.is_empty(),
         }
     }
 
@@ -107,7 +123,7 @@ impl Value {
 
     pub fn as_float(&self) -> Option<f64> {
         match self {
-            Value::Float(n) => Some(*n),
+            Value::Float(n) => Some(n.0),
             _ => None,
         }
     }
@@ -135,10 +151,53 @@ impl PartialEq for Value {
             (Value::Cons { head: h1, tail: t1 }, Value::Cons { head: h2, tail: t2 }) => {
                 h1 == h2 && t1 == t2
             }
-            // Functions are not comparable
-            (Value::BuiltinFn(_), Value::BuiltinFn(_)) => false,
+            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Map(a), Value::Map(b)) => a == b,
+            // Builtins compare by identity: distinct builtins are never equal,
+            // but a builtin equals itself (required for `Eq` reflexivity, which
+            // in turn lets `Value` key a `Map`).
+            (Value::BuiltinFn(a), Value::BuiltinFn(b)) => Rc::ptr_eq(a, b),
             (Value::Closure(a), Value::Closure(b)) => a == b,
             _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Str(s) | Value::Ident(s) => s.hash(state),
+            Value::Int(n) => n.hash(state),
+            Value::Float(n) => n.hash(state),
+            Value::Unit => {}
+            Value::Cons { head, tail } => {
+                head.hash(state);
+                tail.hash(state);
+            }
+            Value::Array(xs) => {
+                for x in xs.iter() {
+                    x.hash(state);
+                }
+            }
+            // A map's iteration order is unspecified, so fold entries with a
+            // commutative (XOR) combiner to keep the hash order-independent.
+            Value::Map(m) => {
+                let mut acc: u64 = 0;
+                for (k, v) in m.iter() {
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    k.hash(&mut h);
+                    v.hash(&mut h);
+                    acc ^= h.finish();
+                }
+                acc.hash(state);
+            }
+            // Callables hash by discriminant only. Equal callables (same Rc, or
+            // structurally-equal closures) share that hash; collisions between
+            // distinct ones are allowed.
+            Value::BuiltinFn(_) | Value::Closure(_) => {}
         }
     }
 }
@@ -171,7 +230,7 @@ impl Numeric for f64 {
         v.as_float()
     }
     fn into_value(self) -> Value {
-        Value::Float(self)
+        Value::Float(OrderedFloat(self))
     }
     const TYPE_NAME: &'static str = "float";
 }
@@ -226,6 +285,46 @@ impl Debug for DepthLimited<'_> {
                         },
                     )
                 }
+            }
+            Value::Array(xs) => {
+                if self.depth == 0 {
+                    return write!(f, "<array ...>");
+                }
+                let next = self.depth - 1;
+                write!(f, "<array")?;
+                for x in xs.iter() {
+                    write!(
+                        f,
+                        " {:?}",
+                        DepthLimited {
+                            value: x,
+                            depth: next
+                        }
+                    )?;
+                }
+                write!(f, ">")
+            }
+            Value::Map(m) => {
+                if self.depth == 0 {
+                    return write!(f, "<map ...>");
+                }
+                let next = self.depth - 1;
+                write!(f, "<map")?;
+                for (k, v) in m.iter() {
+                    write!(
+                        f,
+                        " {:?}:{:?}",
+                        DepthLimited {
+                            value: k,
+                            depth: next
+                        },
+                        DepthLimited {
+                            value: v,
+                            depth: next
+                        }
+                    )?;
+                }
+                write!(f, ">")
             }
         }
     }
@@ -290,6 +389,7 @@ impl From<Sexp> for Value {
                 head: Rc::new(Value::from(head.clone())),
                 tail: Rc::new(Value::from(tail.clone())),
             },
+            Sexp::Collection(ref c) => collection_to_value(c),
         }
     }
 }
@@ -303,6 +403,7 @@ impl From<Rc<Sexp>> for Value {
                 head: Rc::new(Value::from(head.clone())),
                 tail: Rc::new(Value::from(tail.clone())),
             },
+            Sexp::Collection(ref c) => collection_to_value(c),
         }
     }
 }
@@ -316,6 +417,20 @@ fn atm_to_value(atm: &Atomic) -> Value {
     }
 }
 
+fn collection_to_value(c: &Collection) -> Value {
+    match c {
+        Collection::Array(xs) => {
+            Value::Array(Rc::new(xs.iter().map(|s| Value::from(s.clone())).collect()))
+        }
+        Collection::Map(m) => {
+            let entries = m
+                .iter()
+                .map(|(k, v)| (Value::from(k.clone()), Value::from(v.clone())));
+            Value::Map(Rc::new(entries.collect()))
+        }
+    }
+}
+
 impl From<i64> for Value {
     fn from(n: i64) -> Self {
         Value::Int(n)
@@ -324,7 +439,7 @@ impl From<i64> for Value {
 
 impl From<f64> for Value {
     fn from(n: f64) -> Self {
-        Value::Float(n)
+        Value::Float(OrderedFloat(n))
     }
 }
 

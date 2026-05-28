@@ -7,6 +7,7 @@
 //! as a special form; otherwise the list is a function application.
 
 use crate::runtime::{Closure, Env, RuntimeError, Value};
+use im::{HashMap, Vector};
 use std::rc::Rc;
 
 // Identifiers that, in head position, are special forms rather than calls.
@@ -81,12 +82,36 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                 | Value::Str(_)
                 | Value::Float(_)
                 | Value::Cons { .. }
+                | Value::Array(_)
+                | Value::Map(_)
                 | Value::Ident(_) => Err(RuntimeError::NotCallable { value: callable }),
             }
         }
         Value::Closure(closure) => {
             let (v, _) = eval_closure(&[], closure)?;
             Ok((v, ctx.clone()))
+        }
+        Value::Array(xs) => {
+            let mut ctx = ctx.clone();
+            let mut out = Vector::new();
+            for x in xs.iter() {
+                let (v, env) = eval(Rc::new(x.clone()), &ctx)?;
+                ctx = env;
+                out.push_back((*v).clone());
+            }
+            Ok((Rc::new(Value::Array(Rc::new(out))), ctx))
+        }
+        Value::Map(m) => {
+            let mut ctx = ctx.clone();
+            let mut out = HashMap::new();
+            for (k, v) in m.iter() {
+                let (kv, env) = eval(Rc::new(k.clone()), &ctx)?;
+                ctx = env;
+                let (vv, env) = eval(Rc::new(v.clone()), &ctx)?;
+                ctx = env;
+                out.insert((*kv).clone(), (*vv).clone());
+            }
+            Ok((Rc::new(Value::Map(Rc::new(out))), ctx))
         }
     }
 }
@@ -301,7 +326,7 @@ mod tests {
         Rc::new(Value::Int(n))
     }
     fn float(f: f64) -> Rc<Value> {
-        Rc::new(Value::Float(f))
+        Rc::new(Value::Float(f.into()))
     }
     fn string(s: &str) -> Rc<Value> {
         Rc::new(Value::Str(s.into()))
@@ -362,7 +387,7 @@ mod tests {
     #[test]
     fn float_self_evaluates() {
         let (v, _) = eval_ok(float(3.5), &Env::new());
-        assert_eq!(*v, Value::Float(3.5));
+        assert_eq!(*v, Value::Float(3.5.into()));
     }
 
     #[test]
@@ -911,5 +936,57 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    // ----- collections -----
+
+    fn array(elems: Vec<Rc<Value>>) -> Rc<Value> {
+        Rc::new(Value::Array(Rc::new(
+            elems.into_iter().map(|e| (*e).clone()).collect(),
+        )))
+    }
+
+    #[test]
+    fn array_evaluates_its_elements() {
+        let env = Env::new().update("plus".into(), add_builtin());
+        // [1, (plus 2 3)] -> [1, 5]
+        let call = list(vec![ident("plus"), int(2), int(3)]);
+        let (v, _) = eval_ok(array(vec![int(1), call]), &env);
+        match &*v {
+            Value::Array(xs) => {
+                assert_eq!(xs.len(), 2);
+                assert_eq!(xs[0], Value::Int(1));
+                assert_eq!(xs[1], Value::Int(5));
+            }
+            other => panic!("expected array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_evaluates_its_values() {
+        use im::HashMap;
+        let env = Env::new().update("plus".into(), add_builtin());
+        // {1: (plus 2 3)} -> {1: 5}
+        let call = list(vec![ident("plus"), int(2), int(3)]);
+        let mut m = HashMap::new();
+        m.insert((*int(1)).clone(), (*call).clone());
+        let (v, _) = eval_ok(Rc::new(Value::Map(Rc::new(m))), &env);
+        match &*v {
+            Value::Map(m) => {
+                assert_eq!(m.len(), 1);
+                assert_eq!(m.get(&Value::Int(1)), Some(&Value::Int(5)));
+            }
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn array_in_head_position_is_not_callable() {
+        let form = Rc::new(Value::Cons {
+            head: array(vec![int(1)]),
+            tail: unit(),
+        });
+        let err = eval_err(form, &Env::new());
+        assert!(matches!(err, RuntimeError::NotCallable { .. }));
     }
 }

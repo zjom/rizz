@@ -15,8 +15,8 @@ pub fn install(ctx: Env) -> Env {
 }
 
 /// `(= a b)`: structural equality, returning `1` if equal and `0` otherwise.
-/// Functions never compare equal (see [`Value`](crate::runtime::Value)'s
-/// `PartialEq`).
+/// Functions compare by identity — distinct functions are never equal, but a
+/// function equals itself (see [`Value`](crate::runtime::Value)'s `PartialEq`).
 fn eq() -> BuiltinFn {
     let name = "eq";
     Rc::new(move |args, env| {

@@ -5,18 +5,29 @@ use crate::parser::position::Position;
 /// and underlying I/O errors (including unexpected EOF).
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("expected open brace at {at}")]
-    MissingOpenBrace { at: Position },
-    #[error("expected close brace at {at}")]
-    MissingCloseBrace { at: Position },
-    #[error("unexpected close brace at {at}")]
-    UnexpectedCloseBrace { at: Position },
+    #[error("unexpected `)` at {at}")]
+    UnexpectedCloseParen { at: Position },
+
+    #[error("expected `{expected}` {at}, got: {got}")]
+    ExpectedToken {
+        expected: char,
+        at: Position,
+        got: char,
+    },
+
+    #[error("expected `,` or `{expected}` {at}, got: {got}")]
+    ExpectedCommaOrToken {
+        expected: char,
+        at: Position,
+        got: char,
+    },
 
     #[error("str not utf-8 at {at}: {source}")]
     UTF8Error {
         source: std::str::Utf8Error,
         at: Position,
     },
+
     #[error("string not utf-8 at {at}: {source}")]
     FromUTF8Error {
         source: std::string::FromUtf8Error,
