@@ -228,12 +228,21 @@ where
     /// panics if first byte isn't `{`
     fn parse_map(&mut self) -> Result<Collection, ParseError> {
         assert_eq!(b'{', self.read_byte()?);
-        self.parse_map_inner(HashMap::new())
+        let col = self.parse_map_inner(HashMap::new())?;
+        let at = self.at();
+        match self.read_byte()? {
+            b'}' => Ok(col),
+            other => Err(ParseError::ExpectedToken {
+                expected: '}',
+                at,
+                got: other.into(),
+            }),
+        }
     }
 
     /// parse map accumulating helper
-    /// first byte must NOT be `{` or `,`
-    /// consumes closing `}`
+    /// first byte must NOT be `{`
+    /// does not consume closing `}`
     fn parse_map_inner(
         &mut self,
         acc: HashMap<Rc<Sexp>, Rc<Sexp>>,
@@ -253,18 +262,12 @@ where
         }
 
         let v = self.parse_expr()?;
-        self.skip_whitespace()?;
-
         let acc = acc.update(Rc::new(k), Rc::new(v));
 
-        match self.read_byte()? {
+        self.skip_whitespace()?;
+        match self.peek_one()? {
             b'}' => Ok(Collection::Map(acc)),
-            b',' => self.parse_map_inner(acc),
-            other => Err(ParseError::ExpectedCommaOrToken {
-                expected: '}',
-                at: self.at(),
-                got: other.into(),
-            }),
+            _ => self.parse_map_inner(acc),
         }
     }
 
@@ -272,25 +275,29 @@ where
     /// panics if first byte isn't `[`
     fn parse_array(&mut self) -> Result<Collection, ParseError> {
         assert_eq!(b'[', self.read_byte()?);
-        self.parse_array_inner(vec![])
+        let col = self.parse_array_inner(vec![])?;
+        let at = self.at();
+        match self.read_byte()? {
+            b']' => Ok(col),
+            other => Err(ParseError::ExpectedToken {
+                expected: ']',
+                at,
+                got: other.into(),
+            }),
+        }
     }
 
     /// parse array accumulating helper
-    /// first byte must NOT be `[` or `,`
-    /// consumes closing `]`
+    /// first byte must NOT be `[`
+    /// does not consume closing `]`
     fn parse_array_inner(&mut self, mut acc: Vec<Rc<Sexp>>) -> Result<Collection, ParseError> {
         let expr = self.parse_expr()?;
         acc.push(Rc::new(expr));
         self.skip_whitespace()?;
 
-        match self.read_byte()? {
+        match self.peek_one()? {
             b']' => Ok(Collection::Array(acc.into())),
-            b',' => self.parse_array_inner(acc),
-            other => Err(ParseError::ExpectedCommaOrToken {
-                expected: ']',
-                at: self.at(),
-                got: other.into(),
-            }),
+            _ => self.parse_array_inner(acc),
         }
     }
 
@@ -714,13 +721,13 @@ mod tests {
         let mut m = HashMap::new();
         m.insert(Rc::new(int(1)), Rc::new(int(1)));
         m.insert(Rc::new(int(2)), Rc::new(int(5)));
-        assert_eq!(parse_ok("({1:1, 2: 5})"), list(vec![map(m)]));
+        assert_eq!(parse_ok("({1:1  2: 5})"), list(vec![map(m)]));
     }
 
     #[test]
     fn array_of_ints() {
         let elems = [Rc::new(int(1)), Rc::new(int(2)), Rc::new(int(3))];
-        assert_eq!(parse_ok("([1, 2, 3])"), list(vec![array(&elems)]));
+        assert_eq!(parse_ok("([1  2  3])"), list(vec![array(&elems)]));
     }
 
     #[test]

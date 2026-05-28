@@ -32,7 +32,10 @@ fn deeply_nested_arithmetic() {
 
 #[test]
 fn nested_float_arithmetic() {
-    assert_eq!(*run("(* (+ 1.5 0.5) (- 4.0 1.0))"), Value::Float(6.0.into()));
+    assert_eq!(
+        *run("(* (+ 1.5 0.5) (- 4.0 1.0))"),
+        Value::Float(6.0.into())
+    );
 }
 
 // ----- nested comparisons -----
@@ -156,7 +159,7 @@ fn combined_nested_program() {
 fn array_literal_evaluates_elements() {
     // Bound via `let` so the array is not in head (call) position; `let`
     // returns the value it bound.
-    let v = run("(let xs [1, (+ 1 2), 4])");
+    let v = run("(let xs [1 (+ 1 2) 4])");
     match &*v {
         Value::Array(xs) => {
             assert_eq!(xs.len(), 3);
