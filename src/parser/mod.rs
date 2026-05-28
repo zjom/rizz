@@ -156,9 +156,7 @@ where
     }
 
     fn parse_atomic(&mut self) -> Result<Atomic, ParseError> {
-        let mut buf = [0u8; 2];
-        self.peek_many(&mut buf)?;
-        match buf {
+        match self.peek_two()? {
             [b'"', _] => self.parse_str(),
             [b'0'..=b'9', _] | [b'-', b'0'..=b'9'] => self.parse_number(),
             _ => self.parse_ident(),
@@ -311,6 +309,12 @@ where
             return Err(self.eof_err());
         }
         Ok(avail[0])
+    }
+
+    fn peek_two(&mut self) -> Result<[u8; 2], ParseError> {
+        let mut buf = [0u8; 2];
+        self.peek_many(&mut buf)?;
+        Ok(buf)
     }
 
     /// Peeks up to `buf.len()` bytes from the reader without consuming them.
