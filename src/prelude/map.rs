@@ -27,7 +27,7 @@ fn get() -> BuiltinFn {
             },
             other => Err(RuntimeError::TypeMismatch {
                 name,
-                expected: Value::type_name(&Value::Map(Rc::new(HashMap::new()))).into(),
+                expected: Value::type_name(&Value::Map(HashMap::new())).into(),
                 got: Value::type_name(other).into(),
             }),
         }
@@ -48,11 +48,11 @@ fn put() -> BuiltinFn {
         match &*args[0] {
             Value::Map(m) => {
                 let m = m.update(args[1].clone(), args[2].clone());
-                Ok((Rc::new(Value::Map(m.into())), env.clone()))
+                Ok((Rc::new(Value::Map(m)), env.clone()))
             }
             other => Err(RuntimeError::TypeMismatch {
                 name,
-                expected: Value::type_name(&Value::Map(Rc::new(HashMap::new()))).into(),
+                expected: Value::type_name(&Value::Map(HashMap::new())).into(),
                 got: Value::type_name(other).into(),
             }),
         }

@@ -39,8 +39,8 @@ pub enum Value {
     Cons { head: Rc<Value>, tail: Rc<Value> },
     BuiltinFn(BuiltinFn),
     Closure(Rc<Closure>),
-    Array(Rc<Vector<Rc<Value>>>),
-    Map(Rc<HashMap<Rc<Value>, Rc<Value>>>),
+    Array(Vector<Rc<Value>>),
+    Map(HashMap<Rc<Value>, Rc<Value>>),
 }
 
 /// A user-defined function: its `name`, parameter names, body form, and the
@@ -419,9 +419,9 @@ fn atm_to_value(atm: &Atomic) -> Value {
 
 fn collection_to_value(c: &Collection) -> Value {
     match c {
-        Collection::Array(xs) => Value::Array(Rc::new(
-            xs.iter().map(|s| Rc::new(Value::from(s.clone()))).collect(),
-        )),
+        Collection::Array(xs) => {
+            Value::Array(xs.iter().map(|s| Rc::new(Value::from(s.clone()))).collect())
+        }
         Collection::Map(m) => {
             let entries = m.iter().map(|(k, v)| {
                 (
@@ -429,7 +429,7 @@ fn collection_to_value(c: &Collection) -> Value {
                     Rc::new(Value::from(v.clone())),
                 )
             });
-            Value::Map(Rc::new(entries.collect()))
+            Value::Map(entries.collect())
         }
     }
 }

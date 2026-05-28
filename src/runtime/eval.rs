@@ -99,7 +99,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                 ctx = env;
                 out.push_back(v.clone());
             }
-            Ok((Rc::new(Value::Array(Rc::new(out))), ctx))
+            Ok((Rc::new(Value::Array(out)), ctx))
         }
         Value::Map(m) => {
             let mut ctx = ctx.clone();
@@ -111,7 +111,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                 ctx = env;
                 out.insert(kv.clone(), vv.clone());
             }
-            Ok((Rc::new(Value::Map(Rc::new(out))), ctx))
+            Ok((Rc::new(Value::Map(out)), ctx))
         }
     }
 }
@@ -943,7 +943,7 @@ mod tests {
     // ----- collections -----
 
     fn array(elems: Vec<Rc<Value>>) -> Rc<Value> {
-        Rc::new(Value::Array(Rc::new(elems.iter().cloned().collect())))
+        Rc::new(Value::Array(elems.iter().cloned().collect()))
     }
 
     #[test]
@@ -970,7 +970,7 @@ mod tests {
         let call = list(vec![ident("plus"), int(2), int(3)]);
         let mut m = HashMap::new();
         m.insert(int(1).clone(), call.clone());
-        let (v, _) = eval_ok(Rc::new(Value::Map(Rc::new(m))), &env);
+        let (v, _) = eval_ok(Rc::new(Value::Map(m)), &env);
         match &*v {
             Value::Map(m) => {
                 assert_eq!(m.len(), 1);
