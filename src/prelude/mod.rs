@@ -6,7 +6,7 @@
 pub mod eq;
 pub mod numbers;
 
-use crate::evaluator::Env;
+use crate::runtime::Env;
 
 /// The default environment: every builtin from [`numbers`] and [`eq`].
 pub fn env() -> Env {

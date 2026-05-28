@@ -3,13 +3,13 @@
 //! Every operator here is binary and works on two ints or two floats (never a
 //! mix). They share the generic `binop` machinery, which dispatches on the
 //! argument type and turns Rust-level faults (overflow, divide-by-zero, NaN)
-//! into [`EvaluatorError::ArithmeticError`]. Comparisons return `1` for true
+//! into [`RuntimeError::ArithmeticError`]. Comparisons return `1` for true
 //! and `0` for false.
 
-use crate::evaluator::Numeric;
+use crate::runtime::Numeric;
 use std::rc::Rc;
 
-use crate::evaluator::{BuiltinFn, Env, EvaluatorError, Value};
+use crate::runtime::{BuiltinFn, Env, RuntimeError, Value};
 
 /// The arithmetic/comparison builtins: `+ - * /`, `cmp`, and `> >= < <=`.
 pub fn env() -> Env {
@@ -107,7 +107,7 @@ fn try_binop<N, T, F>(
     name: &'static str,
     args: &[Rc<Value>],
     op: &F,
-) -> Result<Option<Rc<Value>>, EvaluatorError>
+) -> Result<Option<Rc<Value>>, RuntimeError>
 where
     N: Numeric,
     T: Into<Value>,
@@ -117,7 +117,7 @@ where
         return Ok(None);
     };
     let Some(b) = N::from_value(&args[1]) else {
-        return Err(EvaluatorError::TypeMismatch {
+        return Err(RuntimeError::TypeMismatch {
             name: name.into(),
             expected: format!("{0}*{0}", N::TYPE_NAME).into(),
             got: format!("{}*other", N::TYPE_NAME).into(),
@@ -125,7 +125,7 @@ where
     };
     match op(a, b) {
         Ok(v) => Ok(Some(Rc::new(v.into()))),
-        Err(reason) => Err(EvaluatorError::ArithmeticError {
+        Err(reason) => Err(RuntimeError::ArithmeticError {
             name: name.into(),
             reason: reason.into(),
         }),
@@ -144,7 +144,7 @@ where
 {
     Rc::new(move |args, env| {
         if args.len() != 2 {
-            return Err(EvaluatorError::ArityMismatch {
+            return Err(RuntimeError::ArityMismatch {
                 name: name.into(),
                 expected: 2,
                 got: args.len(),
@@ -156,7 +156,7 @@ where
         if let Some(v) = try_binop::<f64, _, _>(name, args, &float_op)? {
             return Ok((v, env.clone()));
         }
-        Err(EvaluatorError::TypeMismatch {
+        Err(RuntimeError::TypeMismatch {
             name: name.into(),
             expected: format!("int*int or float*float (in {})", name).into(),
             got: "other".into(),
@@ -220,7 +220,9 @@ mod tests {
     fn integer_division_by_zero_is_error() {
         assert!(matches!(
             run("(/ 1 0)"),
-            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+            Err(RispError::RuntimeError(
+                RuntimeError::ArithmeticError { .. }
+            ))
         ));
     }
 
@@ -228,11 +230,15 @@ mod tests {
     fn integer_overflow_is_error() {
         assert!(matches!(
             run("(+ 9223372036854775807 1)"),
-            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+            Err(RispError::RuntimeError(
+                RuntimeError::ArithmeticError { .. }
+            ))
         ));
         assert!(matches!(
             run("(* 9223372036854775807 9223372036854775807)"),
-            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+            Err(RispError::RuntimeError(
+                RuntimeError::ArithmeticError { .. }
+            ))
         ));
     }
 
@@ -241,7 +247,9 @@ mod tests {
         // 0.0 / 0.0 is NaN; comparing it must error rather than panic.
         assert!(matches!(
             run("(cmp (/ 0.0 0.0) 1.0)"),
-            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+            Err(RispError::RuntimeError(
+                RuntimeError::ArithmeticError { .. }
+            ))
         ));
     }
 }

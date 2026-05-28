@@ -1,4 +1,4 @@
-//! The tree-walking evaluator.
+//! The tree-walking runtime.
 //!
 //! [`eval`] threads an [`Env`] through evaluation: it takes a form and an
 //! environment and returns the resulting value together with a (possibly
@@ -6,7 +6,7 @@
 //! later forms. When a list's head is one of the keywords below it is handled
 //! as a special form; otherwise the list is a function application.
 
-use crate::evaluator::{Closure, Env, EvaluatorError, Value};
+use crate::runtime::{Closure, Env, RuntimeError, Value};
 use std::rc::Rc;
 
 // Identifiers that, in head position, are special forms rather than calls.
@@ -25,7 +25,7 @@ const KW_IF: &str = "if";
 /// whose head is a special-form keyword is dispatched accordingly, and any
 /// other `Cons` is a function application — arguments are evaluated left to
 /// right, then the head is applied as a builtin or closure.
-pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     match &*form {
         Value::Int(_) | Value::Unit | Value::Str(_) | Value::Float(_) | Value::BuiltinFn(_) => {
             Ok((form.clone(), ctx.clone()))
@@ -33,7 +33,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
         Value::Ident(ident) => {
             let form = ctx
                 .get(ident)
-                .ok_or(EvaluatorError::UnknownIdent(ident.clone()))?;
+                .ok_or(RuntimeError::UnknownIdent(ident.clone()))?;
 
             Ok((form.clone(), ctx.clone()))
         }
@@ -81,7 +81,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                 | Value::Str(_)
                 | Value::Float(_)
                 | Value::Cons { .. }
-                | Value::Ident(_) => Err(EvaluatorError::NotCallable { value: callable }),
+                | Value::Ident(_) => Err(RuntimeError::NotCallable { value: callable }),
             }
         }
         Value::Closure(closure) => {
@@ -97,9 +97,9 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
 fn eval_closure(
     args: &[Rc<Value>],
     closure: &Rc<Closure>,
-) -> Result<(Rc<Value>, Env), EvaluatorError> {
+) -> Result<(Rc<Value>, Env), RuntimeError> {
     if closure.params.len() != args.len() {
-        return Err(EvaluatorError::ArityMismatch {
+        return Err(RuntimeError::ArityMismatch {
             name: "<closure>".into(),
             expected: closure.params.len(),
             got: args.len(),
@@ -119,17 +119,17 @@ fn eval_closure(
 
 /// `(fn name (params...) body)`: builds a [`Closure`] capturing `env`, binds it
 /// under `name`, and returns the closure along with the extended environment.
-fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 3 {
-        return Err(EvaluatorError::ArityMismatch {
+        return Err(RuntimeError::ArityMismatch {
             name: KW_DEFUN.into(),
             expected: 3,
             got: items.len(),
         });
     }
     let Value::Ident(name) = &*items[0] else {
-        return Err(EvaluatorError::TypeMismatch {
+        return Err(RuntimeError::TypeMismatch {
             name: KW_DEFUN.into(),
             expected: "ident".into(),
             got: Value::type_name(&items[0]).into(),
@@ -139,7 +139,7 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluator
     let mut params = Vec::new();
     for param in Value::iter(&items[1]) {
         let Value::Ident(p) = &*param else {
-            return Err(EvaluatorError::TypeMismatch {
+            return Err(RuntimeError::TypeMismatch {
                 name: KW_DEFUN.into(),
                 expected: "ident".into(),
                 got: Value::type_name(&param).into(),
@@ -160,17 +160,17 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluator
 
 /// `(let name value)`: evaluates `value`, binds it to `name`, and returns the
 /// value with the extended environment.
-fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 2 {
-        return Err(EvaluatorError::ArityMismatch {
+        return Err(RuntimeError::ArityMismatch {
             name: KW_DEFVAR.into(),
             expected: 2,
             got: items.len(),
         });
     }
     let Value::Ident(name) = &*items[0] else {
-        return Err(EvaluatorError::TypeMismatch {
+        return Err(RuntimeError::TypeMismatch {
             name: KW_DEFVAR.into(),
             expected: "ident".into(),
             got: Value::type_name(&items[0]).into(),
@@ -184,10 +184,10 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluato
 
 /// `(if cond then else)`: evaluates `cond`, then evaluates only the matching
 /// branch so the untaken branch never runs.
-fn eval_if(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+fn eval_if(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 3 {
-        return Err(EvaluatorError::ArityMismatch {
+        return Err(RuntimeError::ArityMismatch {
             name: KW_IF.into(),
             expected: 3,
             got: items.len(),
@@ -203,10 +203,10 @@ fn eval_if(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
 }
 
 /// `(quote x)`: returns `x` unevaluated.
-fn eval_quote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+fn eval_quote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 1 {
-        return Err(EvaluatorError::ArityMismatch {
+        return Err(RuntimeError::ArityMismatch {
             name: KW_QUOTE.into(),
             expected: 1,
             got: items.len(),
@@ -218,10 +218,10 @@ fn eval_quote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluator
 
 /// `(quasi x)`: returns `x` as a literal, except that `unquote` subforms are
 /// evaluated and `unquote-splice` elements are spliced in (see [`quasi`]).
-fn eval_quasiquote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+fn eval_quasiquote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 1 {
-        return Err(EvaluatorError::ArityMismatch {
+        return Err(RuntimeError::ArityMismatch {
             name: KW_QUASIQUOTE.into(),
             expected: 1,
             got: items.len(),
@@ -233,12 +233,12 @@ fn eval_quasiquote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Eval
 
 /// Rebuild `datum` as a literal structure, evaluating any `(unquote X)` subform
 /// and splicing the elements of any `(unquote-splicing X)` element.
-fn quasi(datum: &Rc<Value>, env: &Env) -> Result<Rc<Value>, EvaluatorError> {
+fn quasi(datum: &Rc<Value>, env: &Env) -> Result<Rc<Value>, RuntimeError> {
     if let Some(tail) = tagged(datum, KW_UNQUOTE) {
         return Ok(eval(unquote_operand(KW_UNQUOTE, tail)?, env)?.0);
     }
     if tagged(datum, KW_UNQUOTE_SPLICE).is_some() {
-        return Err(EvaluatorError::TypeMismatch {
+        return Err(RuntimeError::TypeMismatch {
             name: KW_UNQUOTE_SPLICE.into(),
             expected: "list context".into(),
             got: KW_QUASIQUOTE.into(),
@@ -279,10 +279,10 @@ fn tagged<'a>(v: &'a Value, name: &str) -> Option<&'a Rc<Value>> {
 
 /// Extracts the single operand `x` from an `(unquote x)` / `(unquote-splice x)`
 /// tail, erroring if the form does not have exactly one argument.
-fn unquote_operand(name: &'static str, tail: &Rc<Value>) -> Result<Rc<Value>, EvaluatorError> {
+fn unquote_operand(name: &'static str, tail: &Rc<Value>) -> Result<Rc<Value>, RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 1 {
-        return Err(EvaluatorError::ArityMismatch {
+        return Err(RuntimeError::ArityMismatch {
             name: name.into(),
             expected: 1,
             got: items.len(),
@@ -325,9 +325,9 @@ mod tests {
     /// application arms of `eval`.
     fn add_builtin() -> Rc<Value> {
         Rc::new(Value::BuiltinFn(Rc::new(
-            |args: &[Rc<Value>], env: &Env| -> Result<(Rc<Value>, Env), EvaluatorError> {
+            |args: &[Rc<Value>], env: &Env| -> Result<(Rc<Value>, Env), RuntimeError> {
                 if args.len() != 2 {
-                    return Err(EvaluatorError::ArityMismatch {
+                    return Err(RuntimeError::ArityMismatch {
                         name: "plus".into(),
                         expected: 2,
                         got: args.len(),
@@ -343,7 +343,7 @@ mod tests {
     fn eval_ok(form: Rc<Value>, env: &Env) -> (Rc<Value>, Env) {
         eval(form, env).expect("expected successful eval")
     }
-    fn eval_err(form: Rc<Value>, env: &Env) -> EvaluatorError {
+    fn eval_err(form: Rc<Value>, env: &Env) -> RuntimeError {
         eval(form, env).expect_err("expected eval error")
     }
     fn lookup(env: &Env, name: &str) -> Rc<Value> {
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn unbound_ident_errors() {
         let err = eval_err(ident("nope"), &Env::new());
-        assert!(matches!(err, EvaluatorError::UnknownIdent(s) if &*s == "nope"));
+        assert!(matches!(err, RuntimeError::UnknownIdent(s) if &*s == "nope"));
     }
 
     #[test]
@@ -444,7 +444,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 2,
                 got: 1,
                 ..
@@ -458,7 +458,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 2,
                 got: 3,
                 ..
@@ -472,7 +472,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::TypeMismatch { expected, got, .. }
+            RuntimeError::TypeMismatch { expected, got, .. }
                 if &*expected == "ident" && &*got == "int"
         ));
     }
@@ -482,7 +482,7 @@ mod tests {
         // (let x undefined) -> evaluating the value expr fails.
         let form = list(vec![ident("let"), ident("x"), ident("undefined")]);
         let err = eval_err(form, &Env::new());
-        assert!(matches!(err, EvaluatorError::UnknownIdent(s) if &*s == "undefined"));
+        assert!(matches!(err, RuntimeError::UnknownIdent(s) if &*s == "undefined"));
     }
 
     // ----- cons head dispatch -----
@@ -493,7 +493,7 @@ mod tests {
         // is looked up like any other ident and fails if unbound.
         let form = list(vec![ident("frobnicate"), int(1)]);
         let err = eval_err(form, &Env::new());
-        assert!(matches!(err, EvaluatorError::UnknownIdent(s) if &*s == "frobnicate"));
+        assert!(matches!(err, RuntimeError::UnknownIdent(s) if &*s == "frobnicate"));
     }
 
     // ----- function application -----
@@ -551,7 +551,7 @@ mod tests {
         let err = eval_err(form, &env);
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 2,
                 got: 1,
                 ..
@@ -584,7 +584,7 @@ mod tests {
         let err = eval_err(clo, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 1,
                 got: 0,
                 ..
@@ -615,7 +615,7 @@ mod tests {
         let err = eval_closure(&[int(1), int(2)], &clo).expect_err("expected err");
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 1,
                 got: 2,
                 ..
@@ -720,7 +720,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::TypeMismatch { expected, got, .. }
+            RuntimeError::TypeMismatch { expected, got, .. }
                 if &*expected == "ident" && &*got == "int"
         ));
     }
@@ -736,7 +736,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::TypeMismatch { expected, got, .. }
+            RuntimeError::TypeMismatch { expected, got, .. }
                 if &*expected == "ident" && &*got == "int"
         ));
     }
@@ -748,7 +748,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 3,
                 got: 2,
                 ..
@@ -796,7 +796,7 @@ mod tests {
     fn if_propagates_condition_eval_error() {
         let form = list(vec![ident(KW_IF), ident("undefined"), int(10), int(20)]);
         let err = eval_err(form, &Env::new());
-        assert!(matches!(err, EvaluatorError::UnknownIdent(s) if &*s == "undefined"));
+        assert!(matches!(err, RuntimeError::UnknownIdent(s) if &*s == "undefined"));
     }
 
     #[test]
@@ -806,7 +806,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 3,
                 got: 2,
                 ..
@@ -895,7 +895,7 @@ mod tests {
         let err = eval_err(form, &env);
         assert!(matches!(
             err,
-            EvaluatorError::TypeMismatch { name, .. } if &*name == KW_UNQUOTE_SPLICE
+            RuntimeError::TypeMismatch { name, .. } if &*name == KW_UNQUOTE_SPLICE
         ));
     }
 
@@ -905,7 +905,7 @@ mod tests {
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
-            EvaluatorError::ArityMismatch {
+            RuntimeError::ArityMismatch {
                 expected: 1,
                 got: 2,
                 ..

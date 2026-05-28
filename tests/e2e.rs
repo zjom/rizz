@@ -1,7 +1,7 @@
 //! End-to-end tests: source text -> parse -> eval -> value, through the public
 //! `parse_and_run` API. Emphasis on nested forms.
 
-use risp::evaluator::Value;
+use risp::runtime::Value;
 use std::rc::Rc;
 
 fn run(src: &str) -> Rc<Value> {
@@ -10,7 +10,7 @@ fn run(src: &str) -> Rc<Value> {
         .unwrap_or_else(|e| panic!("eval of `{src}` failed: {e}"))
 }
 
-/// Builds a cons-list `Value` of ints, matching how the parser/evaluator
+/// Builds a cons-list `Value` of ints, matching how the parser/runtime
 /// represent list literals.
 fn int_list(xs: &[i64]) -> Value {
     Value::from(xs.iter().copied().map(Value::Int).collect::<Vec<_>>())

@@ -2,8 +2,8 @@ use std::{fmt::Debug, rc::Rc};
 
 use crate::{
     Env,
-    evaluator::EvaluatorError,
     parser::{Atomic, Sexp},
+    runtime::RuntimeError,
 };
 
 // ---------------------------------------------------------------------------
@@ -13,10 +13,10 @@ use crate::{
 /// A native function callable from risp. Receives its already-evaluated
 /// arguments and the current environment, and returns a value plus a
 /// (possibly updated) environment.
-pub type BuiltinFn = Rc<dyn Fn(&[Rc<Value>], &Env) -> Result<(Rc<Value>, Env), EvaluatorError>>;
+pub type BuiltinFn = Rc<dyn Fn(&[Rc<Value>], &Env) -> Result<(Rc<Value>, Env), RuntimeError>>;
 
 /// A runtime value. The first five variants are data (and double as the AST
-/// the evaluator walks); the last two are the two kinds of callable.
+/// the runtime walks); the last two are the two kinds of callable.
 ///
 /// Lists are `Cons` chains terminated by `Unit`, mirroring [`crate::parser::Sexp`].
 #[derive(Clone)]
