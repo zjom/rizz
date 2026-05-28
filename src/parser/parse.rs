@@ -10,94 +10,13 @@
 //! offending location. Identifiers are interned so repeated names share one
 //! `Rc<str>`.
 
+use crate::parser::{ParseError, position::Position};
 use std::{
     collections::HashSet,
     io::{BufRead, BufReader, Read},
 };
 
 use std::rc::Rc;
-
-/// A location in the source, tracked as the parser consumes bytes. Lines and
-/// columns are 1-based; `byte` is a 0-based offset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Position {
-    pub byte: usize,
-    pub line: usize,
-    pub col: usize,
-}
-
-impl Position {
-    fn new() -> Self {
-        Self {
-            byte: 0,
-            line: 1,
-            col: 1,
-        }
-    }
-    fn advance(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.byte += 1;
-            if b == b'\n' {
-                self.line += 1;
-                self.col = 1;
-            } else {
-                self.col += 1;
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for Position {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "line {}, column {} (byte {})",
-            self.line, self.col, self.byte
-        )
-    }
-}
-
-/// A parse failure, carrying the [`Position`] where it was detected. Variants
-/// cover unbalanced parentheses, malformed numbers/strings, non-UTF-8 input,
-/// and underlying I/O errors (including unexpected EOF).
-#[derive(Debug, thiserror::Error)]
-pub enum ParseError {
-    #[error("expected open brace at {at}")]
-    MissingOpenBrace { at: Position },
-    #[error("expected close brace at {at}")]
-    MissingCloseBrace { at: Position },
-    #[error("unexpected close brace at {at}")]
-    UnexpectedCloseBrace { at: Position },
-
-    #[error("str not utf-8 at {at}: {source}")]
-    UTF8Error {
-        source: std::str::Utf8Error,
-        at: Position,
-    },
-    #[error("string not utf-8 at {at}: {source}")]
-    FromUTF8Error {
-        source: std::string::FromUtf8Error,
-        at: Position,
-    },
-
-    #[error("parse float error at {at}: {source}")]
-    ParseFloatError {
-        source: std::num::ParseFloatError,
-        at: Position,
-    },
-
-    #[error("parse int error at {at}: {source}")]
-    ParseIntError {
-        source: std::num::ParseIntError,
-        at: Position,
-    },
-
-    #[error("io error encountered during parsing at {at}: {source}")]
-    IOError {
-        source: std::io::Error,
-        at: Position,
-    },
-}
 
 /// A leaf token: a string literal, integer, float, or identifier.
 #[derive(Debug, Clone, PartialEq)]
