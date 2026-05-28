@@ -307,7 +307,7 @@ where
     }
 
     /// Peeks up to `buf.len()` bytes from the reader without consuming them.
-    /// On EOF (no bytes available) returns `MissingCloseBrace` or `IOError`
+    /// On EOF (no bytes available) returns `ExpectedToken` or `IOError`
     /// depending on whether we're inside a list. If fewer bytes are available
     /// than `buf.len()`, fills the prefix and leaves the rest of `buf`
     /// untouched.
@@ -803,7 +803,7 @@ mod tests {
                 assert_eq!(at.line, 1);
                 assert_eq!(at.col, 1);
             }
-            other => panic!("expected MissingOpenBrace, got {:?}", other),
+            other => panic!("expected ExpectedToken, got {:?}", other),
         }
     }
 
@@ -818,7 +818,7 @@ mod tests {
                 assert_eq!(at.line, 1);
                 assert_eq!(at.col, 4);
             }
-            other => panic!("expected MissingOpenBrace, got {:?}", other),
+            other => panic!("expected ExpectedToken, got {:?}", other),
         }
     }
 
@@ -846,7 +846,7 @@ mod tests {
                 assert_eq!(at.line, 3);
                 assert_eq!(at.col, 3);
             }
-            other => panic!("expected MissingOpenBrace, got {:?}", other),
+            other => panic!("expected ExpectedToken, got {:?}", other),
         }
     }
 
@@ -873,7 +873,7 @@ mod tests {
                 assert_eq!(at.line, 2);
                 assert_eq!(at.col, 2);
             }
-            other => panic!("expected MissingCloseBrace, got {:?}", other),
+            other => panic!("expected ExpectedToken, got {:?}", other),
         }
     }
 
