@@ -189,14 +189,18 @@ where
 
         let at = self.at();
         let s = str::from_utf8(&buf).map_err(|e| ParseError::UTF8Error { source: e, at })?;
-        match self.idents.get(s) {
-            Some(ident) => Ok(Atomic::Ident(ident.clone())),
-            None => {
-                let ident: Rc<str> = s.into();
-                self.idents.insert(ident.clone());
-                Ok(Atomic::Ident(ident.clone()))
-            }
+        Ok(Atomic::Ident(self.intern(s)))
+    }
+
+    /// Interns `s` into the shared identifier pool, returning the canonical
+    /// `Rc<str>` so equal names share one allocation.
+    fn intern(&mut self, s: &str) -> Rc<str> {
+        if let Some(found) = self.idents.get(s) {
+            return found.clone();
         }
+        let rc: Rc<str> = s.into();
+        self.idents.insert(rc.clone());
+        rc
     }
 
     /// parses double quoted str including the opening `"` and closing `"`
