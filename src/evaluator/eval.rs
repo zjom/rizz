@@ -40,17 +40,17 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                 }
             }
             let mut args = Vec::new();
-            let mut env = ctx.clone();
+            let mut ctx = ctx.clone();
             for arg in Value::iter(tail) {
-                let (val, env2) = eval(arg.clone(), &env)?;
-                args.push(val);
-                env = env2;
+                let (v, env) = eval(arg, &ctx)?;
+                args.push(v);
+                ctx = env;
             }
-            let (callable, ctx) = eval(head.clone(), ctx)?;
+            let (callable, ctx) = eval(head.clone(), &ctx)?;
             match &*callable {
                 Value::BuiltinFn(f) => {
-                    let (v, env) = f(&args, &ctx)?;
-                    eval(v, &env)
+                    let (v, ctx) = f(&args, &ctx)?;
+                    eval(v, &ctx)
                 }
                 Value::Closure(closure) => eval_closure(&args, closure),
                 Value::Int(_)
@@ -65,7 +65,10 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
     }
 }
 
-fn eval_closure(args: &[Rc<Value>], closure: &Rc<Closure>) -> Result<(Rc<Value>, Env), EvaluatorError> {
+fn eval_closure(
+    args: &[Rc<Value>],
+    closure: &Rc<Closure>,
+) -> Result<(Rc<Value>, Env), EvaluatorError> {
     if closure.params.len() != args.len() {
         return Err(EvaluatorError::ArityMismatch {
             name: "<closure>".into(),
@@ -75,10 +78,10 @@ fn eval_closure(args: &[Rc<Value>], closure: &Rc<Closure>) -> Result<(Rc<Value>,
     }
 
     // Bind the closure under its own name so the body can call itself.
-    let mut call_env = closure
-        .env
-        .clone()
-        .update(closure.name.clone(), Rc::new(Value::Closure(closure.clone())));
+    let mut call_env = closure.env.clone().update(
+        closure.name.clone(),
+        Rc::new(Value::Closure(closure.clone())),
+    );
     for (ident, arg) in closure.params.iter().zip(args) {
         call_env = call_env.update(ident.clone(), arg.clone());
     }
@@ -474,7 +477,7 @@ mod tests {
 
     #[test]
     fn application_evaluates_its_arguments() {
-        // (plus x 2) with x bound to 40 -> 42; arguments are evaluated first.
+        // (plus ( x 2 )) with x bound to 40 -> 42; arguments are evaluated first.
         let env = Env::new()
             .update("plus".into(), add_builtin())
             .update("x".into(), int(40));
