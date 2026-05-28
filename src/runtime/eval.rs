@@ -1,4 +1,4 @@
-//! The tree-walking runtime.
+//! The t ree-walking runtime.
 //!
 //! [`eval`] threads an [`Env`] through evaluation: it takes a form and an
 //! environment and returns the resulting value together with a (possibly
@@ -95,9 +95,9 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
             let mut ctx = ctx.clone();
             let mut out = Vector::new();
             for x in xs.iter() {
-                let (v, env) = eval(Rc::new(x.clone()), &ctx)?;
+                let (v, env) = eval(x.clone(), &ctx)?;
                 ctx = env;
-                out.push_back((*v).clone());
+                out.push_back(v.clone());
             }
             Ok((Rc::new(Value::Array(Rc::new(out))), ctx))
         }
@@ -105,11 +105,11 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
             let mut ctx = ctx.clone();
             let mut out = HashMap::new();
             for (k, v) in m.iter() {
-                let (kv, env) = eval(Rc::new(k.clone()), &ctx)?;
+                let (kv, env) = eval(k.clone(), &ctx)?;
                 ctx = env;
-                let (vv, env) = eval(Rc::new(v.clone()), &ctx)?;
+                let (vv, env) = eval(v.clone(), &ctx)?;
                 ctx = env;
-                out.insert((*kv).clone(), (*vv).clone());
+                out.insert(kv.clone(), vv.clone());
             }
             Ok((Rc::new(Value::Map(Rc::new(out))), ctx))
         }
@@ -318,6 +318,8 @@ fn unquote_operand(name: &'static str, tail: &Rc<Value>) -> Result<Rc<Value>, Ru
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
+
     use super::*;
 
     // ----- helpers -----
@@ -941,9 +943,7 @@ mod tests {
     // ----- collections -----
 
     fn array(elems: Vec<Rc<Value>>) -> Rc<Value> {
-        Rc::new(Value::Array(Rc::new(
-            elems.into_iter().map(|e| (*e).clone()).collect(),
-        )))
+        Rc::new(Value::Array(Rc::new(elems.iter().cloned().collect())))
     }
 
     #[test]
@@ -955,8 +955,8 @@ mod tests {
         match &*v {
             Value::Array(xs) => {
                 assert_eq!(xs.len(), 2);
-                assert_eq!(xs[0], Value::Int(1));
-                assert_eq!(xs[1], Value::Int(5));
+                assert_eq!(*xs[0], Value::Int(1));
+                assert_eq!(*xs[1], Value::Int(5));
             }
             other => panic!("expected array, got {other:?}"),
         }
@@ -969,12 +969,15 @@ mod tests {
         // {1: (plus 2 3)} -> {1: 5}
         let call = list(vec![ident("plus"), int(2), int(3)]);
         let mut m = HashMap::new();
-        m.insert((*int(1)).clone(), (*call).clone());
+        m.insert(int(1).clone(), call.clone());
         let (v, _) = eval_ok(Rc::new(Value::Map(Rc::new(m))), &env);
         match &*v {
             Value::Map(m) => {
                 assert_eq!(m.len(), 1);
-                assert_eq!(m.get(&Value::Int(1)), Some(&Value::Int(5)));
+                assert_eq!(
+                    m.get(&Value::Int(1)).map(|v| v.deref()),
+                    Some(&Value::Int(5))
+                );
             }
             other => panic!("expected map, got {other:?}"),
         }

@@ -2,7 +2,7 @@
 //! `parse_and_run` API. Emphasis on nested forms.
 
 use risp::runtime::Value;
-use std::rc::Rc;
+use std::{ops::Deref, rc::Rc};
 
 fn run(src: &str) -> Rc<Value> {
     risp::parse_and_run(src.as_bytes())
@@ -170,9 +170,9 @@ fn array_literal_evaluates_elements() {
     match &*v {
         Value::Array(xs) => {
             assert_eq!(xs.len(), 3);
-            assert_eq!(xs[0], Value::Int(1));
-            assert_eq!(xs[1], Value::Int(3));
-            assert_eq!(xs[2], Value::Int(4));
+            assert_eq!(*xs[0], Value::Int(1));
+            assert_eq!(*xs[1], Value::Int(3));
+            assert_eq!(*xs[2], Value::Int(4));
         }
         other => panic!("expected array, got {other:?}"),
     }
@@ -184,7 +184,10 @@ fn map_literal_evaluates_values() {
     match &*v {
         Value::Map(m) => {
             assert_eq!(m.len(), 1);
-            assert_eq!(m.get(&Value::Int(1)), Some(&Value::Int(5)));
+            assert_eq!(
+                m.get(&Value::Int(1)).map(|v| v.deref()),
+                Some(&Value::Int(5))
+            );
         }
         other => panic!("expected map, got {other:?}"),
     }
