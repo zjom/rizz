@@ -18,16 +18,17 @@ pub enum Value {
     Float(f64),
     Ident(Rc<str>),
     Unit,
-    Cons {
-        head: Rc<Value>,
-        tail: Rc<Value>,
-    },
+    Cons { head: Rc<Value>, tail: Rc<Value> },
     BuiltinFn(BuiltinFn),
-    Closure {
-        params: Vec<Rc<str>>,
-        body: Rc<Value>,
-        env: Env,
-    },
+    Closure(Rc<Closure>),
+}
+
+#[derive(Clone, PartialEq)]
+pub struct Closure {
+    pub name: Rc<str>,
+    pub params: Vec<Rc<str>>,
+    pub body: Rc<Value>,
+    pub env: Env,
 }
 
 // ---------------------------------------------------------------------------
@@ -48,14 +49,14 @@ impl Value {
             Self::Unit => "()",
             Self::Cons { .. } => "cons",
             Self::BuiltinFn(_) => "builtin",
-            Self::Closure { .. } => "closure",
+            Self::Closure(_) => "closure",
         }
     }
 
     // --- Type predicates ---
 
     pub fn is_callable(&self) -> bool {
-        matches!(self, Value::BuiltinFn(_) | Value::Closure { .. })
+        matches!(self, Value::BuiltinFn(_) | Value::Closure(_))
     }
 
     pub fn is_unit(&self) -> bool {
@@ -107,18 +108,7 @@ impl PartialEq for Value {
             }
             // Functions are not comparable
             (Value::BuiltinFn(_), Value::BuiltinFn(_)) => false,
-            (
-                Value::Closure {
-                    params: p1,
-                    body: b1,
-                    env: e1,
-                },
-                Value::Closure {
-                    params: p2,
-                    body: b2,
-                    env: e2,
-                },
-            ) => p1 == p2 && b1 == b2 && e1 == e2,
+            (Value::Closure(a), Value::Closure(b)) => a == b,
             _ => false,
         }
     }
@@ -185,7 +175,7 @@ impl Debug for DepthLimited<'_> {
             Value::Int(n) => write!(f, "<int={n}>"),
             Value::Unit => write!(f, "<()>"),
             Value::BuiltinFn(_) => write!(f, "<builtin_fn>"),
-            Value::Closure { params, .. } => write!(f, "<closure params={params:?}>"),
+            Value::Closure(c) => write!(f, "<closure params={:?}>", c.params),
             Value::Cons { head, tail } => {
                 if self.depth == 0 {
                     write!(f, "<expr ...>")
@@ -336,6 +326,12 @@ impl From<()> for Value {
 impl From<BuiltinFn> for Value {
     fn from(f: BuiltinFn) -> Self {
         Value::BuiltinFn(f)
+    }
+}
+
+impl From<Closure> for Value {
+    fn from(value: Closure) -> Self {
+        Value::Closure(Rc::new(value))
     }
 }
 

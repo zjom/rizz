@@ -1,7 +1,8 @@
-use crate::evaluator::{Env, EvaluatorError, Value};
+use crate::evaluator::{Closure, Env, EvaluatorError, Value};
 use std::rc::Rc;
 
-const KW_LET: &str = "let";
+const KW_DEFVAR: &str = "let";
+const KW_DEFUN: &str = "fn";
 const KW_QUOTE: &str = "quote";
 const KW_QUASIQUOTE: &str = "quasi";
 const KW_UNQUOTE: &str = "unquote";
@@ -22,8 +23,8 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
         Value::Cons { head, tail } => {
             if let Value::Ident(ident) = &**head {
                 match ident.as_ref() {
-                    KW_LET => {
-                        let (v, env) = eval_assign(tail, ctx)?;
+                    KW_DEFVAR => {
+                        let (v, env) = eval_defvar(tail, ctx)?;
                         return eval(v, &env);
                     }
                     KW_QUOTE => {
@@ -31,6 +32,10 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                         return Ok((v, env.clone()));
                     }
                     KW_QUASIQUOTE => return eval_quasiquote(tail, ctx),
+                    KW_DEFUN => {
+                        let (v, env) = eval_defun(tail, ctx)?;
+                        return Ok((v, env.clone()));
+                    }
                     _ => {}
                 }
             }
@@ -47,7 +52,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                     let (v, env) = f(&args, &ctx)?;
                     eval(v, &env)
                 }
-                Value::Closure { params, body, env } => eval_closure(&args, params, body, env),
+                Value::Closure(closure) => eval_closure(&args, closure),
                 Value::Int(_)
                 | Value::Unit
                 | Value::Str(_)
@@ -56,43 +61,81 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                 | Value::Ident(_) => Err(EvaluatorError::NotCallable { value: callable }),
             }
         }
-        Value::Closure { params, body, env } => eval_closure(&[], params, body, env),
+        Value::Closure(closure) => eval_closure(&[], closure),
     }
 }
 
-fn eval_closure(
-    args: &[Rc<Value>],
-    params: &[Rc<str>],
-    body: &Rc<Value>,
-    env: &Env,
-) -> Result<(Rc<Value>, Env), EvaluatorError> {
-    if params.len() != args.len() {
+fn eval_closure(args: &[Rc<Value>], closure: &Rc<Closure>) -> Result<(Rc<Value>, Env), EvaluatorError> {
+    if closure.params.len() != args.len() {
         return Err(EvaluatorError::ArityMismatch {
             name: "<closure>".into(),
-            expected: params.len(),
+            expected: closure.params.len(),
             got: args.len(),
         });
     }
 
-    let mut call_env = env.clone();
-    for (ident, arg) in params.iter().zip(args) {
+    // Bind the closure under its own name so the body can call itself.
+    let mut call_env = closure
+        .env
+        .clone()
+        .update(closure.name.clone(), Rc::new(Value::Closure(closure.clone())));
+    for (ident, arg) in closure.params.iter().zip(args) {
         call_env = call_env.update(ident.clone(), arg.clone());
     }
-    eval(body.clone(), &call_env)
+    eval(closure.body.clone(), &call_env)
 }
 
-fn eval_assign(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    if items.len() != 2 {
+    if items.len() != 3 {
         return Err(EvaluatorError::ArityMismatch {
-            name: KW_LET.into(),
+            name: KW_DEFUN.into(),
             expected: 2,
             got: items.len(),
         });
     }
     let Value::Ident(name) = &*items[0] else {
         return Err(EvaluatorError::TypeMismatch {
-            name: KW_LET.into(),
+            name: KW_DEFUN.into(),
+            expected: "ident".into(),
+            got: Value::type_name(&items[0]).into(),
+        });
+    };
+
+    let mut params = Vec::new();
+    for param in Value::iter(&items[1]) {
+        let Value::Ident(p) = &*param else {
+            return Err(EvaluatorError::TypeMismatch {
+                name: KW_DEFUN.into(),
+                expected: "ident".into(),
+                got: Value::type_name(&param).into(),
+            });
+        };
+        params.push(p.clone());
+    }
+
+    let closure = Rc::new(Value::Closure(Rc::new(Closure {
+        name: name.clone(),
+        params,
+        body: items[2].clone(),
+        env: env.clone(),
+    })));
+    let env = env.clone().update(name.clone(), closure.clone());
+    Ok((closure, env))
+}
+
+fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+    let items: Vec<_> = Value::iter(tail).collect();
+    if items.len() != 2 {
+        return Err(EvaluatorError::ArityMismatch {
+            name: KW_DEFVAR.into(),
+            expected: 2,
+            got: items.len(),
+        });
+    }
+    let Value::Ident(name) = &*items[0] else {
+        return Err(EvaluatorError::TypeMismatch {
+            name: KW_DEFVAR.into(),
             expected: "ident".into(),
             got: Value::type_name(&items[0]).into(),
         });
@@ -406,11 +449,12 @@ mod tests {
     #[test]
     fn closure_applied_by_name() {
         // (id 5) where id is the identity closure -> 5.
-        let id = Rc::new(Value::Closure {
+        let id = Rc::new(Value::Closure(Rc::new(Closure {
+            name: "id".into(),
             params: vec!["x".into()],
             body: ident("x"),
             env: Env::new(),
-        });
+        })));
         let env = Env::new().update("id".into(), id);
         let form = list(vec![ident("id"), int(5)]);
         let (v, _) = eval_ok(form, &env);
@@ -422,7 +466,7 @@ mod tests {
         // The head need not be a bare ident: any expression evaluating to a
         // callable works. `(let f plus)` evaluates to the `plus` builtin.
         let env = Env::new().update("plus".into(), add_builtin());
-        let head = list(vec![ident(KW_LET), ident("f"), ident("plus")]);
+        let head = list(vec![ident(KW_DEFVAR), ident("f"), ident("plus")]);
         let form = list(vec![head, int(1), int(2)]);
         let (v, _) = eval_ok(form, &env);
         assert_eq!(*v, Value::Int(3));
@@ -458,22 +502,24 @@ mod tests {
 
     #[test]
     fn zero_arg_closure_form_evaluates_its_body() {
-        let clo = Rc::new(Value::Closure {
+        let clo = Rc::new(Value::Closure(Rc::new(Closure {
+            name: "".into(),
             params: vec![],
             body: int(7),
             env: Env::new(),
-        });
+        })));
         let (v, _) = eval_ok(clo, &Env::new());
         assert_eq!(*v, Value::Int(7));
     }
 
     #[test]
     fn closure_form_with_params_errors_on_zero_args() {
-        let clo = Rc::new(Value::Closure {
+        let clo = Rc::new(Value::Closure(Rc::new(Closure {
+            name: "".into(),
             params: vec!["x".into()],
             body: ident("x"),
             env: Env::new(),
-        });
+        })));
         let err = eval_err(clo, &Env::new());
         assert!(matches!(
             err,
@@ -485,19 +531,27 @@ mod tests {
         ));
     }
 
+    /// Build an `Rc<Closure>` for exercising `eval_closure` directly.
+    fn closure(params: Vec<Rc<str>>, body: Rc<Value>, env: Env) -> Rc<Closure> {
+        Rc::new(Closure {
+            name: "".into(),
+            params,
+            body,
+            env,
+        })
+    }
+
     #[test]
     fn eval_closure_binds_params_then_evaluates_body() {
-        let params: Vec<Rc<str>> = vec!["x".into()];
-        let (v, _) =
-            eval_closure(&[int(5)], &params, &ident("x"), &Env::new()).expect("expected ok");
+        let clo = closure(vec!["x".into()], ident("x"), Env::new());
+        let (v, _) = eval_closure(&[int(5)], &clo).expect("expected ok");
         assert_eq!(*v, Value::Int(5));
     }
 
     #[test]
     fn eval_closure_arity_mismatch_errors() {
-        let params: Vec<Rc<str>> = vec!["x".into()];
-        let err = eval_closure(&[int(1), int(2)], &params, &ident("x"), &Env::new())
-            .expect_err("expected err");
+        let clo = closure(vec!["x".into()], ident("x"), Env::new());
+        let err = eval_closure(&[int(1), int(2)], &clo).expect_err("expected err");
         assert!(matches!(
             err,
             EvaluatorError::ArityMismatch {
@@ -511,17 +565,127 @@ mod tests {
     #[test]
     fn eval_closure_resolves_body_against_captured_env() {
         let captured = Env::new().update("z".into(), int(10));
-        let (v, _) = eval_closure(&[], &[], &ident("z"), &captured).expect("expected ok");
+        let clo = closure(vec![], ident("z"), captured);
+        let (v, _) = eval_closure(&[], &clo).expect("expected ok");
         assert_eq!(*v, Value::Int(10));
     }
 
     #[test]
     fn eval_closure_param_shadows_captured_binding() {
         let captured = Env::new().update("x".into(), int(1));
-        let params: Vec<Rc<str>> = vec!["x".into()];
-        let (v, _) =
-            eval_closure(&[int(99)], &params, &ident("x"), &captured).expect("expected ok");
+        let clo = closure(vec!["x".into()], ident("x"), captured);
+        let (v, _) = eval_closure(&[int(99)], &clo).expect("expected ok");
         assert_eq!(*v, Value::Int(99));
+    }
+
+    // ----- fn special form -----
+
+    #[test]
+    fn defun_returns_a_closure() {
+        // (fn id (x) x)
+        let form = list(vec![
+            ident(KW_DEFUN),
+            ident("id"),
+            list(vec![ident("x")]),
+            ident("x"),
+        ]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert!(matches!(
+            &*v,
+            Value::Closure(c) if c.params.len() == 1 && &*c.params[0] == "x"
+        ));
+    }
+
+    #[test]
+    fn defun_binds_name_and_is_callable() {
+        // (fn id (x) x) then (id 5) -> 5
+        let def = list(vec![
+            ident(KW_DEFUN),
+            ident("id"),
+            list(vec![ident("x")]),
+            ident("x"),
+        ]);
+        let (_, env) = eval_ok(def, &Env::new());
+        assert!(matches!(&*lookup(&env, "id"), Value::Closure(_)));
+
+        let call = list(vec![ident("id"), int(5)]);
+        let (v, _) = eval_ok(call, &env);
+        assert_eq!(*v, Value::Int(5));
+    }
+
+    #[test]
+    fn defun_zero_params() {
+        // (fn answer () 42) then (answer) -> 42
+        let def = list(vec![ident(KW_DEFUN), ident("answer"), unit(), int(42)]);
+        let (_, env) = eval_ok(def, &Env::new());
+        let (v, _) = eval_ok(list(vec![ident("answer")]), &env);
+        assert_eq!(*v, Value::Int(42));
+    }
+
+    #[test]
+    fn defun_captures_definition_env() {
+        // (fn get () z) with z bound at definition -> calling it yields z.
+        let env = Env::new().update("z".into(), int(10));
+        let def = list(vec![ident(KW_DEFUN), ident("get"), unit(), ident("z")]);
+        let (_, env) = eval_ok(def, &env);
+        let (v, _) = eval_ok(list(vec![ident("get")]), &env);
+        assert_eq!(*v, Value::Int(10));
+    }
+
+    #[test]
+    fn defun_body_can_reference_itself() {
+        // (fn loopy (x) loopy) then (loopy 0) -> the function's own name resolves
+        // to its closure inside the body, which is what enables recursion. Without
+        // the self-binding this would fail with UnknownIdent("loopy").
+        let def = list(vec![
+            ident(KW_DEFUN),
+            ident("loopy"),
+            list(vec![ident("x")]),
+            ident("loopy"),
+        ]);
+        let (_, env) = eval_ok(def, &Env::new());
+        let (v, _) = eval_ok(list(vec![ident("loopy"), int(0)]), &env);
+        assert!(matches!(&*v, Value::Closure(c) if &*c.name == "loopy"));
+    }
+
+    #[test]
+    fn defun_non_ident_name_errors() {
+        let form = list(vec![
+            ident(KW_DEFUN),
+            int(5),
+            list(vec![ident("x")]),
+            ident("x"),
+        ]);
+        let err = eval_err(form, &Env::new());
+        assert!(matches!(
+            err,
+            EvaluatorError::TypeMismatch { expected, got, .. }
+                if &*expected == "ident" && &*got == "int"
+        ));
+    }
+
+    #[test]
+    fn defun_non_ident_param_errors() {
+        let form = list(vec![
+            ident(KW_DEFUN),
+            ident("f"),
+            list(vec![int(1)]),
+            ident("x"),
+        ]);
+        let err = eval_err(form, &Env::new());
+        assert!(matches!(
+            err,
+            EvaluatorError::TypeMismatch { expected, got, .. }
+                if &*expected == "ident" && &*got == "int"
+        ));
+    }
+
+    #[test]
+    fn defun_arity_error() {
+        // (fn f (x)) is missing a body.
+        let form = list(vec![ident(KW_DEFUN), ident("f"), list(vec![ident("x")])]);
+        let err = eval_err(form, &Env::new());
+        assert!(matches!(err, EvaluatorError::ArityMismatch { got: 2, .. }));
     }
 
     // ----- quasiquote -----
