@@ -1,3 +1,4 @@
 fn main() {
-    println!("Hello, world!");
+    let n = true as i64;
+    println!("{}", n);
 }

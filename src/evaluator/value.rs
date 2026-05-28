@@ -9,8 +9,16 @@ use crate::{
 // ---------------------------------------------------------------------------
 // Core types
 // ---------------------------------------------------------------------------
+
+/// A native function callable from risp. Receives its already-evaluated
+/// arguments and the current environment, and returns a value plus a
+/// (possibly updated) environment.
 pub type BuiltinFn = Rc<dyn Fn(&[Rc<Value>], &Env) -> Result<(Rc<Value>, Env), EvaluatorError>>;
 
+/// A runtime value. The first five variants are data (and double as the AST
+/// the evaluator walks); the last two are the two kinds of callable.
+///
+/// Lists are `Cons` chains terminated by `Unit`, mirroring [`crate::parser::Sexp`].
 #[derive(Clone)]
 pub enum Value {
     Str(Rc<str>),
@@ -23,6 +31,9 @@ pub enum Value {
     Closure(Rc<Closure>),
 }
 
+/// A user-defined function: its `name`, parameter names, body form, and the
+/// `env` captured where it was defined (lexical scope). The name lets the body
+/// refer to itself, which is what enables recursion.
 #[derive(Clone, PartialEq)]
 pub struct Closure {
     pub name: Rc<str>,
@@ -36,10 +47,13 @@ pub struct Closure {
 // ---------------------------------------------------------------------------
 
 impl Value {
+    /// Iterates the elements of a cons list. A non-list value yields itself
+    /// once (see [`Iter`]).
     pub fn iter(value: &Rc<Value>) -> impl Iterator<Item = Rc<Value>> {
         Iter::new(value.clone())
     }
 
+    /// The variant's name, for use in error messages.
     pub fn type_name(v: &Value) -> &'static str {
         match v {
             Self::Str(_) => "str",
@@ -55,6 +69,8 @@ impl Value {
 
     // --- Type predicates ---
 
+    /// Whether the value counts as true in a condition. Everything is truthy
+    /// except `Unit`, zero numbers, and empty strings/identifiers.
     pub fn is_truthy(&self) -> bool {
         match self {
             Self::Str(s) => !s.is_empty(),
@@ -131,6 +147,9 @@ impl PartialEq for Value {
 // Numeric trait
 // ---------------------------------------------------------------------------
 
+/// Bridges Rust's numeric types (`i64`, `f64`) to [`Value`], letting the
+/// arithmetic builtins in [`crate::prelude::numbers`] be written generically
+/// over both. `TYPE_NAME` is used in type-mismatch error messages.
 pub trait Numeric: Sized + Copy {
     fn from_value(v: &Value) -> Option<Self>;
     fn into_value(self) -> Value;
@@ -216,6 +235,9 @@ impl Debug for DepthLimited<'_> {
 // Iterator
 // ---------------------------------------------------------------------------
 
+/// Walks a cons list, yielding each `head`. A `Unit` terminates iteration; a
+/// non-list (leaf) value yields itself once, which lets callers treat a lone
+/// argument and a one-element list uniformly.
 pub struct Iter {
     cur: Rc<Value>,
 }

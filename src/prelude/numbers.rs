@@ -1,8 +1,17 @@
+//! Arithmetic and comparison builtins.
+//!
+//! Every operator here is binary and works on two ints or two floats (never a
+//! mix). They share the generic `binop` machinery, which dispatches on the
+//! argument type and turns Rust-level faults (overflow, divide-by-zero, NaN)
+//! into [`EvaluatorError::ArithmeticError`]. Comparisons return `1` for true
+//! and `0` for false.
+
 use crate::evaluator::Numeric;
 use std::rc::Rc;
 
 use crate::evaluator::{BuiltinFn, Env, EvaluatorError, Value};
 
+/// The arithmetic/comparison builtins: `+ - * /`, `cmp`, and `> >= < <=`.
 pub fn env() -> Env {
     Env::of_builtins(vec![
         ("+", add()),
@@ -16,6 +25,8 @@ pub fn env() -> Env {
         ("<=", lte()),
     ])
 }
+
+/// `ctx` extended with this module's builtins.
 pub fn install(ctx: Env) -> Env {
     env().union(ctx)
 }
@@ -89,6 +100,9 @@ fn lte() -> BuiltinFn {
     binop("lte", |a, b| Ok(a <= b), |a, b| Ok(a <= b))
 }
 
+/// Attempts `op` for the numeric type `N`. Returns `Ok(None)` if the first
+/// argument isn't an `N` (so the caller can try the other type), `Err` if the
+/// first is an `N` but the second isn't, or if `op` itself fails.
 fn try_binop<N, T, F>(
     name: &'static str,
     args: &[Rc<Value>],
@@ -118,6 +132,9 @@ where
     }
 }
 
+/// Builds a binary builtin from an integer and a float implementation. The
+/// returned function enforces arity 2, then dispatches to `int_op` for two
+/// ints or `float_op` for two floats, erroring on any other argument types.
 fn binop<TI, TF, FI, FF>(name: &'static str, int_op: FI, float_op: FF) -> BuiltinFn
 where
     TI: Into<Value>,

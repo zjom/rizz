@@ -1,6 +1,15 @@
+//! The tree-walking evaluator.
+//!
+//! [`eval`] threads an [`Env`] through evaluation: it takes a form and an
+//! environment and returns the resulting value together with a (possibly
+//! extended) environment, so top-level `let`/`fn` definitions are visible to
+//! later forms. When a list's head is one of the keywords below it is handled
+//! as a special form; otherwise the list is a function application.
+
 use crate::evaluator::{Closure, Env, EvaluatorError, Value};
 use std::rc::Rc;
 
+// Identifiers that, in head position, are special forms rather than calls.
 const KW_DEFVAR: &str = "let";
 const KW_DEFUN: &str = "fn";
 const KW_QUOTE: &str = "quote";
@@ -9,6 +18,13 @@ const KW_UNQUOTE: &str = "unquote";
 const KW_UNQUOTE_SPLICE: &str = "unquote-splice";
 const KW_IF: &str = "if";
 
+/// Evaluates `form` in environment `ctx`, returning the value and the resulting
+/// environment.
+///
+/// Atoms self-evaluate; identifiers resolve via the environment; a `Cons`
+/// whose head is a special-form keyword is dispatched accordingly, and any
+/// other `Cons` is a function application — arguments are evaluated left to
+/// right, then the head is applied as a builtin or closure.
 pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
     match &*form {
         Value::Int(_) | Value::Unit | Value::Str(_) | Value::Float(_) | Value::BuiltinFn(_) => {
@@ -75,6 +91,9 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
     }
 }
 
+/// Applies `closure` to `args`: checks arity, binds the closure to its own
+/// name (so the body can recurse) and each parameter to its argument in the
+/// captured environment, then evaluates the body.
 fn eval_closure(
     args: &[Rc<Value>],
     closure: &Rc<Closure>,
@@ -98,6 +117,8 @@ fn eval_closure(
     eval(closure.body.clone(), &call_env)
 }
 
+/// `(fn name (params...) body)`: builds a [`Closure`] capturing `env`, binds it
+/// under `name`, and returns the closure along with the extended environment.
 fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 3 {
@@ -137,6 +158,8 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluator
     Ok((closure, env))
 }
 
+/// `(let name value)`: evaluates `value`, binds it to `name`, and returns the
+/// value with the extended environment.
 fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 2 {
@@ -179,6 +202,7 @@ fn eval_if(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
     }
 }
 
+/// `(quote x)`: returns `x` unevaluated.
 fn eval_quote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 1 {
@@ -192,6 +216,8 @@ fn eval_quote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluator
     Ok((items[0].clone(), env.clone()))
 }
 
+/// `(quasi x)`: returns `x` as a literal, except that `unquote` subforms are
+/// evaluated and `unquote-splice` elements are spliced in (see [`quasi`]).
 fn eval_quasiquote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 1 {
@@ -251,6 +277,8 @@ fn tagged<'a>(v: &'a Value, name: &str) -> Option<&'a Rc<Value>> {
     }
 }
 
+/// Extracts the single operand `x` from an `(unquote x)` / `(unquote-splice x)`
+/// tail, erroring if the form does not have exactly one argument.
 fn unquote_operand(name: &'static str, tail: &Rc<Value>) -> Result<Rc<Value>, EvaluatorError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 1 {

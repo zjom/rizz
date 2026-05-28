@@ -1,6 +1,9 @@
 use crate::evaluator::Value;
 use std::rc::Rc;
 
+/// A failure raised while evaluating a form: an unbound identifier, a call to
+/// a non-callable value, a wrong argument count or type, or an arithmetic
+/// fault (overflow, division by zero, NaN comparison).
 #[derive(Debug, thiserror::Error)]
 pub enum EvaluatorError {
     #[error("unknown ident {0}")]

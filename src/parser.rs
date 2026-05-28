@@ -1,3 +1,15 @@
+//! Reads source bytes into an [`Sexp`] tree.
+//!
+//! The grammar is minimal: a program is a single parenthesized list whose
+//! elements are atoms ([`Atomic`]: strings, ints, floats, identifiers) or
+//! nested lists. Lists are represented as cons chains terminated by
+//! [`Sexp::Unit`] (nil).
+//!
+//! [`Parser`] streams from any [`Read`] one buffer at a time and tracks a
+//! [`Position`] (line/column/byte) so every [`ParseError`] can point at the
+//! offending location. Identifiers are interned so repeated names share one
+//! `Rc<str>`.
+
 use std::{
     collections::HashSet,
     io::{BufRead, BufReader, Read},
@@ -5,6 +17,8 @@ use std::{
 
 use std::rc::Rc;
 
+/// A location in the source, tracked as the parser consumes bytes. Lines and
+/// columns are 1-based; `byte` is a 0-based offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Position {
     pub byte: usize,
@@ -43,6 +57,9 @@ impl std::fmt::Display for Position {
     }
 }
 
+/// A parse failure, carrying the [`Position`] where it was detected. Variants
+/// cover unbalanced parentheses, malformed numbers/strings, non-UTF-8 input,
+/// and underlying I/O errors (including unexpected EOF).
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     #[error("expected open brace at {at}")]
@@ -82,6 +99,7 @@ pub enum ParseError {
     },
 }
 
+/// A leaf token: a string literal, integer, float, or identifier.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Atomic {
     Str(Rc<str>),
@@ -89,6 +107,9 @@ pub enum Atomic {
     Float(f64),
     Ident(Rc<str>),
 }
+
+/// A parsed s-expression. Lists are cons chains of `Exp { head, tail }` ending
+/// in `Unit`, which also stands for the empty list `()` (nil).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sexp {
     Unit,
@@ -96,6 +117,10 @@ pub enum Sexp {
     Exp { head: Rc<Sexp>, tail: Rc<Sexp> },
 }
 
+/// A streaming recursive-descent parser over any [`Read`] source.
+///
+/// `list_depth` tracks open parentheses so an EOF can be reported as a missing
+/// close brace; `idents` interns identifier names across the parse.
 pub struct Parser<R: Read> {
     reader: BufReader<R>,
     pos: Position,
@@ -110,6 +135,7 @@ impl<R> Parser<R>
 where
     R: Read,
 {
+    /// Creates a parser that reads from `r`.
     pub fn new(r: R) -> Self {
         Self {
             reader: BufReader::new(r),
@@ -118,12 +144,17 @@ where
             list_depth: 0,
         }
     }
+
+    /// Parses a single top-level form, which must be a parenthesized list.
+    /// Leading whitespace is skipped; a missing opening `(` is an error.
     pub fn parse(&mut self) -> Result<Sexp, ParseError> {
         self.skip_whitespace()?;
         self.skip_open()?;
         self.parse_list_tail()
     }
 
+    /// The set of identifier names interned so far. Repeated identifiers in the
+    /// source share a single `Rc<str>` drawn from this set.
     pub fn idents(&self) -> &HashSet<Rc<str>> {
         &self.idents
     }
