@@ -40,7 +40,7 @@ fn put() -> BuiltinFn {
         if args.len() != 3 {
             return Err(RuntimeError::ArityMismatch {
                 name: name.clone(),
-                expected: 2,
+                expected: 3,
                 got: args.len(),
             });
         }
