@@ -4,13 +4,17 @@
 //! default environment that [`crate::parse_and_run`] evaluates against.
 
 pub mod eq;
+pub mod map;
 pub mod numbers;
 
 use crate::runtime::Env;
 
-/// The default environment: every builtin from [`numbers`] and [`eq`].
+/// The default environment: every builtin from [`numbers`], [`eq`] [`map`].
 pub fn env() -> Env {
-    Env::new().union(numbers::env()).union(eq::env())
+    Env::new()
+        .union(numbers::env())
+        .union(eq::env())
+        .union(map::env())
 }
 
 /// The default environment merged with `e`. On key collisions the prelude's
