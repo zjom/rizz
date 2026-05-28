@@ -140,7 +140,7 @@ where
                 Sexp::Collection(xs)
             }
             _ => {
-                let t = self.parse_atom()?;
+                let t = self.parse_atomic()?;
                 Sexp::Atom(t)
             }
         };
@@ -155,7 +155,7 @@ where
         }
     }
 
-    fn parse_atom(&mut self) -> Result<Atomic, ParseError> {
+    fn parse_atomic(&mut self) -> Result<Atomic, ParseError> {
         let mut buf = [0u8; 2];
         self.peek_many(&mut buf)?;
         match buf {
