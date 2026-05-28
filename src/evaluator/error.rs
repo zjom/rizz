@@ -22,4 +22,7 @@ pub enum EvaluatorError {
         expected: Rc<str>,
         got: Rc<str>,
     },
+
+    #[error("{name} failed: {reason}")]
+    ArithmeticError { name: Rc<str>, reason: Rc<str> },
 }

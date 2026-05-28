@@ -54,7 +54,12 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                     let (v, ctx) = f(&args, &ctx)?;
                     eval(v, &ctx)
                 }
-                Value::Closure(closure) => eval_closure(&args, closure),
+                Value::Closure(closure) => {
+                    // A call must not leak the callee's local bindings back into
+                    // the caller, so keep the caller's env rather than the body's.
+                    let (v, _) = eval_closure(&args, closure)?;
+                    Ok((v, ctx.clone()))
+                }
                 Value::Int(_)
                 | Value::Unit
                 | Value::Str(_)
@@ -63,7 +68,10 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                 | Value::Ident(_) => Err(EvaluatorError::NotCallable { value: callable }),
             }
         }
-        Value::Closure(closure) => eval_closure(&[], closure),
+        Value::Closure(closure) => {
+            let (v, _) = eval_closure(&[], closure)?;
+            Ok((v, ctx.clone()))
+        }
     }
 }
 
@@ -95,7 +103,7 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluator
     if items.len() != 3 {
         return Err(EvaluatorError::ArityMismatch {
             name: KW_DEFUN.into(),
-            expected: 2,
+            expected: 3,
             got: items.len(),
         });
     }
@@ -710,7 +718,14 @@ mod tests {
         // (fn f (x)) is missing a body.
         let form = list(vec![ident(KW_DEFUN), ident("f"), list(vec![ident("x")])]);
         let err = eval_err(form, &Env::new());
-        assert!(matches!(err, EvaluatorError::ArityMismatch { got: 2, .. }));
+        assert!(matches!(
+            err,
+            EvaluatorError::ArityMismatch {
+                expected: 3,
+                got: 2,
+                ..
+            }
+        ));
     }
 
     // ----- if special form -----

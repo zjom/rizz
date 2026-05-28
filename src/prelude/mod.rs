@@ -8,5 +8,5 @@ pub fn env() -> Env {
 }
 
 pub fn install(e: Env) -> Env {
-    e.union(env())
+    env().union(e)
 }

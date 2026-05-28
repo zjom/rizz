@@ -26,6 +26,8 @@ impl Env {
         self.0.get(k)
     }
 
+    /// Construct the union of two maps, keeping the values in the
+    /// current map when keys exist in both maps.
     pub fn union(self, other: Self) -> Self {
         Self(self.0.union(other.0))
     }

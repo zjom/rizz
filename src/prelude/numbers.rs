@@ -21,50 +21,72 @@ pub fn install(ctx: Env) -> Env {
 }
 
 fn add() -> BuiltinFn {
-    binop("add", |a, b| a + b, |a, b| a + b)
+    binop(
+        "add",
+        |a, b| a.checked_add(b).ok_or("integer overflow"),
+        |a, b| Ok(a + b),
+    )
 }
 fn sub() -> BuiltinFn {
-    binop("sub", |a, b| a - b, |a, b| a - b)
+    binop(
+        "sub",
+        |a, b| a.checked_sub(b).ok_or("integer overflow"),
+        |a, b| Ok(a - b),
+    )
 }
 
 fn mul() -> BuiltinFn {
-    binop("mul", |a, b| a * b, |a, b| a * b)
+    binop(
+        "mul",
+        |a, b| a.checked_mul(b).ok_or("integer overflow"),
+        |a, b| Ok(a * b),
+    )
 }
 
 fn div() -> BuiltinFn {
-    binop("div", |a, b| a / b, |a, b| a / b)
+    binop(
+        "div",
+        |a, b| a.checked_div(b).ok_or("division by zero"),
+        |a, b| Ok(a / b),
+    )
 }
 
 fn cmp() -> BuiltinFn {
     binop(
         "cmp",
-        |a, b| match a.cmp(&b) {
-            std::cmp::Ordering::Less => -1,
-            std::cmp::Ordering::Greater => 1,
-            std::cmp::Ordering::Equal => 0,
+        |a, b| {
+            Ok(match a.cmp(&b) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Greater => 1,
+                std::cmp::Ordering::Equal => 0,
+            })
         },
-        |a, b| match a.partial_cmp(&b).expect("NaN's are unexpressable") {
-            std::cmp::Ordering::Less => -1.,
-            std::cmp::Ordering::Greater => 1.,
-            std::cmp::Ordering::Equal => 0.,
+        |a, b| {
+            a.partial_cmp(&b)
+                .map(|o| match o {
+                    std::cmp::Ordering::Less => -1.,
+                    std::cmp::Ordering::Greater => 1.,
+                    std::cmp::Ordering::Equal => 0.,
+                })
+                .ok_or("comparison with NaN")
         },
     )
 }
 
 fn gt() -> BuiltinFn {
-    binop("gt", |a, b| a > b, |a, b| a > b)
+    binop("gt", |a, b| Ok(a > b), |a, b| Ok(a > b))
 }
 
 fn gte() -> BuiltinFn {
-    binop("gte", |a, b| a > b, |a, b| a > b)
+    binop("gte", |a, b| Ok(a >= b), |a, b| Ok(a >= b))
 }
 
 fn lt() -> BuiltinFn {
-    binop("lt", |a, b| a > b, |a, b| a > b)
+    binop("lt", |a, b| Ok(a < b), |a, b| Ok(a < b))
 }
 
 fn lte() -> BuiltinFn {
-    binop("lte", |a, b| a > b, |a, b| a > b)
+    binop("lte", |a, b| Ok(a <= b), |a, b| Ok(a <= b))
 }
 
 fn try_binop<N, T, F>(
@@ -75,17 +97,23 @@ fn try_binop<N, T, F>(
 where
     N: Numeric,
     T: Into<Value>,
-    F: Fn(N, N) -> T,
+    F: Fn(N, N) -> Result<T, &'static str>,
 {
     let Some(a) = N::from_value(&args[0]) else {
         return Ok(None);
     };
-    match N::from_value(&args[1]) {
-        Some(b) => Ok(Some(Rc::new(op(a, b).into()))),
-        None => Err(EvaluatorError::TypeMismatch {
+    let Some(b) = N::from_value(&args[1]) else {
+        return Err(EvaluatorError::TypeMismatch {
             name: name.into(),
             expected: format!("{0}*{0}", N::TYPE_NAME).into(),
             got: format!("{}*other", N::TYPE_NAME).into(),
+        });
+    };
+    match op(a, b) {
+        Ok(v) => Ok(Some(Rc::new(v.into()))),
+        Err(reason) => Err(EvaluatorError::ArithmeticError {
+            name: name.into(),
+            reason: reason.into(),
         }),
     }
 }
@@ -94,8 +122,8 @@ fn binop<TI, TF, FI, FF>(name: &'static str, int_op: FI, float_op: FF) -> Builti
 where
     TI: Into<Value>,
     TF: Into<Value>,
-    FI: Fn(i64, i64) -> TI + 'static,
-    FF: Fn(f64, f64) -> TF + 'static,
+    FI: Fn(i64, i64) -> Result<TI, &'static str> + 'static,
+    FF: Fn(f64, f64) -> Result<TF, &'static str> + 'static,
 {
     Rc::new(move |args, env| {
         if args.len() != 2 {
@@ -117,4 +145,86 @@ where
             got: "other".into(),
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RispError;
+
+    fn run(src: &str) -> Result<Rc<Value>, RispError> {
+        crate::parse_and_run(src.as_bytes()).map(|(v, _)| v)
+    }
+
+    fn run_ok(src: &str) -> Rc<Value> {
+        run(src).expect("expected successful eval")
+    }
+
+    // ----- comparison operators -----
+
+    #[test]
+    fn gt() {
+        assert_eq!(*run_ok("(> 2 1)"), Value::Int(1));
+        assert_eq!(*run_ok("(> 1 2)"), Value::Int(0));
+        assert_eq!(*run_ok("(> 2 2)"), Value::Int(0));
+    }
+
+    #[test]
+    fn gte() {
+        assert_eq!(*run_ok("(>= 2 1)"), Value::Int(1));
+        assert_eq!(*run_ok("(>= 2 2)"), Value::Int(1));
+        assert_eq!(*run_ok("(>= 1 2)"), Value::Int(0));
+    }
+
+    #[test]
+    fn lt() {
+        assert_eq!(*run_ok("(< 1 2)"), Value::Int(1));
+        assert_eq!(*run_ok("(< 2 1)"), Value::Int(0));
+        assert_eq!(*run_ok("(< 2 2)"), Value::Int(0));
+    }
+
+    #[test]
+    fn lte() {
+        assert_eq!(*run_ok("(<= 1 2)"), Value::Int(1));
+        assert_eq!(*run_ok("(<= 2 2)"), Value::Int(1));
+        assert_eq!(*run_ok("(<= 3 2)"), Value::Int(0));
+    }
+
+    #[test]
+    fn comparisons_work_on_floats() {
+        assert_eq!(*run_ok("(< 1.5 2.5)"), Value::Int(1));
+        assert_eq!(*run_ok("(>= 2.5 2.5)"), Value::Int(1));
+        assert_eq!(*run_ok("(<= 3.5 2.5)"), Value::Int(0));
+    }
+
+    // ----- arithmetic that must not panic the interpreter -----
+
+    #[test]
+    fn integer_division_by_zero_is_error() {
+        assert!(matches!(
+            run("(/ 1 0)"),
+            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+        ));
+    }
+
+    #[test]
+    fn integer_overflow_is_error() {
+        assert!(matches!(
+            run("(+ 9223372036854775807 1)"),
+            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+        ));
+        assert!(matches!(
+            run("(* 9223372036854775807 9223372036854775807)"),
+            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+        ));
+    }
+
+    #[test]
+    fn cmp_with_nan_is_error() {
+        // 0.0 / 0.0 is NaN; comparing it must error rather than panic.
+        assert!(matches!(
+            run("(cmp (/ 0.0 0.0) 1.0)"),
+            Err(RispError::RuntimeError(EvaluatorError::ArithmeticError { .. }))
+        ));
+    }
 }

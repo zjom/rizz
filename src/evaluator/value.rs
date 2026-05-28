@@ -64,7 +64,7 @@ impl Value {
             Self::Unit => false,
             Self::BuiltinFn(_) => true,
             Self::Closure(_) => true,
-            Self::Cons { head, .. } => !matches!(&**head, Value::Unit),
+            Self::Cons { .. } => true,
         }
     }
 

@@ -317,7 +317,8 @@ where
                 self.list_depth += 1;
             }
             b')' => {
-                self.list_depth
+                self.list_depth = self
+                    .list_depth
                     .checked_sub(1)
                     .ok_or(ParseError::UnexpectedCloseBrace { at })?;
             }
