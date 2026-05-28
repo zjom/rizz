@@ -55,6 +55,19 @@ impl Value {
 
     // --- Type predicates ---
 
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Self::Str(s) => !s.is_empty(),
+            Self::Int(n) => *n != 0,
+            Self::Float(n) => *n != 0.,
+            Self::Ident(s) => !s.is_empty(),
+            Self::Unit => false,
+            Self::BuiltinFn(_) => true,
+            Self::Closure(_) => true,
+            Self::Cons { head, .. } => !matches!(&**head, Value::Unit),
+        }
+    }
+
     pub fn is_callable(&self) -> bool {
         matches!(self, Value::BuiltinFn(_) | Value::Closure(_))
     }

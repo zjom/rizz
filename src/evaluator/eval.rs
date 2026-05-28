@@ -7,6 +7,7 @@ const KW_QUOTE: &str = "quote";
 const KW_QUASIQUOTE: &str = "quasi";
 const KW_UNQUOTE: &str = "unquote";
 const KW_UNQUOTE_SPLICE: &str = "unquote-splice";
+const KW_IF: &str = "if";
 
 pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
     match &*form {
@@ -36,6 +37,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), EvaluatorErr
                         let (v, env) = eval_defun(tail, ctx)?;
                         return Ok((v, env.clone()));
                     }
+                    KW_IF => return eval_if(tail, ctx),
                     _ => {}
                 }
             }
@@ -147,6 +149,26 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Evaluato
     let (val, env) = eval(items[1].clone(), env)?;
     let env = env.update(name.clone(), val.clone());
     Ok((val, env))
+}
+
+/// `(if cond then else)`: evaluates `cond`, then evaluates only the matching
+/// branch so the untaken branch never runs.
+fn eval_if(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
+    let items: Vec<_> = Value::iter(tail).collect();
+    if items.len() != 3 {
+        return Err(EvaluatorError::ArityMismatch {
+            name: KW_IF.into(),
+            expected: 3,
+            got: items.len(),
+        });
+    }
+
+    let (cond, env) = eval(items[0].clone(), env)?;
+    if cond.is_truthy() {
+        eval(items[1].clone(), &env)
+    } else {
+        eval(items[2].clone(), &env)
+    }
 }
 
 fn eval_quote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), EvaluatorError> {
@@ -689,6 +711,64 @@ mod tests {
         let form = list(vec![ident(KW_DEFUN), ident("f"), list(vec![ident("x")])]);
         let err = eval_err(form, &Env::new());
         assert!(matches!(err, EvaluatorError::ArityMismatch { got: 2, .. }));
+    }
+
+    // ----- if special form -----
+
+    #[test]
+    fn if_truthy_cond_evaluates_then_branch() {
+        // (if 1 10 20) -> 10
+        let form = list(vec![ident(KW_IF), int(1), int(10), int(20)]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Int(10));
+    }
+
+    #[test]
+    fn if_falsey_cond_evaluates_else_branch() {
+        // (if 0 10 20) -> 20
+        let form = list(vec![ident(KW_IF), int(0), int(10), int(20)]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Int(20));
+    }
+
+    #[test]
+    fn if_evaluates_its_condition() {
+        // (if x 10 20) with x bound to 5 (truthy) -> 10
+        let env = Env::new().update("x".into(), int(5));
+        let form = list(vec![ident(KW_IF), ident("x"), int(10), int(20)]);
+        let (v, _) = eval_ok(form, &env);
+        assert_eq!(*v, Value::Int(10));
+    }
+
+    #[test]
+    fn if_does_not_evaluate_untaken_branch() {
+        // (if 1 10 undefined): the false branch references an unbound ident, but
+        // it must never be evaluated since the condition is truthy.
+        let form = list(vec![ident(KW_IF), int(1), int(10), ident("undefined")]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Int(10));
+    }
+
+    #[test]
+    fn if_propagates_condition_eval_error() {
+        let form = list(vec![ident(KW_IF), ident("undefined"), int(10), int(20)]);
+        let err = eval_err(form, &Env::new());
+        assert!(matches!(err, EvaluatorError::UnknownIdent(s) if &*s == "undefined"));
+    }
+
+    #[test]
+    fn if_arity_error() {
+        // (if 1 10) is missing the else branch.
+        let form = list(vec![ident(KW_IF), int(1), int(10)]);
+        let err = eval_err(form, &Env::new());
+        assert!(matches!(
+            err,
+            EvaluatorError::ArityMismatch {
+                expected: 3,
+                got: 2,
+                ..
+            }
+        ));
     }
 
     // ----- quasiquote -----
