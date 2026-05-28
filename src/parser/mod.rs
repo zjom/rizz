@@ -78,9 +78,18 @@ where
     }
 
     /// Parses a single top-level form — any expression: an atom, list,
-    /// collection, or reader-macro form. Leading whitespace is skipped.
+    /// collection, or reader-macro form. Leading and trailing whitespace are
+    /// skipped; any remaining non-whitespace input is rejected as trailing.
     pub fn parse(&mut self) -> Result<Sexp, ParseError> {
-        self.parse_expr()
+        let form = self.parse_expr()?;
+        self.skip_whitespace()?;
+        match self.peek_eof()? {
+            None => Ok(form),
+            Some(got) => Err(ParseError::TrailingInput {
+                at: self.at(),
+                got: got.into(),
+            }),
+        }
     }
 
     /// The set of identifier names interned so far. Repeated identifiers in the
@@ -352,6 +361,17 @@ where
             return Err(self.eof_err());
         }
         Ok(avail[0])
+    }
+
+    /// Peeks the next byte without consuming it, returning `None` at a clean
+    /// EOF. Unlike [`peek_one`], EOF is not an error — used to check that a
+    /// fully-parsed form is followed only by end-of-input.
+    fn peek_eof(&mut self) -> Result<Option<u8>, ParseError> {
+        let at = self.at();
+        match self.reader.fill_buf() {
+            Ok(avail) => Ok(avail.first().copied()),
+            Err(e) => Err(ParseError::IOError { source: e, at }),
+        }
     }
 
     fn peek_two(&mut self) -> Result<[u8; 2], ParseError> {
@@ -823,6 +843,31 @@ mod tests {
         let err = parse_str("").unwrap_err();
         // parse_expr -> skip_whitespace -> peek_one -> UnexpectedEof
         assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
+    }
+
+    #[test]
+    fn trailing_form_is_error() {
+        let err = parse_str("(1 2) (3 4)").unwrap_err();
+        assert!(
+            matches!(err, ParseError::TrailingInput { .. }),
+            "got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn trailing_atom_is_error() {
+        let err = parse_str("'(1 2) foo").unwrap_err();
+        assert!(
+            matches!(err, ParseError::TrailingInput { .. }),
+            "got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn trailing_whitespace_is_allowed() {
+        assert_eq!(parse_ok("(1 2)  \n\t"), list(vec![int(1), int(2)]));
     }
 
     #[test]

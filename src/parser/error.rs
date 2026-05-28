@@ -8,6 +8,9 @@ pub enum ParseError {
     #[error("unexpected `)` at {at}")]
     UnexpectedCloseParen { at: Position },
 
+    #[error("unexpected trailing input {at}: {got}")]
+    TrailingInput { at: Position, got: char },
+
     #[error("expected `{expected}` {at}, got: {got}")]
     ExpectedToken {
         expected: char,
