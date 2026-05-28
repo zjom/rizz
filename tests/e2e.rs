@@ -106,6 +106,7 @@ fn let_binding_visible_to_later_args() {
 #[test]
 fn quote_returns_unevaluated_list() {
     assert_eq!(*run("(quote (1 2 3))"), int_list(&[1, 2, 3]));
+    assert_eq!(*run("'(1 2 3)"), int_list(&[1, 2, 3]));
 }
 
 #[test]
@@ -115,6 +116,8 @@ fn quasiquote_evaluates_nested_unquotes() {
         *run("(quasi (1 (unquote (+ 1 1)) (unquote (* 2 3))))"),
         int_list(&[1, 2, 6])
     );
+
+    assert_eq!(*run("`(1 ,(+ 1 1) ,(* 2 3))"), int_list(&[1, 2, 6]));
 }
 
 #[test]
@@ -124,6 +127,7 @@ fn quasiquote_unquote_splicing() {
         *run("(quasi (1 (unquote-splice (quote (2 3))) 4))"),
         int_list(&[1, 2, 3, 4])
     );
+    assert_eq!(*run("`(1 ,@(quote (2 3)) 4)"), int_list(&[1, 2, 3, 4]));
 }
 
 #[test]
@@ -131,6 +135,7 @@ fn quasiquote_preserves_nested_list_structure() {
     // `((1 ,(+ 1 1)) 3) -> ((1 2) 3)
     let expected = Value::from(vec![int_list(&[1, 2]), Value::Int(3)]);
     assert_eq!(*run("(quasi ((1 (unquote (+ 1 1))) 3))"), expected);
+    assert_eq!(*run("`((1 ,(+ 1 1)) 3)"), expected);
 }
 
 // ----- equality over nested values -----
@@ -139,7 +144,9 @@ fn quasiquote_preserves_nested_list_structure() {
 fn equality_over_nested_values() {
     assert_eq!(*run("(= (+ 1 1) 2)"), Value::Int(1));
     assert_eq!(*run("(= (quote (1 2)) (quote (1 2)))"), Value::Int(1));
+    assert_eq!(*run("(= '(1 2) (quote (1 2)))"), Value::Int(1));
     assert_eq!(*run("(= (quote (1 2)) (quote (1 3)))"), Value::Int(0));
+    assert_eq!(*run("(= '(1 2) '(1 3))"), Value::Int(0));
 }
 
 // ----- a program combining several forms -----

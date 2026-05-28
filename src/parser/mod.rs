@@ -1,9 +1,9 @@
 //! Reads source bytes into an [`Sexp`] tree.
 //!
-//! The grammar is minimal: a program is a single parenthesized list whose
-//! elements are atoms ([`Atomic`]: strings, ints, floats, identifiers) or
-//! nested lists. Lists are represented as cons chains terminated by
-//! [`Sexp::Unit`] (nil).
+//! The grammar is minimal: a program is a single form — an atom
+//! ([`Atomic`]: strings, ints, floats, identifiers), a parenthesized list, a
+//! collection, or a reader-macro form (`'`, `` ` ``, `,`, `,@`). Lists are
+//! represented as cons chains terminated by [`Sexp::Unit`] (nil).
 //!
 //! [`Parser`] streams from any [`Read`] one buffer at a time and tracks a
 //! [`Position`] (line/column/byte) so every [`ParseError`] can point at the
@@ -77,12 +77,10 @@ where
         }
     }
 
-    /// Parses a single top-level form, which must be a parenthesized list.
-    /// Leading whitespace is skipped; a missing opening `(` is an error.
+    /// Parses a single top-level form — any expression: an atom, list,
+    /// collection, or reader-macro form. Leading whitespace is skipped.
     pub fn parse(&mut self) -> Result<Sexp, ParseError> {
-        self.skip_whitespace()?;
-        self.skip_open()?;
-        self.parse_list_tail()
+        self.parse_expr()
     }
 
     /// The set of identifier names interned so far. Repeated identifiers in the
@@ -139,12 +137,53 @@ where
                 let xs = self.parse_collection()?;
                 Sexp::Collection(xs)
             }
+            b'\'' => {
+                self.read_byte()?;
+                self.wrap_prefix("quote")?
+            }
+
+            b'`' => {
+                self.read_byte()?;
+                self.wrap_prefix("quasi")?
+            }
+
+            b',' => match self.peek_two()? {
+                [b',', b'@'] => {
+                    self.read_byte()?;
+                    self.read_byte()?;
+                    self.wrap_prefix("unquote-splice")?
+                }
+                [b',', _] => {
+                    self.read_byte()?;
+                    self.wrap_prefix("unquote")?
+                }
+                _ => unreachable!(),
+            },
+
+            // A `)` cannot begin an expression. Inside a list this is caught by
+            // `parse_list_tail`; reaching here means an unmatched close at the
+            // start of a form (e.g. a top-level `)`).
+            b')' => return Err(ParseError::UnexpectedCloseParen { at: self.at() }),
+
             _ => {
                 let t = self.parse_atomic()?;
                 Sexp::Atom(t)
             }
         };
         Ok(sexp)
+    }
+
+    /// Wraps the following expression as `(name operand)`.
+    fn wrap_prefix(&mut self, name: &str) -> Result<Sexp, ParseError> {
+        let operand = self.parse_expr()?;
+        let head = Sexp::Atom(Atomic::Ident(self.intern(name)));
+        Ok(Sexp::Exp {
+            head: Rc::new(head),
+            tail: Rc::new(Sexp::Exp {
+                head: Rc::new(operand),
+                tail: Rc::new(Sexp::Unit),
+            }),
+        })
     }
 
     fn parse_collection(&mut self) -> Result<Collection, ParseError> {
@@ -389,18 +428,6 @@ where
         }
 
         Ok(buf[0])
-    }
-
-    fn skip_open(&mut self) -> Result<(), ParseError> {
-        let at = self.at();
-        match self.read_byte()? {
-            b'(' => Ok(()),
-            other => Err(ParseError::ExpectedToken {
-                expected: '(',
-                at,
-                got: other.into(),
-            }),
-        }
     }
 
     /// Updates `pos`, `line`, `col` to reflect having consumed `bytes`.
@@ -775,10 +802,17 @@ mod tests {
     // ----- error cases -----
 
     #[test]
-    fn missing_open_paren_is_error() {
-        let err = parse_str("foo)").unwrap_err();
+    fn top_level_atom_parses() {
+        // A program need not be a list: a bare atom is a valid top-level form.
+        assert_eq!(parse_ok("foo"), ident("foo"));
+        assert_eq!(parse_ok("42"), int(42));
+    }
+
+    #[test]
+    fn top_level_close_paren_is_error() {
+        let err = parse_str(")").unwrap_err();
         assert!(
-            matches!(err, ParseError::ExpectedToken { expected: '(', .. }),
+            matches!(err, ParseError::UnexpectedCloseParen { .. }),
             "got {:?}",
             err
         );
@@ -787,7 +821,7 @@ mod tests {
     #[test]
     fn empty_input_is_error() {
         let err = parse_str("").unwrap_err();
-        // skip_whitespace -> skip_open -> read_byte -> UnexpectedEof
+        // parse_expr -> skip_whitespace -> peek_one -> UnexpectedEof
         assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
     }
 
@@ -810,30 +844,30 @@ mod tests {
     // ----- pos tracking on error -----
 
     #[test]
-    fn missing_open_brace_reports_position() {
-        let err = parse_str("x").unwrap_err();
+    fn top_level_close_paren_reports_position() {
+        let err = parse_str(")").unwrap_err();
         match err {
-            ParseError::ExpectedToken { at, .. } => {
+            ParseError::UnexpectedCloseParen { at } => {
                 assert_eq!(at.byte, 0);
                 assert_eq!(at.line, 1);
                 assert_eq!(at.col, 1);
             }
-            other => panic!("expected ExpectedToken, got {:?}", other),
+            other => panic!("expected UnexpectedCloseParen, got {:?}", other),
         }
     }
 
     #[test]
-    fn missing_open_brace_position_accounts_for_skipped_whitespace() {
-        // skip_whitespace consumes three spaces (byte = 3), then skip_open
-        // snapshots position before reading 'x'.
-        let err = parse_str("   x").unwrap_err();
+    fn error_position_accounts_for_skipped_whitespace() {
+        // skip_whitespace consumes three spaces (byte = 3), then the `)` at the
+        // start of the form is reported at that position.
+        let err = parse_str("   )").unwrap_err();
         match err {
-            ParseError::ExpectedToken { at, .. } => {
+            ParseError::UnexpectedCloseParen { at } => {
                 assert_eq!(at.byte, 3);
                 assert_eq!(at.line, 1);
                 assert_eq!(at.col, 4);
             }
-            other => panic!("expected ExpectedToken, got {:?}", other),
+            other => panic!("expected UnexpectedCloseParen, got {:?}", other),
         }
     }
 
@@ -852,16 +886,16 @@ mod tests {
     }
 
     #[test]
-    fn missing_open_brace_reports_line_and_col() {
-        // Two newlines, two spaces, then 'x' — 'x' is at line 3, col 3.
-        let err = parse_str("\n\n  x").unwrap_err();
+    fn error_reports_line_and_col() {
+        // Two newlines, two spaces, then ')' — ')' is at line 3, col 3.
+        let err = parse_str("\n\n  )").unwrap_err();
         match err {
-            ParseError::ExpectedToken { at, .. } => {
+            ParseError::UnexpectedCloseParen { at } => {
                 assert_eq!(at.byte, 4);
                 assert_eq!(at.line, 3);
                 assert_eq!(at.col, 3);
             }
-            other => panic!("expected ExpectedToken, got {:?}", other),
+            other => panic!("expected UnexpectedCloseParen, got {:?}", other),
         }
     }
 
