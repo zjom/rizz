@@ -13,6 +13,10 @@ pub fn env() -> Env {
         ("get", get()),
         ("concat", concat()),
         ("slice", slice()),
+        ("reverse", reverse()),
+        ("first", first()),
+        ("rest", rest()),
+        ("last", last()),
     ])
 }
 
@@ -122,6 +126,61 @@ fn get() -> NativeFn {
     })
 }
 
+/// `(reverse coll)`: reverses a string (by char) or array.
+fn reverse() -> NativeFn {
+    NativeFn::pure("reverse".into(), 1, |args| match &*args[0] {
+        Value::Array(xs) => {
+            let out: Vector<Rc<Value>> = xs.iter().rev().cloned().collect();
+            Ok(Rc::new(Value::Array(out)))
+        }
+        Value::Str(s) => {
+            let out: String = s.chars().rev().collect();
+            Ok(Rc::new(Value::Str(out.into())))
+        }
+        other => Err(RuntimeError::type_mismatch("reverse", "array/str", other)),
+    })
+}
+
+/// `(first coll)`: first element of an array, or first char of a string, or `()`.
+fn first() -> NativeFn {
+    NativeFn::pure("first".into(), 1, |args| match &*args[0] {
+        Value::Array(xs) => Ok(xs.front().cloned().unwrap_or_else(|| Rc::new(Value::Unit))),
+        Value::Str(s) => Ok(match s.chars().next() {
+            Some(c) => Rc::new(Value::Str(c.to_string().into())),
+            None => Rc::new(Value::Unit),
+        }),
+        other => Err(RuntimeError::type_mismatch("first", "array/str", other)),
+    })
+}
+
+/// `(last coll)`: last element of an array, or last char of a string, or `()`.
+fn last() -> NativeFn {
+    NativeFn::pure("last".into(), 1, |args| match &*args[0] {
+        Value::Array(xs) => Ok(xs.back().cloned().unwrap_or_else(|| Rc::new(Value::Unit))),
+        Value::Str(s) => Ok(match s.chars().next_back() {
+            Some(c) => Rc::new(Value::Str(c.to_string().into())),
+            None => Rc::new(Value::Unit),
+        }),
+        other => Err(RuntimeError::type_mismatch("last", "array/str", other)),
+    })
+}
+
+/// `(rest coll)`: all but the first element of an array, or all but the first
+/// char of a string. An empty or single-element input yields an empty result.
+fn rest() -> NativeFn {
+    NativeFn::pure("rest".into(), 1, |args| match &*args[0] {
+        Value::Array(xs) => {
+            let out: Vector<Rc<Value>> = xs.iter().skip(1).cloned().collect();
+            Ok(Rc::new(Value::Array(out)))
+        }
+        Value::Str(s) => {
+            let out: String = s.chars().skip(1).collect();
+            Ok(Rc::new(Value::Str(out.into())))
+        }
+        other => Err(RuntimeError::type_mismatch("rest", "array/str", other)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +250,28 @@ mod tests {
     fn slice_clamps_out_of_range() {
         assert_eq!(*run_ok("(slice \"hi\" 0 99)"), Value::Str("hi".into()));
         assert_eq!(*run_ok("(slice \"hi\" 5 1)"), Value::Str("".into()));
+    }
+
+    #[test]
+    fn reverse_str_and_array() {
+        assert_eq!(*run_ok("(reverse \"abc\")"), Value::Str("cba".into()));
+        assert_eq!(*run_ok("(get (reverse [1 2 3]) 0)"), Value::Int(3));
+    }
+
+    #[test]
+    fn first_rest_last() {
+        assert_eq!(*run_ok("(first [10 20 30])"), Value::Int(10));
+        assert_eq!(*run_ok("(last [10 20 30])"), Value::Int(30));
+        assert_eq!(*run_ok("(len (rest [10 20 30]))"), Value::Int(2));
+        assert_eq!(*run_ok("(get (rest [10 20 30]) 0)"), Value::Int(20));
+        assert_eq!(*run_ok("(first \"hi\")"), Value::Str("h".into()));
+        assert_eq!(*run_ok("(rest \"hi\")"), Value::Str("i".into()));
+    }
+
+    #[test]
+    fn first_last_of_empty_is_unit() {
+        // [] is not supported by the parser; use slice to produce an empty array
+        assert_eq!(*run_ok("(first (slice [1] 1 1))"), Value::Unit);
+        assert_eq!(*run_ok("(last \"\")"), Value::Unit);
     }
 }
