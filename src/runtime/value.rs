@@ -10,20 +10,15 @@ use ordered_float::OrderedFloat;
 use crate::{
     Env,
     parser::{Atomic, Collection, Sexp},
-    runtime::RuntimeError,
+    runtime::NativeFn,
 };
 
 // ---------------------------------------------------------------------------
 // Core types
 // ---------------------------------------------------------------------------
 
-/// A native function callable from risp. Receives its already-evaluated
-/// arguments and the current environment, and returns a value plus a
-/// (possibly updated) environment.
-pub type BuiltinFn = Rc<dyn Fn(&[Rc<Value>], &Env) -> Result<(Rc<Value>, Env), RuntimeError>>;
-
 /// A runtime value. Most variants are data (and double as the AST the runtime
-/// walks); `BuiltinFn` and `Closure` are the two kinds of callable.
+/// walks); `NativeFn` and `Closure` are the two kinds of callable.
 ///
 /// Lists are `Cons` chains terminated by `Unit`, mirroring [`crate::parser::Sexp`].
 /// `Array` and `Map` mirror [`crate::parser::Collection`]. Floats are wrapped in
@@ -37,7 +32,7 @@ pub enum Value {
     Ident(Rc<str>),
     Unit,
     Cons { head: Rc<Value>, tail: Rc<Value> },
-    BuiltinFn(BuiltinFn),
+    NativeFn(Rc<NativeFn>),
     Closure(Rc<Closure>),
     Array(Vector<Rc<Value>>),
     Map(HashMap<Rc<Value>, Rc<Value>>),
@@ -74,7 +69,7 @@ impl Value {
             Self::Ident(_) => "ident",
             Self::Unit => "()",
             Self::Cons { .. } => "cons",
-            Self::BuiltinFn(_) => "builtin",
+            Self::NativeFn(_) => "native",
             Self::Closure(_) => "closure",
             Self::Array(_) => "array",
             Self::Map(_) => "map",
@@ -92,7 +87,7 @@ impl Value {
             Self::Float(n) => n.0 != 0.,
             Self::Ident(s) => !s.is_empty(),
             Self::Unit => false,
-            Self::BuiltinFn(_) => true,
+            Self::NativeFn(_) => true,
             Self::Closure(_) => true,
             Self::Cons { .. } => true,
             Self::Array(xs) => !xs.is_empty(),
@@ -101,7 +96,7 @@ impl Value {
     }
 
     pub fn is_callable(&self) -> bool {
-        matches!(self, Value::BuiltinFn(_) | Value::Closure(_))
+        matches!(self, Value::NativeFn(_) | Value::Closure(_))
     }
 
     pub fn is_unit(&self) -> bool {
@@ -153,10 +148,10 @@ impl PartialEq for Value {
             }
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
-            // Builtins compare by identity: distinct builtins are never equal,
-            // but a builtin equals itself (required for `Eq` reflexivity, which
-            // in turn lets `Value` key a `Map`).
-            (Value::BuiltinFn(a), Value::BuiltinFn(b)) => Rc::ptr_eq(a, b),
+            // Native fns compare by identity: distinct ones are never equal,
+            // but one equals itself (required for `Eq` reflexivity, which in
+            // turn lets `Value` key a `Map`).
+            (Value::NativeFn(a), Value::NativeFn(b)) => Rc::ptr_eq(a, b),
             (Value::Closure(a), Value::Closure(b)) => a == b,
             _ => false,
         }
@@ -197,7 +192,7 @@ impl Hash for Value {
             // Callables hash by discriminant only. Equal callables (same Rc, or
             // structurally-equal closures) share that hash; collisions between
             // distinct ones are allowed.
-            Value::BuiltinFn(_) | Value::Closure(_) => {}
+            Value::NativeFn(_) | Value::Closure(_) => {}
         }
     }
 }
@@ -265,7 +260,7 @@ impl Debug for DepthLimited<'_> {
             Value::Float(n) => write!(f, "<float={n}>"),
             Value::Int(n) => write!(f, "<int={n}>"),
             Value::Unit => write!(f, "<()>"),
-            Value::BuiltinFn(_) => write!(f, "<builtin_fn>"),
+            Value::NativeFn(_) => write!(f, "<native_fn>"),
             Value::Closure(c) => write!(f, "<closure params={:?}>", c.params),
             Value::Cons { head, tail } => {
                 if self.depth == 0 {
@@ -476,9 +471,9 @@ impl From<()> for Value {
     }
 }
 
-impl From<BuiltinFn> for Value {
-    fn from(f: BuiltinFn) -> Self {
-        Value::BuiltinFn(f)
+impl From<NativeFn> for Value {
+    fn from(f: NativeFn) -> Self {
+        Value::NativeFn(Rc::new(f))
     }
 }
 

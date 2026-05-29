@@ -9,7 +9,7 @@
 use crate::runtime::Numeric;
 use std::rc::Rc;
 
-use crate::runtime::{BuiltinFn, Env, RuntimeError, Value};
+use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 /// The arithmetic/comparison builtins: `+ - * /`, `cmp`, and `> >= < <=`.
 pub fn env() -> Env {
@@ -31,14 +31,14 @@ pub fn install(ctx: Env) -> Env {
     env().union(ctx)
 }
 
-fn add() -> BuiltinFn {
+fn add() -> NativeFn {
     binop(
         "add",
         |a, b| a.checked_add(b).ok_or("integer overflow"),
         |a, b| Ok(a + b),
     )
 }
-fn sub() -> BuiltinFn {
+fn sub() -> NativeFn {
     binop(
         "sub",
         |a, b| a.checked_sub(b).ok_or("integer overflow"),
@@ -46,7 +46,7 @@ fn sub() -> BuiltinFn {
     )
 }
 
-fn mul() -> BuiltinFn {
+fn mul() -> NativeFn {
     binop(
         "mul",
         |a, b| a.checked_mul(b).ok_or("integer overflow"),
@@ -54,7 +54,7 @@ fn mul() -> BuiltinFn {
     )
 }
 
-fn div() -> BuiltinFn {
+fn div() -> NativeFn {
     binop(
         "div",
         |a, b| a.checked_div(b).ok_or("division by zero"),
@@ -62,7 +62,7 @@ fn div() -> BuiltinFn {
     )
 }
 
-fn cmp() -> BuiltinFn {
+fn cmp() -> NativeFn {
     binop(
         "cmp",
         |a, b| {
@@ -84,19 +84,19 @@ fn cmp() -> BuiltinFn {
     )
 }
 
-fn gt() -> BuiltinFn {
+fn gt() -> NativeFn {
     binop("gt", |a, b| Ok(a > b), |a, b| Ok(a > b))
 }
 
-fn gte() -> BuiltinFn {
+fn gte() -> NativeFn {
     binop("gte", |a, b| Ok(a >= b), |a, b| Ok(a >= b))
 }
 
-fn lt() -> BuiltinFn {
+fn lt() -> NativeFn {
     binop("lt", |a, b| Ok(a < b), |a, b| Ok(a < b))
 }
 
-fn lte() -> BuiltinFn {
+fn lte() -> NativeFn {
     binop("lte", |a, b| Ok(a <= b), |a, b| Ok(a <= b))
 }
 
@@ -133,28 +133,22 @@ where
 }
 
 /// Builds a binary builtin from an integer and a float implementation. The
-/// returned function enforces arity 2, then dispatches to `int_op` for two
-/// ints or `float_op` for two floats, erroring on any other argument types.
-fn binop<TI, TF, FI, FF>(name: &'static str, int_op: FI, float_op: FF) -> BuiltinFn
+/// returned function dispatches to `int_op` for two ints or `float_op` for two
+/// floats, erroring on any other argument types. Arity 2 is enforced by
+/// [`NativeFn::call`].
+fn binop<TI, TF, FI, FF>(name: &'static str, int_op: FI, float_op: FF) -> NativeFn
 where
     TI: Into<Value>,
     TF: Into<Value>,
     FI: Fn(i64, i64) -> Result<TI, &'static str> + 'static,
     FF: Fn(f64, f64) -> Result<TF, &'static str> + 'static,
 {
-    Rc::new(move |args, env| {
-        if args.len() != 2 {
-            return Err(RuntimeError::ArityMismatch {
-                name: name.into(),
-                expected: 2,
-                got: args.len(),
-            });
-        }
+    NativeFn::pure(name.into(), 2, move |args| {
         if let Some(v) = try_binop::<i64, _, _>(name, args, &int_op)? {
-            return Ok((v, env.clone()));
+            return Ok(v);
         }
         if let Some(v) = try_binop::<f64, _, _>(name, args, &float_op)? {
-            return Ok((v, env.clone()));
+            return Ok(v);
         }
         Err(RuntimeError::TypeMismatch {
             name: name.into(),

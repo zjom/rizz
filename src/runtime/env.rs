@@ -1,7 +1,7 @@
 use im::HashMap;
 use std::{fmt::Debug, rc::Rc};
 
-use crate::runtime::{BuiltinFn, Value};
+use crate::runtime::{NativeFn, Value};
 
 type Inner = HashMap<Rc<str>, Rc<Value>>;
 #[derive(Debug, Clone, PartialEq)]
@@ -12,9 +12,9 @@ impl Env {
         Self(Inner::new())
     }
 
-    pub fn of_builtins(vals: Vec<(&str, BuiltinFn)>) -> Self {
+    pub fn of_builtins(vals: Vec<(&str, NativeFn)>) -> Self {
         vals.into_iter().fold(Self::new(), |acc, (k, v)| {
-            acc.update(k.into(), Rc::new(Value::BuiltinFn(v)))
+            acc.update(k.into(), Rc::new(Value::NativeFn(Rc::new(v))))
         })
     }
 

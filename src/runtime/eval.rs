@@ -24,11 +24,11 @@ const KW_IF: &str = "if";
 ///
 /// Atoms self-evaluate; identifiers resolve via the environment; a `Cons`
 /// whose head is a special-form keyword is dispatched accordingly, and any
-/// other `Cons` is a function application — arguments are evaluated left to
-/// right, then the head is applied as a builtin or closure.
+/// other `Cons` is a function application — the head is evaluated to a
+/// callable, which is then applied as a native function or closure.
 pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     match &*form {
-        Value::Int(_) | Value::Unit | Value::Str(_) | Value::Float(_) | Value::BuiltinFn(_) => {
+        Value::Int(_) | Value::Unit | Value::Str(_) | Value::Float(_) | Value::NativeFn(_) => {
             Ok((form.clone(), ctx.clone()))
         }
         Value::Ident(ident) => {
@@ -58,24 +58,18 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                     _ => {}
                 }
             }
-            let mut args = Vec::new();
-            let mut ctx = ctx.clone();
-            for arg in Value::iter(tail) {
-                let (v, env) = eval(arg, &ctx)?;
-                args.push(v);
-                ctx = env;
-            }
-            let (callable, ctx) = eval(head.clone(), &ctx)?;
+            let (callable, ctx) = eval(head.clone(), ctx)?;
             match &*callable {
-                Value::BuiltinFn(f) => {
-                    let (v, ctx) = f(&args, &ctx)?;
+                Value::NativeFn(native) => {
+                    let (v, ctx) = native.call(tail, &ctx)?;
                     eval(v, &ctx)
                 }
                 Value::Closure(closure) => {
+                    let (args, ctx) = eval_and_collect(tail, &ctx)?;
                     // A call must not leak the callee's local bindings back into
                     // the caller, so keep the caller's env rather than the body's.
                     let (v, _) = eval_closure(&args, closure)?;
-                    Ok((v, ctx.clone()))
+                    Ok((v, ctx))
                 }
                 Value::Int(_)
                 | Value::Unit
@@ -114,6 +108,20 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
             Ok((Rc::new(Value::Map(out)), ctx))
         }
     }
+}
+
+pub fn eval_and_collect(
+    tail: &Rc<Value>,
+    ctx: &Env,
+) -> Result<(Vec<Rc<Value>>, Env), RuntimeError> {
+    let mut args = Vec::new();
+    let mut ctx = ctx.clone();
+    for arg in Value::iter(tail) {
+        let (v, env) = eval(arg, &ctx)?;
+        args.push(v);
+        ctx = env;
+    }
+    Ok((args, ctx))
 }
 
 /// Applies `closure` to `args`: checks arity, binds the closure to its own
@@ -321,6 +329,7 @@ mod tests {
     use std::ops::Deref;
 
     use super::*;
+    use crate::runtime::NativeFn;
 
     // ----- helpers -----
 
@@ -348,23 +357,18 @@ mod tests {
             .fold(unit(), |tail, head| Rc::new(Value::Cons { head, tail }))
     }
 
-    /// A two-arg integer-add builtin that enforces its arity, used to drive the
-    /// application arms of `eval`.
+    /// A two-arg integer-add native fn used to drive the application arms of
+    /// `eval`. Arity is enforced by `NativeFn::call`.
     fn add_builtin() -> Rc<Value> {
-        Rc::new(Value::BuiltinFn(Rc::new(
-            |args: &[Rc<Value>], env: &Env| -> Result<(Rc<Value>, Env), RuntimeError> {
-                if args.len() != 2 {
-                    return Err(RuntimeError::ArityMismatch {
-                        name: "plus".into(),
-                        expected: 2,
-                        got: args.len(),
-                    });
-                }
+        Rc::new(Value::NativeFn(Rc::new(NativeFn::pure(
+            "plus".into(),
+            2,
+            |args: &[Rc<Value>]| -> Result<Rc<Value>, RuntimeError> {
                 let a = args[0].as_int().expect("int");
                 let b = args[1].as_int().expect("int");
-                Ok((int(a + b), env.clone()))
+                Ok(int(a + b))
             },
-        )))
+        ))))
     }
 
     fn eval_ok(form: Rc<Value>, env: &Env) -> (Rc<Value>, Env) {
@@ -407,7 +411,7 @@ mod tests {
     #[test]
     fn builtin_self_evaluates() {
         let (v, _) = eval_ok(add_builtin(), &Env::new());
-        assert!(matches!(&*v, Value::BuiltinFn(_)));
+        assert!(matches!(&*v, Value::NativeFn(_)));
     }
 
     #[test]
