@@ -1,8 +1,18 @@
 //! Polymorphic collection builtins that dispatch on the runtime type of their
-//! first argument: `len`, `get`, `concat`, `slice`, `contains?`, `reverse`,
-//! `first`, `rest`, `last`.
+//! collection argument: `len`, `get`, `concat`, `slice`, `contains?`,
+//! `reverse`, `first`, `rest`, `last`, and the higher-order transforms `fmap`,
+//! `filter`, `reduce`. The higher-order fns are *impure* so they receive the
+//! `Env` needed to invoke user closures via [`crate::runtime::apply`].
+//!
+//! Caveat: the evaluator re-evaluates whatever value a native fn returns, so for
+//! a returned array each element is evaluated a second time. Self-evaluating
+//! elements (ints, floats, strings, units, and arrays/maps of those) are
+//! unaffected. An `fmap`/`filter` callback that returns a non-self-evaluating
+//! value — a closure or an unquoted identifier — would thus be re-evaluated by
+//! the caller and misbehave; current callbacks return data, so this isn't hit.
 
-use im::Vector;
+use crate::runtime::apply;
+use im::{HashMap, Vector};
 use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
@@ -18,6 +28,9 @@ pub fn env() -> Env {
         ("rest", rest()),
         ("last", last()),
         ("contains?", contains()),
+        ("fmap", fmap()),
+        ("filter", filter()),
+        ("reduce", reduce()),
     ])
 }
 
@@ -105,7 +118,10 @@ fn concat() -> NativeFn {
 /// 1-char string at int index `k`. A miss or out-of-bounds index yields `()`.
 fn get() -> NativeFn {
     NativeFn::pure("get".into(), 2, |args| match &*args[0] {
-        Value::Map(m) => Ok(m.get(&args[1]).cloned().unwrap_or_else(|| Rc::new(Value::Unit))),
+        Value::Map(m) => Ok(m
+            .get(&args[1])
+            .cloned()
+            .unwrap_or_else(|| Rc::new(Value::Unit))),
         Value::Array(xs) => {
             let idx = args[1]
                 .as_int()
@@ -133,14 +149,20 @@ fn contains() -> NativeFn {
     NativeFn::pure("contains?".into(), 2, |args| {
         let result = match &*args[0] {
             Value::Str(s) => {
-                let needle = args[1]
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::type_mismatch("contains?", "str needle", &args[1]))?;
+                let needle = args[1].as_str().ok_or_else(|| {
+                    RuntimeError::type_mismatch("contains?", "str needle", &args[1])
+                })?;
                 s.contains(&*needle)
             }
             Value::Array(xs) => xs.iter().any(|x| x == &args[1]),
             Value::Map(m) => m.contains_key(&args[1]),
-            other => return Err(RuntimeError::type_mismatch("contains?", "str/array/map", other)),
+            other => {
+                return Err(RuntimeError::type_mismatch(
+                    "contains?",
+                    "str/array/map",
+                    other,
+                ));
+            }
         };
         Ok(Rc::new(Value::from(result)))
     })
@@ -201,6 +223,136 @@ fn rest() -> NativeFn {
     })
 }
 
+fn fmap() -> NativeFn {
+    NativeFn::impure("fmap".into(), 2, |args, env| {
+        let f = &args[0];
+        match &*args[1] {
+            Value::Str(s) => {
+                let res = s
+                    .chars()
+                    .try_fold(String::with_capacity(s.len()), |mut acc, c| {
+                        let x = apply(f, &[Rc::new(Value::Str(c.to_string().into()))], env)?;
+                        match x.as_ref() {
+                            Value::Str(s) => {
+                                acc.push_str(s.as_ref());
+                                Ok(acc)
+                            }
+                            other => Err(RuntimeError::type_mismatch(
+                                "fmap",
+                                "lambda to return str",
+                                other,
+                            )),
+                        }
+                    })?;
+                Ok((Rc::new(Value::Str(res.into())), env.clone()))
+            }
+            Value::Array(xs) => {
+                let mut out = Vector::new();
+                for x in xs.iter() {
+                    out.push_back(apply(f, std::slice::from_ref(x), env)?);
+                }
+                Ok((Rc::new(Value::Array(out)), env.clone()))
+            }
+            Value::Map(m) => {
+                let m = m.iter().try_fold(HashMap::new(), |acc, (k, v)| {
+                    let pair = apply(f, &[k.clone(), v.clone()], env)?;
+                    match &*pair {
+                        Value::Array(xs) => {
+                            if xs.len() != 2 {
+                                return Err(RuntimeError::TypeMismatch {
+                                    name: "fmap".into(),
+                                    expected: "lambda to return array of length 2".into(),
+                                    got: format!("array of length {}", xs.len()).into(),
+                                });
+                            }
+                            Ok(acc.update(xs[0].clone(), xs[1].clone()))
+                        }
+                        other => Err(RuntimeError::type_mismatch(
+                            "fmap",
+                            "lambda to return array of length 2",
+                            other,
+                        )),
+                    }
+                })?;
+                Ok((Rc::new(Value::Map(m)), env.clone()))
+            }
+            other => Err(RuntimeError::type_mismatch("fmap", "array/map/str", other)),
+        }
+    })
+}
+
+/// `(filter pred coll)`: keeps the parts of a collection for which `pred`
+/// returns a truthy value, preserving the collection's type. For a str the
+/// predicate is called per char (as a 1-char str); for an array per element;
+/// for a map per entry, with the key and value passed as two args.
+fn filter() -> NativeFn {
+    NativeFn::impure("filter".into(), 2, |args, env| {
+        let pred = &args[0];
+        let out = match &*args[1] {
+            Value::Str(s) => {
+                let mut acc = String::new();
+                for c in s.chars() {
+                    let ch = Rc::new(Value::Str(c.to_string().into()));
+                    if apply(pred, std::slice::from_ref(&ch), env)?.is_truthy() {
+                        acc.push(c);
+                    }
+                }
+                Value::Str(acc.into())
+            }
+            Value::Array(xs) => {
+                let mut acc = Vector::new();
+                for x in xs.iter() {
+                    if apply(pred, std::slice::from_ref(x), env)?.is_truthy() {
+                        acc.push_back(x.clone());
+                    }
+                }
+                Value::Array(acc)
+            }
+            Value::Map(m) => {
+                let mut acc = HashMap::new();
+                for (k, v) in m.iter() {
+                    if apply(pred, &[k.clone(), v.clone()], env)?.is_truthy() {
+                        acc.insert(k.clone(), v.clone());
+                    }
+                }
+                Value::Map(acc)
+            }
+            other => return Err(RuntimeError::type_mismatch("filter", "array/map/str", other)),
+        };
+        Ok((Rc::new(out), env.clone()))
+    })
+}
+
+/// `(reduce f init coll)`: left fold — `acc` starts at `init`. For a str `acc`
+/// becomes `(f acc char)` per char (as a 1-char str); for an array `(f acc
+/// elem)` per element; for a map `(f acc k v)` per entry.
+fn reduce() -> NativeFn {
+    NativeFn::impure("reduce".into(), 3, |args, env| {
+        let f = &args[0];
+        let mut acc = args[1].clone();
+        match &*args[2] {
+            Value::Str(s) => {
+                for c in s.chars() {
+                    let ch = Rc::new(Value::Str(c.to_string().into()));
+                    acc = apply(f, &[acc.clone(), ch], env)?;
+                }
+            }
+            Value::Array(xs) => {
+                for x in xs.iter() {
+                    acc = apply(f, &[acc.clone(), x.clone()], env)?;
+                }
+            }
+            Value::Map(m) => {
+                for (k, v) in m.iter() {
+                    acc = apply(f, &[acc.clone(), k.clone(), v.clone()], env)?;
+                }
+            }
+            other => return Err(RuntimeError::type_mismatch("reduce", "array/map/str", other)),
+        }
+        Ok((acc, env.clone()))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,7 +400,10 @@ mod tests {
         assert_eq!(*run_ok("(get (concat [1 2] [3 4]) 3)"), Value::Int(4));
         assert_eq!(*run_ok("(len (concat [1 2] [3 4]))"), Value::Int(4));
         // second map wins on key collision
-        assert_eq!(*run_ok("(get (concat {1: 2} {1: 9 3: 4}) 1)"), Value::Int(9));
+        assert_eq!(
+            *run_ok("(get (concat {1: 2} {1: 9 3: 4}) 1)"),
+            Value::Int(9)
+        );
     }
 
     #[test]
@@ -303,5 +458,90 @@ mod tests {
         assert_eq!(*run_ok("(contains? [1 2 3] 9)"), Value::Int(0));
         assert_eq!(*run_ok("(contains? {1: 2 3: 4} 3)"), Value::Int(1));
         assert_eq!(*run_ok("(contains? {1: 2} 9)"), Value::Int(0));
+    }
+
+    #[test]
+    fn fmap_applies_closure() {
+        assert_eq!(
+            *run_ok("(len (fmap (fn d (x) (* x 2)) [1 2 3]))"),
+            Value::Int(3)
+        );
+        assert_eq!(
+            *run_ok("(len (fmap (fn d (k v) [k (* v 2)]) {1:1 2:2 3:3}))"),
+            Value::Int(3)
+        );
+        assert_eq!(
+            *run_ok("(get (fmap (fn d (k v) [k (* v 2)]) {1:1 2:2 3:3}) 2)"),
+            Value::Int(4)
+        );
+    }
+
+    #[test]
+    fn fmap_accepts_native_fn() {
+        assert_eq!(*run_ok("(get (fmap to-str [1 2 3]) 0)"), Value::Str("1".into()));
+    }
+
+    #[test]
+    fn filter_over_types() {
+        // array: keep elements >= 2
+        assert_eq!(*run_ok("(len (filter (fn p (x) (>= x 2)) [1 2 3 4]))"), Value::Int(3));
+        assert_eq!(*run_ok("(get (filter (fn p (x) (>= x 2)) [1 2 3 4]) 0)"), Value::Int(2));
+        // str: keep only the "l" chars
+        assert_eq!(
+            *run_ok("(filter (fn p (c) (= c \"l\")) \"hello\")"),
+            Value::Str("ll".into())
+        );
+        // map: keep entries whose value > 1
+        assert_eq!(*run_ok("(len (filter (fn p (k v) (> v 1)) {1:1 2:2 3:3}))"), Value::Int(2));
+        assert_eq!(*run_ok("(contains? (filter (fn p (k v) (> v 1)) {1:1 2:2 3:3}) 1)"), Value::Int(0));
+    }
+
+    #[test]
+    fn filter_can_remove_all() {
+        assert_eq!(*run_ok("(len (filter (fn p (x) 0) [1 2 3]))"), Value::Int(0));
+        assert_eq!(*run_ok("(filter (fn p (c) 0) \"abc\")"), Value::Str("".into()));
+    }
+
+    #[test]
+    fn reduce_over_types() {
+        // array fold
+        assert_eq!(*run_ok("(reduce + 0 [1 2 3 4])"), Value::Int(10));
+        assert_eq!(*run_ok("(reduce (fn f (a b) (* a b)) 1 [1 2 3 4])"), Value::Int(24));
+        // str fold: concatenate chars onto an accumulator
+        assert_eq!(*run_ok("(reduce concat \"\" \"abc\")"), Value::Str("abc".into()));
+        // map fold: sum the values, ignoring keys
+        assert_eq!(*run_ok("(reduce (fn f (a k v) (+ a v)) 0 {1:10 2:20 3:30})"), Value::Int(60));
+    }
+
+    #[test]
+    fn reduce_on_empty_returns_init() {
+        // (range 0 0) is an empty array (empty `[]` literals are not parseable)
+        assert_eq!(*run_ok("(reduce + 0 (range 0 0))"), Value::Int(0));
+        assert_eq!(*run_ok("(reduce + 0 \"\")"), Value::Int(0));
+    }
+
+    #[test]
+    fn higher_order_rejects_non_collection() {
+        assert!(matches!(
+            run("(fmap to-str 5)"),
+            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+        ));
+        assert!(matches!(
+            run("(filter (fn p (x) 1) 5)"),
+            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+        ));
+        assert!(matches!(
+            run("(reduce + 0 5)"),
+            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+        ));
+    }
+
+    #[test]
+    fn higher_order_propagates_callback_arity_error() {
+        // `+` is arity 2; applying it to a single element must surface the error
+        assert!(matches!(
+            run("(fmap + [1 2 3])"),
+            Err(RispError::RuntimeError(RuntimeError::ArityMismatch { .. }))
+        ));
     }
 }

@@ -1,27 +1,14 @@
-//! Array builtins: construction (`push`, `range`) and higher-order transforms
-//! (`map`, `filter`, `reduce`). Higher-order fns are *impure* so they receive
-//! the `Env` needed to invoke user closures via [`crate::runtime::apply`].
-//!
-//! Caveat: the evaluator re-evaluates whatever value a native fn returns, so for
-//! a returned array each element is evaluated a second time. Self-evaluating
-//! elements (ints, floats, strings, units, and arrays/maps of those) are
-//! unaffected. A `map`/`filter` callback that returns a non-self-evaluating
-//! value — a closure or an unquoted identifier — would thus be re-evaluated by
-//! the caller and misbehave; current callbacks return data, so this isn't hit.
+//! Array construction builtins: `push` and `range`. The higher-order
+//! transforms (`fmap`, `filter`, `reduce`) are polymorphic over all collections
+//! and live in [`crate::prelude::collections`].
 
 use im::Vector;
 use std::rc::Rc;
 
-use crate::runtime::{apply, Env, NativeFn, RuntimeError, Value};
+use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![
-        ("push", push()),
-        ("range", range()),
-        ("map", map()),
-        ("filter", filter()),
-        ("reduce", reduce()),
-    ])
+    Env::of_builtins(vec![("push", push()), ("range", range())])
 }
 
 /// `(push arr v)`: a new array with `v` appended at the end.
@@ -51,62 +38,6 @@ fn range() -> NativeFn {
     })
 }
 
-/// `(map f arr)`: a new array of `f` applied to each element. The higher-order
-/// transform — distinct from the map-type builtins in [`crate::prelude::map`].
-fn map() -> NativeFn {
-    NativeFn::impure("map".into(), 2, |args, env| {
-        let f = &args[0];
-        match &*args[1] {
-            Value::Array(xs) => {
-                let mut out = Vector::new();
-                for x in xs.iter() {
-                    out.push_back(apply(f, std::slice::from_ref(x), env)?);
-                }
-                Ok((Rc::new(Value::Array(out)), env.clone()))
-            }
-            other => Err(RuntimeError::type_mismatch("map", "array", other)),
-        }
-    })
-}
-
-/// `(filter pred arr)`: a new array of the elements for which `pred` returns a
-/// truthy value.
-fn filter() -> NativeFn {
-    NativeFn::impure("filter".into(), 2, |args, env| {
-        let pred = &args[0];
-        match &*args[1] {
-            Value::Array(xs) => {
-                let mut out = Vector::new();
-                for x in xs.iter() {
-                    if apply(pred, std::slice::from_ref(x), env)?.is_truthy() {
-                        out.push_back(x.clone());
-                    }
-                }
-                Ok((Rc::new(Value::Array(out)), env.clone()))
-            }
-            other => Err(RuntimeError::type_mismatch("filter", "array", other)),
-        }
-    })
-}
-
-/// `(reduce f init arr)`: left fold — `acc` starts at `init` and becomes
-/// `(f acc elem)` for each element in order.
-fn reduce() -> NativeFn {
-    NativeFn::impure("reduce".into(), 3, |args, env| {
-        let f = &args[0];
-        let mut acc = args[1].clone();
-        match &*args[2] {
-            Value::Array(xs) => {
-                for x in xs.iter() {
-                    acc = apply(f, &[acc.clone(), x.clone()], env)?;
-                }
-                Ok((acc, env.clone()))
-            }
-            other => Err(RuntimeError::type_mismatch("reduce", "array", other)),
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,59 +61,5 @@ mod tests {
         assert_eq!(*run_ok("(len (range 0 5))"), Value::Int(5));
         assert_eq!(*run_ok("(get (range 2 5) 0)"), Value::Int(2));
         assert_eq!(*run_ok("(len (range 5 0))"), Value::Int(0));
-    }
-
-    #[test]
-    fn map_applies_closure() {
-        assert_eq!(*run_ok("(len (map (fn d (x) (* x 2)) [1 2 3]))"), Value::Int(3));
-        assert_eq!(*run_ok("(get (map (fn d (x) (* x 2)) [1 2 3]) 2)"), Value::Int(6));
-    }
-
-    #[test]
-    fn map_accepts_native_fn() {
-        // unary use of a native fn: negate via (- 0 x) is not unary, so use to-str
-        assert_eq!(*run_ok("(get (map to-str [1 2 3]) 0)"), Value::Str("1".into()));
-    }
-
-    #[test]
-    fn filter_keeps_truthy() {
-        // keep elements >= 2
-        assert_eq!(*run_ok("(len (filter (fn p (x) (>= x 2)) [1 2 3 4]))"), Value::Int(3));
-        assert_eq!(*run_ok("(get (filter (fn p (x) (>= x 2)) [1 2 3 4]) 0)"), Value::Int(2));
-    }
-
-    #[test]
-    fn reduce_folds() {
-        assert_eq!(*run_ok("(reduce + 0 [1 2 3 4])"), Value::Int(10));
-        assert_eq!(*run_ok("(reduce (fn f (a b) (* a b)) 1 [1 2 3 4])"), Value::Int(24));
-    }
-
-    #[test]
-    fn map_rejects_non_array() {
-        assert!(matches!(
-            run("(map to-str 5)"),
-            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
-        ));
-    }
-
-    #[test]
-    fn reduce_on_empty_returns_init() {
-        // (range 0 0) is an empty array (empty `[]` literals are not parseable)
-        assert_eq!(*run_ok("(reduce + 0 (range 0 0))"), Value::Int(0));
-    }
-
-    #[test]
-    fn filter_can_remove_all() {
-        // predicate is always falsy, so nothing is kept
-        assert_eq!(*run_ok("(len (filter (fn p (x) 0) [1 2 3]))"), Value::Int(0));
-    }
-
-    #[test]
-    fn higher_order_propagates_callback_arity_error() {
-        // `+` is arity 2; applying it to a single element must surface the error
-        assert!(matches!(
-            run("(map + [1 2 3])"),
-            Err(RispError::RuntimeError(RuntimeError::ArityMismatch { .. }))
-        ));
     }
 }

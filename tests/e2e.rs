@@ -216,7 +216,7 @@ fn division_by_zero_in_nested_form_is_error() {
 fn reduce_over_mapped_array() {
     // double each then sum: (1+2+3)*2 = 12
     assert_eq!(
-        *run("(reduce + 0 (map (fn d (x) (* x 2)) [1 2 3]))"),
+        *run("(reduce + 0 (fmap (fn d (x) (* x 2)) [1 2 3]))"),
         Value::Int(12)
     );
 }
@@ -224,7 +224,7 @@ fn reduce_over_mapped_array() {
 #[test]
 fn join_mapped_to_str() {
     assert_eq!(
-        *run("(str-join (map to-str (range 1 4)) \",\")"),
+        *run("(str-join (fmap to-str (range 1 4)) \",\")"),
         Value::Str("1,2,3".into())
     );
 }
