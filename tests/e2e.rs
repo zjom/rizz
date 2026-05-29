@@ -13,7 +13,7 @@ fn run(src: &str) -> Rc<Value> {
 /// Builds a cons-list `Value` of ints, matching how the parser/runtime
 /// represent list literals.
 fn int_list(xs: &[i64]) -> Value {
-    Value::from(xs.iter().copied().map(Value::Int).collect::<Vec<_>>())
+    Value::cons_of(xs.iter().copied().map(Value::Int).collect::<Vec<_>>())
 }
 
 // ----- nested arithmetic -----
@@ -133,7 +133,7 @@ fn quasiquote_unquote_splicing() {
 #[test]
 fn quasiquote_preserves_nested_list_structure() {
     // `((1 ,(+ 1 1)) 3) -> ((1 2) 3)
-    let expected = Value::from(vec![int_list(&[1, 2]), Value::Int(3)]);
+    let expected = Value::cons_of(vec![int_list(&[1, 2]), Value::Int(3)]);
     assert_eq!(*run("(quasi ((1 (unquote (+ 1 1))) 3))"), expected);
     assert_eq!(*run("`((1 ,(+ 1 1)) 3)"), expected);
 }
