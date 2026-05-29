@@ -8,7 +8,7 @@ use std::rc::Rc;
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![("len", len()), ("get", get())])
+    Env::of_builtins(vec![("len", len()), ("get", get()), ("concat", concat())])
 }
 
 /// `(len coll)`: element count of a str (by char), array, or map.
@@ -21,6 +21,36 @@ fn len() -> NativeFn {
             other => return Err(RuntimeError::type_mismatch("len", "str/array/map", other)),
         };
         Ok(Rc::new(Value::Int(n)))
+    })
+}
+
+/// `(concat a b)`: joins two strings, two arrays, or two maps. For maps, the
+/// second operand's entries win on key collisions.
+fn concat() -> NativeFn {
+    NativeFn::pure("concat".into(), 2, |args| match (&*args[0], &*args[1]) {
+        (Value::Str(a), Value::Str(b)) => {
+            let mut s = String::with_capacity(a.len() + b.len());
+            s.push_str(a);
+            s.push_str(b);
+            Ok(Rc::new(Value::Str(s.into())))
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            let mut out = a.clone();
+            out.append(b.clone());
+            Ok(Rc::new(Value::Array(out)))
+        }
+        (Value::Map(a), Value::Map(b)) => {
+            let mut out = a.clone();
+            for (k, v) in b.iter() {
+                out.insert(k.clone(), v.clone());
+            }
+            Ok(Rc::new(Value::Map(out)))
+        }
+        (other, _) => Err(RuntimeError::type_mismatch(
+            "concat",
+            "two strs, two arrays, or two maps",
+            other,
+        )),
     })
 }
 
@@ -89,5 +119,22 @@ mod tests {
         assert_eq!(*run_ok("(get {1: 2} 9)"), Value::Unit);
         assert_eq!(*run_ok("(get [1 2] 9)"), Value::Unit);
         assert_eq!(*run_ok("(get \"ab\" 9)"), Value::Unit);
+    }
+
+    #[test]
+    fn concat_same_types() {
+        assert_eq!(*run_ok("(concat \"ab\" \"cd\")"), Value::Str("abcd".into()));
+        assert_eq!(*run_ok("(get (concat [1 2] [3 4]) 3)"), Value::Int(4));
+        assert_eq!(*run_ok("(len (concat [1 2] [3 4]))"), Value::Int(4));
+        // second map wins on key collision
+        assert_eq!(*run_ok("(get (concat {1: 2} {1: 9 3: 4}) 1)"), Value::Int(9));
+    }
+
+    #[test]
+    fn concat_rejects_mismatch() {
+        assert!(matches!(
+            run("(concat \"a\" [1])"),
+            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+        ));
     }
 }
