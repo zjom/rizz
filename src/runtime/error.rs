@@ -29,3 +29,15 @@ pub enum RuntimeError {
     #[error("{name} failed: {reason}")]
     ArithmeticError { name: Rc<str>, reason: Rc<str> },
 }
+
+impl RuntimeError {
+    /// Builds a [`RuntimeError::TypeMismatch`] from the offending value, using
+    /// its [`Value::type_name`] for the `got` field.
+    pub fn type_mismatch(name: &str, expected: &str, got: &Value) -> Self {
+        RuntimeError::TypeMismatch {
+            name: name.into(),
+            expected: expected.into(),
+            got: Value::type_name(got).into(),
+        }
+    }
+}

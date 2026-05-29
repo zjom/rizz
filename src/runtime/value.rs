@@ -129,6 +129,45 @@ impl Value {
             _ => None,
         }
     }
+
+    /// Renders the value as a string for `to-str`. Top-level strings and
+    /// identifiers render as their raw content (no quotes); everything else
+    /// matches [`repr`](Self::repr).
+    pub fn display(&self) -> String {
+        match self {
+            Value::Str(s) | Value::Ident(s) => s.to_string(),
+            _ => self.repr(),
+        }
+    }
+
+    /// Like [`display`](Self::display), but strings are quoted so that values
+    /// nested inside collections stay readable.
+    pub fn repr(&self) -> String {
+        match self {
+            Value::Str(s) => format!("\"{s}\""),
+            Value::Ident(s) => s.to_string(),
+            Value::Int(n) => n.to_string(),
+            Value::Float(n) => n.to_string(),
+            Value::Unit => "()".to_string(),
+            Value::Array(xs) => {
+                let inner: Vec<String> = xs.iter().map(|x| x.repr()).collect();
+                format!("[{}]", inner.join(" "))
+            }
+            Value::Map(m) => {
+                let inner: Vec<String> = m
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k.repr(), v.repr()))
+                    .collect();
+                format!("{{{}}}", inner.join(" "))
+            }
+            Value::Cons { .. } => {
+                let inner: Vec<String> =
+                    Value::iter(&Rc::new(self.clone())).map(|x| x.repr()).collect();
+                format!("({})", inner.join(" "))
+            }
+            Value::NativeFn(_) | Value::Closure(_) => "<fn>".to_string(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -499,5 +538,28 @@ impl<T: Into<Value>> From<Vec<T>> for Value {
                 head: Rc::new(item.into()),
                 tail: Rc::new(tail),
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_unquotes_top_level_strings() {
+        assert_eq!(Value::Str("hi".into()).display(), "hi");
+        assert_eq!(Value::Int(42).display(), "42");
+        assert_eq!(Value::Unit.display(), "()");
+    }
+
+    #[test]
+    fn repr_quotes_strings_and_formats_collections() {
+        assert_eq!(Value::Str("hi".into()).repr(), "\"hi\"");
+        let arr = Value::Array(
+            vec![Rc::new(Value::Int(1)), Rc::new(Value::Str("a".into()))]
+                .into_iter()
+                .collect(),
+        );
+        assert_eq!(arr.display(), "[1 \"a\"]");
     }
 }
