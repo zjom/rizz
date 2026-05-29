@@ -6,21 +6,7 @@ use std::rc::Rc;
 use crate::runtime::{Env, NativeFn};
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![("get", get()), ("put", put())])
-}
-
-fn get() -> NativeFn {
-    NativeFn::pure("get".into(), 2, |args| match &*args[0] {
-        Value::Map(m) => match m.get(&args[1]) {
-            Some(val) => Ok(val.clone()),
-            None => Ok(Value::Unit.into()),
-        },
-        other => Err(RuntimeError::TypeMismatch {
-            name: "get".into(),
-            expected: Value::type_name(&Value::Map(HashMap::new())).into(),
-            got: Value::type_name(other).into(),
-        }),
-    })
+    Env::of_builtins(vec![("put", put())])
 }
 
 fn put() -> NativeFn {
