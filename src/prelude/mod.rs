@@ -3,6 +3,7 @@
 //! Each submodule contributes a group of builtins; [`env()`] merges them into the
 //! default environment that [`crate::parse_and_run`] evaluates against.
 
+pub mod array;
 pub mod collections;
 pub mod eq;
 pub mod map;
@@ -11,7 +12,7 @@ pub mod str;
 
 use crate::runtime::Env;
 
-/// The default environment: every builtin from [`numbers`], [`eq`], [`map`], [`collections`], [`str`].
+/// The default environment: every builtin from [`numbers`], [`eq`], [`map`], [`collections`], [`str`], [`array`].
 pub fn env() -> Env {
     Env::new()
         .union(numbers::env())
@@ -19,6 +20,7 @@ pub fn env() -> Env {
         .union(map::env())
         .union(collections::env())
         .union(str::env())
+        .union(array::env())
 }
 
 /// The default environment merged with `e`. On key collisions the prelude's
