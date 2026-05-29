@@ -161,8 +161,9 @@ impl Value {
                 format!("{{{}}}", inner.join(" "))
             }
             Value::Cons { .. } => {
-                let inner: Vec<String> =
-                    Value::iter(&Rc::new(self.clone())).map(|x| x.repr()).collect();
+                let inner: Vec<String> = Value::iter(&Rc::new(self.clone()))
+                    .map(|x| x.repr())
+                    .collect();
                 format!("({})", inner.join(" "))
             }
             Value::NativeFn(_) | Value::Closure(_) => "<fn>".to_string(),
@@ -533,6 +534,15 @@ impl<T: Into<Value>> From<Option<T>> for Value {
 
 impl<T: Into<Value>> From<Vec<T>> for Value {
     fn from(vec: Vec<T>) -> Self {
+        vec.into_iter()
+            .rfold(Value::Unit, |tail, item| Value::Cons {
+                head: Rc::new(item.into()),
+                tail: Rc::new(tail),
+            })
+    }
+}
+impl<T: Into<Value> + Clone> From<Vector<T>> for Value {
+    fn from(vec: Vector<T>) -> Self {
         vec.into_iter()
             .rfold(Value::Unit, |tail, item| Value::Cons {
                 head: Rc::new(item.into()),
