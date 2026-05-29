@@ -232,17 +232,12 @@ fn fmap() -> NativeFn {
                     .chars()
                     .try_fold(String::with_capacity(s.len()), |mut acc, c| {
                         let x = apply(f, &[Rc::new(c.to_string().into())], env)?;
-                        match x.as_ref() {
-                            Value::Str(s) => {
-                                acc.push_str(s.as_ref());
-                                Ok(acc)
-                            }
-                            other => Err(RuntimeError::type_mismatch(
-                                "fmap",
-                                "lambda to return str",
-                                other,
-                            )),
-                        }
+                        let s = x.as_str().ok_or_else(|| {
+                            RuntimeError::type_mismatch("fmap", "lambda to return str", &x)
+                        })?;
+
+                        acc.push_str(s.as_ref());
+                        Ok(acc)
                     })?;
                 Ok((Rc::new(res.into()), env.clone()))
             }
