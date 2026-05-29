@@ -60,6 +60,31 @@ impl NativeFn {
         }
     }
 
+    /// Applies the fn to **already-evaluated** `args` (unlike [`call`], which
+    /// evaluates an unevaluated tail). Used by higher-order builtins via
+    /// [`crate::runtime::apply`]. Macros cannot be applied to values.
+    pub fn apply(
+        &self,
+        args: &[Rc<Value>],
+        env: &Env,
+    ) -> Result<(Rc<Value>, Env), RuntimeError> {
+        match self {
+            Self::Pure { f, nargs, name } => {
+                validate_args(name, args, *nargs)?;
+                f(args).map(|v| (v, env.clone()))
+            }
+            Self::Impure { f, nargs, name } => {
+                validate_args(name, args, *nargs)?;
+                f(args, env)
+            }
+            Self::Macro { name, .. } => Err(RuntimeError::TypeMismatch {
+                name: name.clone(),
+                expected: "applicable (pure/impure) fn".into(),
+                got: "macro".into(),
+            }),
+        }
+    }
+
     pub fn call(&self, tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
         match self {
             Self::Pure { f, nargs, name } => {

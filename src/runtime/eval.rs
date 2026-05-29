@@ -110,6 +110,30 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
     }
 }
 
+/// Applies a callable to already-evaluated `args`. Dispatches closures through
+/// [`eval_closure`] and native fns through [`NativeFn::apply`]. The caller's
+/// `ctx` is threaded to native fns but the returned env is discarded (a call
+/// must not leak callee bindings), so only the resulting value is returned.
+pub fn apply(
+    callable: &Rc<Value>,
+    args: &[Rc<Value>],
+    ctx: &Env,
+) -> Result<Rc<Value>, RuntimeError> {
+    match &**callable {
+        Value::Closure(c) => {
+            let (v, _) = eval_closure(args, c)?;
+            Ok(v)
+        }
+        Value::NativeFn(n) => {
+            let (v, _) = n.apply(args, ctx)?;
+            Ok(v)
+        }
+        _ => Err(RuntimeError::NotCallable {
+            value: callable.clone(),
+        }),
+    }
+}
+
 pub fn eval_and_collect(
     tail: &Rc<Value>,
     ctx: &Env,
@@ -995,5 +1019,31 @@ mod tests {
         });
         let err = eval_err(form, &Env::new());
         assert!(matches!(err, RuntimeError::NotCallable { .. }));
+    }
+
+    #[test]
+    fn apply_runs_native_fn_on_evaluated_args() {
+        let env = crate::prelude::env();
+        let add = env.get(&Rc::from("+")).unwrap().clone();
+        let v = apply(&add, &[Rc::new(Value::Int(2)), Rc::new(Value::Int(3))], &env).unwrap();
+        assert_eq!(*v, Value::Int(5));
+    }
+
+    #[test]
+    fn apply_runs_closure() {
+        let clo = Rc::new(Value::Closure(Rc::new(Closure {
+            name: "id".into(),
+            params: vec!["x".into()],
+            body: Rc::new(Value::Ident("x".into())),
+            env: Env::new(),
+        })));
+        let v = apply(&clo, &[Rc::new(Value::Int(7))], &Env::new()).unwrap();
+        assert_eq!(*v, Value::Int(7));
+    }
+
+    #[test]
+    fn apply_non_callable_errors() {
+        let r = apply(&Rc::new(Value::Int(1)), &[], &Env::new());
+        assert!(matches!(r, Err(RuntimeError::NotCallable { .. })));
     }
 }
