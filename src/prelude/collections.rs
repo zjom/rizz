@@ -17,6 +17,7 @@ pub fn env() -> Env {
         ("first", first()),
         ("rest", rest()),
         ("last", last()),
+        ("contains?", contains()),
     ])
 }
 
@@ -123,6 +124,25 @@ fn get() -> NativeFn {
             })
         }
         other => Err(RuntimeError::type_mismatch("get", "map/array/str", other)),
+    })
+}
+
+/// `(contains? coll x)`: substring test for strings, element-equality test for
+/// arrays, key-presence test for maps. Returns `1` or `0`.
+fn contains() -> NativeFn {
+    NativeFn::pure("contains?".into(), 2, |args| {
+        let result = match &*args[0] {
+            Value::Str(s) => {
+                let needle = args[1]
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::type_mismatch("contains?", "str needle", &args[1]))?;
+                s.contains(&*needle)
+            }
+            Value::Array(xs) => xs.iter().any(|x| x == &args[1]),
+            Value::Map(m) => m.contains_key(&args[1]),
+            other => return Err(RuntimeError::type_mismatch("contains?", "str/array/map", other)),
+        };
+        Ok(Rc::new(Value::from(result)))
     })
 }
 
@@ -273,5 +293,15 @@ mod tests {
         // [] is not supported by the parser; use slice to produce an empty array
         assert_eq!(*run_ok("(first (slice [1] 1 1))"), Value::Unit);
         assert_eq!(*run_ok("(last \"\")"), Value::Unit);
+    }
+
+    #[test]
+    fn contains_over_types() {
+        assert_eq!(*run_ok("(contains? \"hello\" \"ell\")"), Value::Int(1));
+        assert_eq!(*run_ok("(contains? \"hello\" \"xyz\")"), Value::Int(0));
+        assert_eq!(*run_ok("(contains? [1 2 3] 2)"), Value::Int(1));
+        assert_eq!(*run_ok("(contains? [1 2 3] 9)"), Value::Int(0));
+        assert_eq!(*run_ok("(contains? {1: 2 3: 4} 3)"), Value::Int(1));
+        assert_eq!(*run_ok("(contains? {1: 2} 9)"), Value::Int(0));
     }
 }
