@@ -1,4 +1,4 @@
-//! The t ree-walking runtime.
+//! The tree-walking runtime.
 //!
 //! [`eval`] threads an [`Env`] through evaluation: it takes a form and an
 //! environment and returns the resulting value together with a (possibly
@@ -1025,7 +1025,12 @@ mod tests {
     fn apply_runs_native_fn_on_evaluated_args() {
         let env = crate::prelude::env();
         let add = env.get(&Rc::from("+")).unwrap().clone();
-        let v = apply(&add, &[Rc::new(Value::Int(2)), Rc::new(Value::Int(3))], &env).unwrap();
+        let v = apply(
+            &add,
+            &[Rc::new(Value::Int(2)), Rc::new(Value::Int(3))],
+            &env,
+        )
+        .unwrap();
         assert_eq!(*v, Value::Int(5));
     }
 
