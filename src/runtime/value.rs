@@ -76,6 +76,17 @@ impl Value {
         }
     }
 
+    // --- Constructors ---
+    pub fn cons_of<T>(xs: impl IntoIterator<Item = T, IntoIter: DoubleEndedIterator>) -> Value
+    where
+        T: Into<Value> + Clone,
+    {
+        xs.into_iter().rfold(Value::Unit, |tail, item| Value::Cons {
+            head: Rc::new(item.into()),
+            tail: Rc::new(tail),
+        })
+    }
+
     // --- Type predicates ---
 
     /// Whether the value counts as true in a condition. Everything is truthy
@@ -125,6 +136,21 @@ impl Value {
 
     pub fn as_str(&self) -> Option<Rc<str>> {
         match self {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn as_array(&self) -> Option<Vector<Rc<Value>>> {
+        match self {
+            Value::Array(xs) => Some(xs.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn as_map(&self) -> Option<HashMap<Rc<Value>, Rc<Value>>> {
+        match self {
+            Value::Map(xs) => Some(xs.clone()),
             _ => None,
         }
     }
