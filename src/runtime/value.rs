@@ -125,7 +125,6 @@ impl Value {
 
     pub fn as_str(&self) -> Option<Rc<str>> {
         match self {
-            Value::Str(s) | Value::Ident(s) => Some(s.clone()),
             _ => None,
         }
     }
