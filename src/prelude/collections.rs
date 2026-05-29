@@ -231,7 +231,7 @@ fn fmap() -> NativeFn {
                 let res = s
                     .chars()
                     .try_fold(String::with_capacity(s.len()), |mut acc, c| {
-                        let x = apply(f, &[Rc::new(Value::Str(c.to_string().into()))], env)?;
+                        let x = apply(f, &[Rc::new(c.to_string().into())], env)?;
                         match x.as_ref() {
                             Value::Str(s) => {
                                 acc.push_str(s.as_ref());
@@ -244,7 +244,7 @@ fn fmap() -> NativeFn {
                             )),
                         }
                     })?;
-                Ok((Rc::new(Value::Str(res.into())), env.clone()))
+                Ok((Rc::new(res.into()), env.clone()))
             }
             Value::Array(xs) => {
                 let mut out = Vector::new();
@@ -317,7 +317,13 @@ fn filter() -> NativeFn {
                 }
                 Value::Map(acc)
             }
-            other => return Err(RuntimeError::type_mismatch("filter", "array/map/str", other)),
+            other => {
+                return Err(RuntimeError::type_mismatch(
+                    "filter",
+                    "array/map/str",
+                    other,
+                ));
+            }
         };
         Ok((Rc::new(out), env.clone()))
     })
@@ -347,7 +353,13 @@ fn reduce() -> NativeFn {
                     acc = apply(f, &[acc.clone(), k.clone(), v.clone()], env)?;
                 }
             }
-            other => return Err(RuntimeError::type_mismatch("reduce", "array/map/str", other)),
+            other => {
+                return Err(RuntimeError::type_mismatch(
+                    "reduce",
+                    "array/map/str",
+                    other,
+                ));
+            }
         }
         Ok((acc, env.clone()))
     })
@@ -478,39 +490,69 @@ mod tests {
 
     #[test]
     fn fmap_accepts_native_fn() {
-        assert_eq!(*run_ok("(get (fmap to-str [1 2 3]) 0)"), Value::Str("1".into()));
+        assert_eq!(
+            *run_ok("(get (fmap to-str [1 2 3]) 0)"),
+            Value::Str("1".into())
+        );
     }
 
     #[test]
     fn filter_over_types() {
         // array: keep elements >= 2
-        assert_eq!(*run_ok("(len (filter (fn p (x) (>= x 2)) [1 2 3 4]))"), Value::Int(3));
-        assert_eq!(*run_ok("(get (filter (fn p (x) (>= x 2)) [1 2 3 4]) 0)"), Value::Int(2));
+        assert_eq!(
+            *run_ok("(len (filter (fn p (x) (>= x 2)) [1 2 3 4]))"),
+            Value::Int(3)
+        );
+        assert_eq!(
+            *run_ok("(get (filter (fn p (x) (>= x 2)) [1 2 3 4]) 0)"),
+            Value::Int(2)
+        );
         // str: keep only the "l" chars
         assert_eq!(
             *run_ok("(filter (fn p (c) (= c \"l\")) \"hello\")"),
             Value::Str("ll".into())
         );
         // map: keep entries whose value > 1
-        assert_eq!(*run_ok("(len (filter (fn p (k v) (> v 1)) {1:1 2:2 3:3}))"), Value::Int(2));
-        assert_eq!(*run_ok("(contains? (filter (fn p (k v) (> v 1)) {1:1 2:2 3:3}) 1)"), Value::Int(0));
+        assert_eq!(
+            *run_ok("(len (filter (fn p (k v) (> v 1)) {1:1 2:2 3:3}))"),
+            Value::Int(2)
+        );
+        assert_eq!(
+            *run_ok("(contains? (filter (fn p (k v) (> v 1)) {1:1 2:2 3:3}) 1)"),
+            Value::Int(0)
+        );
     }
 
     #[test]
     fn filter_can_remove_all() {
-        assert_eq!(*run_ok("(len (filter (fn p (x) 0) [1 2 3]))"), Value::Int(0));
-        assert_eq!(*run_ok("(filter (fn p (c) 0) \"abc\")"), Value::Str("".into()));
+        assert_eq!(
+            *run_ok("(len (filter (fn p (x) 0) [1 2 3]))"),
+            Value::Int(0)
+        );
+        assert_eq!(
+            *run_ok("(filter (fn p (c) 0) \"abc\")"),
+            Value::Str("".into())
+        );
     }
 
     #[test]
     fn reduce_over_types() {
         // array fold
         assert_eq!(*run_ok("(reduce + 0 [1 2 3 4])"), Value::Int(10));
-        assert_eq!(*run_ok("(reduce (fn f (a b) (* a b)) 1 [1 2 3 4])"), Value::Int(24));
+        assert_eq!(
+            *run_ok("(reduce (fn f (a b) (* a b)) 1 [1 2 3 4])"),
+            Value::Int(24)
+        );
         // str fold: concatenate chars onto an accumulator
-        assert_eq!(*run_ok("(reduce concat \"\" \"abc\")"), Value::Str("abc".into()));
+        assert_eq!(
+            *run_ok("(reduce concat \"\" \"abc\")"),
+            Value::Str("abc".into())
+        );
         // map fold: sum the values, ignoring keys
-        assert_eq!(*run_ok("(reduce (fn f (a k v) (+ a v)) 0 {1:10 2:20 3:30})"), Value::Int(60));
+        assert_eq!(
+            *run_ok("(reduce (fn f (a k v) (+ a v)) 0 {1:10 2:20 3:30})"),
+            Value::Int(60)
+        );
     }
 
     #[test]
