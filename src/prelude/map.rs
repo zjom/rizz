@@ -53,11 +53,7 @@ fn values() -> NativeFn {
 /// `(del m k)`: the map with key `k` removed (a no-op if `k` is absent).
 fn del() -> NativeFn {
     NativeFn::pure("del".into(), 2, |args| match &*args[0] {
-        Value::Map(m) => {
-            let mut out = m.clone();
-            out.remove(&args[1]);
-            Ok(Rc::new(Value::Map(out)))
-        }
+        Value::Map(m) => Ok(Rc::new(Value::Map(m.without(&args[1])))),
         other => Err(RuntimeError::type_mismatch("del", "map", other)),
     })
 }
