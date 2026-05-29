@@ -1,5 +1,6 @@
 //! String builtins. Names use a `str-` prefix; `to-str` stringifies any value.
 
+use im::Vector;
 use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
@@ -10,6 +11,10 @@ pub fn env() -> Env {
         ("str-upper", str_upper()),
         ("str-lower", str_lower()),
         ("str-trim", str_trim()),
+        ("str-split", str_split()),
+        ("str-join", str_join()),
+        ("str-replace", str_replace()),
+        ("str->int", str_to_int()),
     ])
 }
 
@@ -49,6 +54,58 @@ fn str_trim() -> NativeFn {
     })
 }
 
+/// `(str-split s sep)`: splits `s` on `sep` into an array of strings. An empty
+/// `sep` splits into individual characters.
+fn str_split() -> NativeFn {
+    NativeFn::pure("str-split".into(), 2, |args| {
+        let s = arg_str("str-split", &args[0])?;
+        let sep = arg_str("str-split", &args[1])?;
+        let parts: Vector<Rc<Value>> = if sep.is_empty() {
+            s.chars().map(|c| Rc::new(Value::Str(c.to_string().into()))).collect()
+        } else {
+            s.split(&*sep).map(|p| Rc::new(Value::Str(p.into()))).collect()
+        };
+        Ok(Rc::new(Value::Array(parts)))
+    })
+}
+
+/// `(str-join arr sep)`: joins an array's elements (each rendered via
+/// [`Value::display`]) with `sep` between them.
+fn str_join() -> NativeFn {
+    NativeFn::pure("str-join".into(), 2, |args| {
+        let sep = arg_str("str-join", &args[1])?;
+        match &*args[0] {
+            Value::Array(xs) => {
+                let parts: Vec<String> = xs.iter().map(|x| x.display()).collect();
+                Ok(Rc::new(Value::Str(parts.join(sep.as_ref()).into())))
+            }
+            other => Err(RuntimeError::type_mismatch("str-join", "array", other)),
+        }
+    })
+}
+
+/// `(str-replace s from to)`: replaces all non-overlapping occurrences.
+fn str_replace() -> NativeFn {
+    NativeFn::pure("str-replace".into(), 3, |args| {
+        let s = arg_str("str-replace", &args[0])?;
+        let from = arg_str("str-replace", &args[1])?;
+        let to = arg_str("str-replace", &args[2])?;
+        Ok(Rc::new(Value::Str(s.replace(&*from, &*to).into())))
+    })
+}
+
+/// `(str->int s)`: parses a decimal integer, or `()` on failure. Surrounding
+/// whitespace is ignored.
+fn str_to_int() -> NativeFn {
+    NativeFn::pure("str->int".into(), 1, |args| {
+        let s = arg_str("str->int", &args[0])?;
+        Ok(Rc::new(match s.trim().parse::<i64>() {
+            Ok(n) => Value::Int(n),
+            Err(_) => Value::Unit,
+        }))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,5 +138,23 @@ mod tests {
             run("(str-upper 5)"),
             Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
+    }
+
+    #[test]
+    fn split_and_join() {
+        assert_eq!(*run_ok("(len (str-split \"a,b,c\" \",\"))"), Value::Int(3));
+        assert_eq!(*run_ok("(get (str-split \"a,b,c\" \",\") 1)"), Value::Str("b".into()));
+        assert_eq!(*run_ok("(len (str-split \"abc\" \"\"))"), Value::Int(3));
+        assert_eq!(*run_ok("(str-join [\"a\" \"b\" \"c\"] \",\")"), Value::Str("a,b,c".into()));
+        // join renders non-strings via to-str semantics
+        assert_eq!(*run_ok("(str-join [1 2 3] \"-\")"), Value::Str("1-2-3".into()));
+    }
+
+    #[test]
+    fn replace_and_parse_int() {
+        assert_eq!(*run_ok("(str-replace \"a.b.c\" \".\" \"/\")"), Value::Str("a/b/c".into()));
+        assert_eq!(*run_ok("(str->int \"42\")"), Value::Int(42));
+        assert_eq!(*run_ok("(str->int \"  7 \")"), Value::Int(7));
+        assert_eq!(*run_ok("(str->int \"nope\")"), Value::Unit);
     }
 }
