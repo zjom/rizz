@@ -209,3 +209,36 @@ fn unknown_identifier_in_nested_form_is_error() {
 fn division_by_zero_in_nested_form_is_error() {
     assert!(risp::parse_and_run("(/ (+ 5 5) (- 3 3))".as_bytes()).is_err());
 }
+
+// ----- prelude str/array/map: combined pipelines -----
+
+#[test]
+fn reduce_over_mapped_array() {
+    // double each then sum: (1+2+3)*2 = 12
+    assert_eq!(
+        *run("(reduce + 0 (map (fn d (x) (* x 2)) [1 2 3]))"),
+        Value::Int(12)
+    );
+}
+
+#[test]
+fn join_mapped_to_str() {
+    assert_eq!(
+        *run("(str-join (map to-str (range 1 4)) \",\")"),
+        Value::Str("1,2,3".into())
+    );
+}
+
+#[test]
+fn filter_then_len() {
+    assert_eq!(
+        *run("(len (filter (fn p (x) (> x 2)) (range 0 6)))"),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn map_get_put_roundtrip() {
+    // put a key, read it back through the polymorphic get
+    assert_eq!(*run("(get (put {1: 2} 3 4) 3)"), Value::Int(4));
+}
