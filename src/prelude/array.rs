@@ -1,6 +1,13 @@
 //! Array builtins: construction (`push`, `range`) and higher-order transforms
 //! (`map`, `filter`, `reduce`). Higher-order fns are *impure* so they receive
 //! the `Env` needed to invoke user closures via [`crate::runtime::apply`].
+//!
+//! Caveat: the evaluator re-evaluates whatever value a native fn returns, so for
+//! a returned array each element is evaluated a second time. Self-evaluating
+//! elements (ints, floats, strings, units, and arrays/maps of those) are
+//! unaffected. A `map`/`filter` callback that returns a non-self-evaluating
+//! value — a closure or an unquoted identifier — would thus be re-evaluated by
+//! the caller and misbehave; current callbacks return data, so this isn't hit.
 
 use im::Vector;
 use std::rc::Rc;
@@ -44,7 +51,8 @@ fn range() -> NativeFn {
     })
 }
 
-/// `(map f arr)`: a new array of `f` applied to each element.
+/// `(map f arr)`: a new array of `f` applied to each element. The higher-order
+/// transform — distinct from the map-type builtins in [`crate::prelude::map`].
 fn map() -> NativeFn {
     NativeFn::impure("map".into(), 2, |args, env| {
         let f = &args[0];
@@ -154,6 +162,27 @@ mod tests {
         assert!(matches!(
             run("(map to-str 5)"),
             Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+        ));
+    }
+
+    #[test]
+    fn reduce_on_empty_returns_init() {
+        // (range 0 0) is an empty array (empty `[]` literals are not parseable)
+        assert_eq!(*run_ok("(reduce + 0 (range 0 0))"), Value::Int(0));
+    }
+
+    #[test]
+    fn filter_can_remove_all() {
+        // predicate is always falsy, so nothing is kept
+        assert_eq!(*run_ok("(len (filter (fn p (x) 0) [1 2 3]))"), Value::Int(0));
+    }
+
+    #[test]
+    fn higher_order_propagates_callback_arity_error() {
+        // `+` is arity 2; applying it to a single element must surface the error
+        assert!(matches!(
+            run("(map + [1 2 3])"),
+            Err(RispError::RuntimeError(RuntimeError::ArityMismatch { .. }))
         ));
     }
 }
