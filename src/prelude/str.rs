@@ -90,7 +90,7 @@ fn str_replace() -> NativeFn {
         let s = arg_str("str-replace", &args[0])?;
         let from = arg_str("str-replace", &args[1])?;
         let to = arg_str("str-replace", &args[2])?;
-        Ok(Rc::new(Value::Str(s.replace(&*from, &*to).into())))
+        Ok(Rc::new(Value::Str(s.replace(&*from, &to).into())))
     })
 }
 
