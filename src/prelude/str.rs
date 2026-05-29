@@ -25,9 +25,10 @@ fn to_str() -> NativeFn {
     })
 }
 
-/// Reads `args[0]` as a string (accepts `Str`/`Ident`), erroring otherwise.
+/// Reads `args[0]` as a string, erroring otherwise.
 fn arg_str(name: &str, v: &Rc<Value>) -> Result<Rc<str>, RuntimeError> {
-    v.as_str().ok_or_else(|| RuntimeError::type_mismatch(name, "str", v))
+    v.as_str()
+        .ok_or_else(|| RuntimeError::type_mismatch(name, "str", v))
 }
 
 /// `(str-upper s)`: uppercased copy.
@@ -61,9 +62,13 @@ fn str_split() -> NativeFn {
         let s = arg_str("str-split", &args[0])?;
         let sep = arg_str("str-split", &args[1])?;
         let parts: Vector<Rc<Value>> = if sep.is_empty() {
-            s.chars().map(|c| Rc::new(Value::Str(c.to_string().into()))).collect()
+            s.chars()
+                .map(|c| Rc::new(Value::Str(c.to_string().into())))
+                .collect()
         } else {
-            s.split(&*sep).map(|p| Rc::new(Value::Str(p.into()))).collect()
+            s.split(&*sep)
+                .map(|p| Rc::new(Value::Str(p.into())))
+                .collect()
         };
         Ok(Rc::new(Value::Array(parts)))
     })
@@ -143,16 +148,28 @@ mod tests {
     #[test]
     fn split_and_join() {
         assert_eq!(*run_ok("(len (str-split \"a,b,c\" \",\"))"), Value::Int(3));
-        assert_eq!(*run_ok("(get (str-split \"a,b,c\" \",\") 1)"), Value::Str("b".into()));
+        assert_eq!(
+            *run_ok("(get (str-split \"a,b,c\" \",\") 1)"),
+            Value::Str("b".into())
+        );
         assert_eq!(*run_ok("(len (str-split \"abc\" \"\"))"), Value::Int(3));
-        assert_eq!(*run_ok("(str-join [\"a\" \"b\" \"c\"] \",\")"), Value::Str("a,b,c".into()));
+        assert_eq!(
+            *run_ok("(str-join [\"a\" \"b\" \"c\"] \",\")"),
+            Value::Str("a,b,c".into())
+        );
         // join renders non-strings via to-str semantics
-        assert_eq!(*run_ok("(str-join [1 2 3] \"-\")"), Value::Str("1-2-3".into()));
+        assert_eq!(
+            *run_ok("(str-join [1 2 3] \"-\")"),
+            Value::Str("1-2-3".into())
+        );
     }
 
     #[test]
     fn replace_and_parse_int() {
-        assert_eq!(*run_ok("(str-replace \"a.b.c\" \".\" \"/\")"), Value::Str("a/b/c".into()));
+        assert_eq!(
+            *run_ok("(str-replace \"a.b.c\" \".\" \"/\")"),
+            Value::Str("a/b/c".into())
+        );
         assert_eq!(*run_ok("(str->int \"42\")"), Value::Int(42));
         assert_eq!(*run_ok("(str->int \"  7 \")"), Value::Int(7));
         assert_eq!(*run_ok("(str->int \"nope\")"), Value::Unit);
