@@ -60,9 +60,33 @@ impl NativeFn {
         }
     }
 
-    /// Applies the fn to **already-evaluated** `args` (unlike [`call`], which
-    /// evaluates an unevaluated tail). Used by higher-order builtins via
+    pub fn call(&self, tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+        match self {
+            Self::Pure { f, nargs, name } => {
+                let (args, env) = runtime::eval_and_collect(tail, env)?;
+                validate_args(name, &args, *nargs)?;
+                f(&args).map(|v| (v, env.clone()))
+            }
+            Self::Impure { f, nargs, name } => {
+                let (args, env) = runtime::eval_and_collect(tail, env)?;
+                validate_args(name, &args, *nargs)?;
+                f(&args, &env)
+            }
+            Self::Macro { f, nargs, name } => {
+                let args: Vec<_> = Value::iter(tail).collect();
+                validate_args(name, &args, *nargs)?;
+                f(&args, env)
+            }
+        }
+    }
+
+    /// Applies the fn to **already-evaluated** `args` (unlike [`call`](Self::call),
+    /// which evaluates an unevaluated tail). Used by higher-order builtins via
     /// [`crate::runtime::apply`]. Macros cannot be applied to values.
+    ///
+    /// The `Impure` arm returns the env its function produced. Callers that want
+    /// env-isolation (the common case) should discard that env and keep the
+    /// caller's — see [`crate::runtime::apply`].
     pub fn apply(
         &self,
         args: &[Rc<Value>],
@@ -82,26 +106,6 @@ impl NativeFn {
                 expected: "applicable (pure/impure) fn".into(),
                 got: "macro".into(),
             }),
-        }
-    }
-
-    pub fn call(&self, tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
-        match self {
-            Self::Pure { f, nargs, name } => {
-                let (args, env) = runtime::eval_and_collect(tail, env)?;
-                validate_args(name, &args, *nargs)?;
-                f(&args).map(|v| (v, env.clone()))
-            }
-            Self::Impure { f, nargs, name } => {
-                let (args, env) = runtime::eval_and_collect(tail, env)?;
-                validate_args(name, &args, *nargs)?;
-                f(&args, &env)
-            }
-            Self::Macro { f, nargs, name } => {
-                let args: Vec<_> = Value::iter(tail).collect();
-                validate_args(name, &args, *nargs)?;
-                f(&args, env)
-            }
         }
     }
 }
