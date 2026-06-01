@@ -1,6 +1,7 @@
 use std::{
     fmt::Debug,
     hash::{Hash, Hasher},
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -534,6 +535,20 @@ impl From<Rc<str>> for Value {
     }
 }
 
+impl From<&Path> for Value {
+    fn from(value: &Path) -> Self {
+        let s: Rc<str> = value.to_string_lossy().into();
+        Value::Str(s)
+    }
+}
+
+impl From<PathBuf> for Value {
+    fn from(value: PathBuf) -> Self {
+        let s: &Path = value.as_ref();
+        s.into()
+    }
+}
+
 impl From<()> for Value {
     fn from(_: ()) -> Self {
         Value::Unit
@@ -549,6 +564,40 @@ impl From<NativeFn> for Value {
 impl From<Closure> for Value {
     fn from(value: Closure) -> Self {
         Value::Closure(Rc::new(value))
+    }
+}
+
+impl<T: Into<Value>> From<Vec<T>> for Value {
+    fn from(value: Vec<T>) -> Self {
+        Value::Array(value.into_iter().map(|v| Rc::new(v.into())).collect())
+    }
+}
+
+impl<T: Into<Value> + Clone> From<Vector<T>> for Value {
+    fn from(value: Vector<T>) -> Self {
+        Value::Array(value.into_iter().map(|v| Rc::new(v.into())).collect())
+    }
+}
+
+impl<K: Into<Value> + Clone + Hash + Eq, V: Into<Value> + Clone>
+    From<std::collections::HashMap<K, V>> for Value
+{
+    fn from(value: std::collections::HashMap<K, V>) -> Self {
+        let m = value
+            .into_iter()
+            .map(|(k, v)| (Rc::new(k.into()), Rc::new(v.into())))
+            .collect();
+        Value::Map(m)
+    }
+}
+
+impl<K: Into<Value> + Clone + Hash + Eq, V: Into<Value> + Clone> From<HashMap<K, V>> for Value {
+    fn from(value: HashMap<K, V>) -> Self {
+        let m = value
+            .into_iter()
+            .map(|(k, v)| (Rc::new(k.into()), Rc::new(v.into())))
+            .collect();
+        Value::Map(m)
     }
 }
 
