@@ -82,7 +82,7 @@ where
     /// skipped; any remaining non-whitespace input is rejected as trailing.
     pub fn parse(&mut self) -> Result<Sexp, ParseError> {
         let form = self.parse_expr()?;
-        self.skip_whitespace()?;
+        self.skip_trivia()?;
         match self.peek_eof()? {
             None => Ok(form),
             Some(got) => Err(ParseError::TrailingInput {
@@ -111,7 +111,7 @@ where
     /// up to and including the matching `)`. Returns nil for `()`, otherwise
     /// a cons chain `(head . tail)`.
     fn parse_list_tail(&mut self) -> Result<Sexp, ParseError> {
-        self.skip_whitespace()?;
+        self.skip_trivia()?;
         if self.peek_one()? == b')' {
             self.read_byte()?; // consume ')'
             // Return the nil sentinel. Since parse() returns Sexp (not Rc<Sexp>),
@@ -120,7 +120,7 @@ where
         }
 
         let head = self.parse_expr()?;
-        self.skip_whitespace()?;
+        self.skip_trivia()?;
 
         // Tail is either another list element (implicit cons) or `)` (nil terminator).
         let tail = if self.peek_one()? == b')' {
@@ -136,7 +136,7 @@ where
         })
     }
     fn parse_expr(&mut self) -> Result<Sexp, ParseError> {
-        self.skip_whitespace()?;
+        self.skip_trivia()?;
         let sexp = match self.peek_one()? {
             b'(' => {
                 self.read_byte()?; // consume '('
@@ -173,6 +173,10 @@ where
             // `parse_list_tail`; reaching here means an unmatched close at the
             // start of a form (e.g. a top-level `)`).
             b')' => return Err(ParseError::UnexpectedCloseParen { at: self.at() }),
+
+            // skip_trivia consumes `;;` as a comment; a `;` here is therefore
+            // stray (not followed by another `;`) and never begins a form.
+            b';' => return Err(ParseError::StraySemicolon { at: self.at() }),
 
             _ => {
                 let t = self.parse_atomic()?;
@@ -298,7 +302,7 @@ where
         acc: HashMap<Rc<Sexp>, Rc<Sexp>>,
     ) -> Result<Collection, ParseError> {
         let k = self.parse_expr()?;
-        self.skip_whitespace()?;
+        self.skip_trivia()?;
 
         match self.read_byte()? {
             b':' => {}
@@ -314,7 +318,7 @@ where
         let v = self.parse_expr()?;
         let acc = acc.update(Rc::new(k), Rc::new(v));
 
-        self.skip_whitespace()?;
+        self.skip_trivia()?;
         match self.peek_one()? {
             b'}' => Ok(Collection::Map(acc)),
             _ => self.parse_map_inner(acc),
@@ -343,7 +347,7 @@ where
     fn parse_array_inner(&mut self, mut acc: Vec<Rc<Sexp>>) -> Result<Collection, ParseError> {
         let expr = self.parse_expr()?;
         acc.push(Rc::new(expr));
-        self.skip_whitespace()?;
+        self.skip_trivia()?;
 
         match self.peek_one()? {
             b']' => Ok(Collection::Array(acc.into())),
@@ -493,20 +497,35 @@ where
         Ok(read)
     }
 
-    fn skip_whitespace(&mut self) -> Result<(), ParseError> {
+    fn skip_trivia(&mut self) -> Result<(), ParseError> {
         let mut throwaway = Vec::new();
-        match self.read_while(&mut throwaway, |b| WHITESPACE.contains(b)) {
-            Ok(_) => Ok(()),
-            Err(_) => {
-                if self.list_depth > 0 {
+        loop {
+            if let Err(_) = self.read_while(&mut throwaway, |b| WHITESPACE.contains(b)) {
+                return if self.list_depth > 0 {
                     Err(ParseError::UnexpectedCloseParen { at: self.at() })
                 } else {
                     Err(ParseError::IOError {
                         source: std::io::ErrorKind::UnexpectedEof.into(),
                         at: self.at(),
                     })
-                }
+                };
             }
+
+            let starts_comment = match self.reader.fill_buf() {
+                Ok(avail) => avail.len() >= 2 && avail[0] == b';' && avail[1] == b';',
+                Err(e) => {
+                    return Err(ParseError::IOError {
+                        source: e,
+                        at: self.at(),
+                    });
+                }
+            };
+            if !starts_comment {
+                return Ok(());
+            }
+
+            throwaway.clear();
+            self.read_until(&mut throwaway, b'\n')?;
         }
     }
 }
@@ -841,7 +860,7 @@ mod tests {
     #[test]
     fn empty_input_is_error() {
         let err = parse_str("").unwrap_err();
-        // parse_expr -> skip_whitespace -> peek_one -> UnexpectedEof
+        // parse_expr -> skip_trivia -> peek_one -> UnexpectedEof
         assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
     }
 
@@ -903,7 +922,7 @@ mod tests {
 
     #[test]
     fn error_position_accounts_for_skipped_whitespace() {
-        // skip_whitespace consumes three spaces (byte = 3), then the `)` at the
+        // skip_trivia consumes three spaces (byte = 3), then the `)` at the
         // start of the form is reported at that position.
         let err = parse_str("   )").unwrap_err();
         match err {

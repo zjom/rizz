@@ -8,6 +8,9 @@ pub enum ParseError {
     #[error("unexpected `)` at {at}")]
     UnexpectedCloseParen { at: Position },
 
+    #[error("stray `;` at {at} (use `;;` for a line comment)")]
+    StraySemicolon { at: Position },
+
     #[error("unexpected trailing input {at}: {got}")]
     TrailingInput { at: Position, got: char },
 
