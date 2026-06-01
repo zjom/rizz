@@ -161,9 +161,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RispError;
+    use crate::RizzError;
 
-    fn run(src: &str) -> Result<Rc<Value>, RispError> {
+    fn run(src: &str) -> Result<Rc<Value>, RizzError> {
         crate::parse_and_run(src.as_bytes()).map(|(v, _)| v)
     }
 
@@ -214,7 +214,7 @@ mod tests {
     fn integer_division_by_zero_is_error() {
         assert!(matches!(
             run("(/ 1 0)"),
-            Err(RispError::RuntimeError(
+            Err(RizzError::RuntimeError(
                 RuntimeError::ArithmeticError { .. }
             ))
         ));
@@ -224,13 +224,13 @@ mod tests {
     fn integer_overflow_is_error() {
         assert!(matches!(
             run("(+ 9223372036854775807 1)"),
-            Err(RispError::RuntimeError(
+            Err(RizzError::RuntimeError(
                 RuntimeError::ArithmeticError { .. }
             ))
         ));
         assert!(matches!(
             run("(* 9223372036854775807 9223372036854775807)"),
-            Err(RispError::RuntimeError(
+            Err(RizzError::RuntimeError(
                 RuntimeError::ArithmeticError { .. }
             ))
         ));
@@ -241,7 +241,7 @@ mod tests {
         // 0.0 / 0.0 is NaN; comparing it must error rather than panic.
         assert!(matches!(
             run("(cmp (/ 0.0 0.0) 1.0)"),
-            Err(RispError::RuntimeError(
+            Err(RizzError::RuntimeError(
                 RuntimeError::ArithmeticError { .. }
             ))
         ));

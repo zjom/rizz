@@ -1,4 +1,4 @@
-//! risp — a small Lisp interpreter.
+//! rizz — a small Lisp interpreter.
 //!
 //! Source text flows through three stages:
 //!
@@ -25,7 +25,7 @@ pub mod runtime;
 /// implicitly sequenced: each one's resulting env feeds the next, so later
 /// forms see earlier `let`/`fn` bindings. Returns the value of the last form
 /// and the final environment.
-pub fn parse_and_run<R: Read>(r: R) -> Result<(Rc<Value>, Env), RispError> {
+pub fn parse_and_run<R: Read>(r: R) -> Result<(Rc<Value>, Env), RizzError> {
     let forms = parser::Parser::new(r).parse()?;
     Ok(eval_forms(forms, &prelude::env())?)
 }
@@ -33,7 +33,7 @@ pub fn parse_and_run<R: Read>(r: R) -> Result<(Rc<Value>, Env), RispError> {
 /// Like [`parse_and_run`] but evaluates against the caller-supplied `env`
 /// rather than a fresh prelude, so successive calls can share bindings (e.g. a
 /// REPL session that accumulates `let`/`fn` definitions).
-pub fn parse_and_run_with_env<R: Read>(r: R, env: &Env) -> Result<(Rc<Value>, Env), RispError> {
+pub fn parse_and_run_with_env<R: Read>(r: R, env: &Env) -> Result<(Rc<Value>, Env), RizzError> {
     let forms = parser::Parser::new(r).parse()?;
     Ok(eval_forms(forms, env)?)
 }
@@ -56,7 +56,7 @@ fn eval_forms(forms: Vec<Sexp>, env: &Env) -> Result<(Rc<Value>, Env), runtime::
 /// Any failure from running a program: a [`parser::ParseError`] from reading
 /// the source, or an [`runtime::RuntimeError`] from evaluating it.
 #[derive(Debug, thiserror::Error)]
-pub enum RispError {
+pub enum RizzError {
     #[error(transparent)]
     ParseError(#[from] parser::ParseError),
 

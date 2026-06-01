@@ -1,6 +1,6 @@
-# risp — Language Specification
+# rizz — Language Specification
 
-risp is a small, dynamically typed Lisp. A program is a sequence of
+rizz is a small, dynamically typed Lisp. A program is a sequence of
 s-expressions; the runtime is a tree-walking interpreter over the parsed forms.
 This document defines the surface syntax, the value model, the evaluation
 rules, and the standard environment.

@@ -363,9 +363,9 @@ fn reduce() -> NativeFn {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RispError;
+    use crate::RizzError;
 
-    fn run(src: &str) -> Result<Rc<Value>, RispError> {
+    fn run(src: &str) -> Result<Rc<Value>, RizzError> {
         crate::parse_and_run(src.as_bytes()).map(|(v, _)| v)
     }
     fn run_ok(src: &str) -> Rc<Value> {
@@ -383,7 +383,7 @@ mod tests {
     fn len_rejects_non_collection() {
         assert!(matches!(
             run("(len 5)"),
-            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+            Err(RizzError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
     }
 
@@ -417,7 +417,7 @@ mod tests {
     fn concat_rejects_mismatch() {
         assert!(matches!(
             run("(concat \"a\" [1])"),
-            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+            Err(RizzError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
     }
 
@@ -561,15 +561,15 @@ mod tests {
     fn higher_order_rejects_non_collection() {
         assert!(matches!(
             run("(fmap to-str 5)"),
-            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+            Err(RizzError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
         assert!(matches!(
             run("(filter (fn p (x) 1) 5)"),
-            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+            Err(RizzError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
         assert!(matches!(
             run("(reduce + 0 5)"),
-            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+            Err(RizzError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
     }
 
@@ -578,7 +578,7 @@ mod tests {
         // `+` is arity 2; applying it to a single element must surface the error
         assert!(matches!(
             run("(fmap + [1 2 3])"),
-            Err(RispError::RuntimeError(RuntimeError::ArityMismatch { .. }))
+            Err(RizzError::RuntimeError(RuntimeError::ArityMismatch { .. }))
         ));
     }
 }

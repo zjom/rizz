@@ -1,11 +1,11 @@
 //! End-to-end tests: source text -> parse -> eval -> value, through the public
 //! `parse_and_run` API. Emphasis on nested forms.
 
-use risp::runtime::Value;
+use rizz::runtime::Value;
 use std::{ops::Deref, rc::Rc};
 
 fn run(src: &str) -> Rc<Value> {
-    risp::parse_and_run(src.as_bytes())
+    rizz::parse_and_run(src.as_bytes())
         .map(|(v, _)| v)
         .unwrap_or_else(|e| panic!("eval of `{src}` failed: {e}"))
 }
@@ -195,19 +195,19 @@ fn map_literal_evaluates_values() {
 
 #[test]
 fn array_in_head_position_is_not_callable() {
-    assert!(risp::parse_and_run("([1, 2, 3])".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("([1, 2, 3])".as_bytes()).is_err());
 }
 
 // ----- errors surface (not panics) through nested forms -----
 
 #[test]
 fn unknown_identifier_in_nested_form_is_error() {
-    assert!(risp::parse_and_run("(+ 1 (* 2 nope))".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("(+ 1 (* 2 nope))".as_bytes()).is_err());
 }
 
 #[test]
 fn division_by_zero_in_nested_form_is_error() {
-    assert!(risp::parse_and_run("(/ (+ 5 5) (- 3 3))".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("(/ (+ 5 5) (- 3 3))".as_bytes()).is_err());
 }
 
 // ----- prelude str/array/map: combined pipelines -----
@@ -260,10 +260,7 @@ fn let_binding_persists_across_top_level_forms() {
 
 #[test]
 fn fn_defined_in_one_form_callable_from_the_next() {
-    assert_eq!(
-        *run("(fn sq (x) (* x x))\n(sq 6)"),
-        Value::Int(36)
-    );
+    assert_eq!(*run("(fn sq (x) (* x x))\n(sq 6)"), Value::Int(36));
 }
 
 #[test]

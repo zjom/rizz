@@ -83,7 +83,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "risp"
+name = "rizz"
 version = "0.1.0"
 dependencies = [
  "im",

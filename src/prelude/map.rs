@@ -61,9 +61,9 @@ fn del() -> NativeFn {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RispError;
+    use crate::RizzError;
 
-    fn run(src: &str) -> Result<Rc<Value>, RispError> {
+    fn run(src: &str) -> Result<Rc<Value>, RizzError> {
         crate::parse_and_run(src.as_bytes()).map(|(v, _)| v)
     }
     fn run_ok(src: &str) -> Rc<Value> {
@@ -90,7 +90,7 @@ mod tests {
     fn keys_rejects_non_map() {
         assert!(matches!(
             run("(keys [1 2])"),
-            Err(RispError::RuntimeError(RuntimeError::TypeMismatch { .. }))
+            Err(RizzError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
     }
 }
