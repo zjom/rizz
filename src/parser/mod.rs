@@ -500,7 +500,7 @@ where
     fn skip_trivia(&mut self) -> Result<(), ParseError> {
         let mut throwaway = Vec::new();
         loop {
-            if let Err(_) = self.read_while(&mut throwaway, |b| WHITESPACE.contains(b)) {
+            if self.read_while(&mut throwaway, |b| WHITESPACE.contains(b)).is_err() {
                 return if self.list_depth > 0 {
                     Err(ParseError::UnexpectedCloseParen { at: self.at() })
                 } else {
