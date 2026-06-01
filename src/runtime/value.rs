@@ -444,12 +444,12 @@ impl From<Sexp> for Value {
     fn from(sexp: Sexp) -> Self {
         match sexp {
             Sexp::Unit => Value::Unit,
-            Sexp::Atom(ref atm) => atm_to_value(atm),
+            Sexp::Atom(ref atm) => atm.into(),
             Sexp::Exp { ref head, ref tail } => Value::Cons {
                 head: Rc::new(Value::from(head.clone())),
                 tail: Rc::new(Value::from(tail.clone())),
             },
-            Sexp::Collection(ref c) => collection_to_value(c),
+            Sexp::Collection(ref c) => c.into(),
         }
     }
 }
@@ -458,38 +458,42 @@ impl From<Rc<Sexp>> for Value {
     fn from(sexp: Rc<Sexp>) -> Self {
         match *sexp {
             Sexp::Unit => Value::Unit,
-            Sexp::Atom(ref atm) => atm_to_value(atm),
+            Sexp::Atom(ref atm) => atm.into(),
             Sexp::Exp { ref head, ref tail } => Value::Cons {
                 head: Rc::new(Value::from(head.clone())),
                 tail: Rc::new(Value::from(tail.clone())),
             },
-            Sexp::Collection(ref c) => collection_to_value(c),
+            Sexp::Collection(ref c) => c.into(),
         }
     }
 }
 
-fn atm_to_value(atm: &Atomic) -> Value {
-    match atm {
-        Atomic::Int(n) => Value::Int(*n),
-        Atomic::Float(n) => Value::Float(*n),
-        Atomic::Ident(s) => Value::Ident(s.clone()),
-        Atomic::Str(s) => Value::Str(s.clone()),
+impl From<&Atomic> for Value {
+    fn from(atm: &Atomic) -> Self {
+        match atm {
+            Atomic::Int(n) => Value::Int(*n),
+            Atomic::Float(n) => Value::Float(*n),
+            Atomic::Ident(s) => Value::Ident(s.clone()),
+            Atomic::Str(s) => Value::Str(s.clone()),
+        }
     }
 }
 
-fn collection_to_value(c: &Collection) -> Value {
-    match c {
-        Collection::Array(xs) => {
-            Value::Array(xs.iter().map(|s| Rc::new(Value::from(s.clone()))).collect())
-        }
-        Collection::Map(m) => {
-            let entries = m.iter().map(|(k, v)| {
-                (
-                    Rc::new(Value::from(k.clone())),
-                    Rc::new(Value::from(v.clone())),
-                )
-            });
-            Value::Map(entries.collect())
+impl From<&Collection> for Value {
+    fn from(c: &Collection) -> Self {
+        match c {
+            Collection::Array(xs) => {
+                Value::Array(xs.iter().map(|s| Rc::new(Value::from(s.clone()))).collect())
+            }
+            Collection::Map(m) => {
+                let entries = m.iter().map(|(k, v)| {
+                    (
+                        Rc::new(Value::from(k.clone())),
+                        Rc::new(Value::from(v.clone())),
+                    )
+                });
+                Value::Map(entries.collect())
+            }
         }
     }
 }
