@@ -255,24 +255,39 @@ where
         rc
     }
 
-    /// parses double quoted str including the opening `"` and closing `"`
+    /// parses double quoted str including the opening `"` and closing `"`.
+    /// Recognises `\"`, `\\`, `\n`, `\r`, `\t` escape sequences.
     /// panics if first byte isn't `"`
     fn parse_str(&mut self) -> Result<Atomic, ParseError> {
         let b = self.read_byte()?;
         assert_eq!(b, b'"');
 
-        let mut buf = Vec::new();
-        let n = self.read_until(&mut buf, b'"')?;
-        if buf.last() != Some(&b'"') {
-            // read_until hit EOF before finding the closing quote.
-            return Err(ParseError::IOError {
-                source: std::io::ErrorKind::UnexpectedEof.into(),
-                at: self.at(),
-            });
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            let b = self.read_byte()?;
+            match b {
+                b'"' => break,
+                b'\\' => {
+                    let esc = self.read_byte()?;
+                    match esc {
+                        b'"' | b'\\' => buf.push(esc),
+                        b'n' => buf.push(b'\n'),
+                        b'r' => buf.push(b'\r'),
+                        b't' => buf.push(b'\t'),
+                        other => {
+                            return Err(ParseError::ExpectedToken {
+                                expected: '"',
+                                at: self.at(),
+                                got: other.into(),
+                            });
+                        }
+                    }
+                }
+                _ => buf.push(b),
+            }
         }
-        let inner = &buf[0..n - 1]; // skip closing `"`
         let at = self.at();
-        let s: Rc<str> = str::from_utf8(inner)
+        let s: Rc<str> = str::from_utf8(&buf)
             .map_err(|e| ParseError::UTF8Error { source: e, at })?
             .into();
         Ok(Atomic::Str(s))
