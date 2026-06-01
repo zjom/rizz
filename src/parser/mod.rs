@@ -326,7 +326,11 @@ where
         &mut self,
         acc: HashMap<Rc<Sexp>, Rc<Sexp>>,
     ) -> Result<Collection, ParseError> {
-        let k = self.parse_expr()?;
+        self.skip_trivia()?;
+        let k = match self.peek_one()? {
+            b'}' => return Ok(Collection::Map(acc)),
+            _ => self.parse_expr()?,
+        };
         self.skip_trivia()?;
 
         match self.read_byte()? {
@@ -342,12 +346,7 @@ where
 
         let v = self.parse_expr()?;
         let acc = acc.update(Rc::new(k), Rc::new(v));
-
-        self.skip_trivia()?;
-        match self.peek_one()? {
-            b'}' => Ok(Collection::Map(acc)),
-            _ => self.parse_map_inner(acc),
-        }
+        self.parse_map_inner(acc)
     }
 
     /// parses array including the opening `[` and closing `]`
@@ -370,13 +369,15 @@ where
     /// first byte must NOT be `[`
     /// does not consume closing `]`
     fn parse_array_inner(&mut self, mut acc: Vec<Rc<Sexp>>) -> Result<Collection, ParseError> {
-        let expr = self.parse_expr()?;
-        acc.push(Rc::new(expr));
         self.skip_trivia()?;
 
         match self.peek_one()? {
             b']' => Ok(Collection::Array(acc.into())),
-            _ => self.parse_array_inner(acc),
+            _ => {
+                let expr = self.parse_expr()?;
+                acc.push(Rc::new(expr));
+                self.parse_array_inner(acc)
+            }
         }
     }
 
@@ -525,7 +526,10 @@ where
     fn skip_trivia(&mut self) -> Result<(), ParseError> {
         let mut throwaway = Vec::new();
         loop {
-            if self.read_while(&mut throwaway, |b| WHITESPACE.contains(b)).is_err() {
+            if self
+                .read_while(&mut throwaway, |b| WHITESPACE.contains(b))
+                .is_err()
+            {
                 return if self.list_depth > 0 {
                     Err(ParseError::UnexpectedCloseParen { at: self.at() })
                 } else {
@@ -833,9 +837,19 @@ mod tests {
     }
 
     #[test]
+    fn zero_element_map() {
+        assert_eq!(parse_ok("({})"), list(vec![map(HashMap::new())]));
+    }
+
+    #[test]
     fn array_of_ints() {
         let elems = [Rc::new(int(1)), Rc::new(int(2)), Rc::new(int(3))];
         assert_eq!(parse_ok("([1  2  3])"), list(vec![array(&elems)]));
+    }
+
+    #[test]
+    fn zero_element_array() {
+        assert_eq!(parse_ok("([])"), list(vec![array(&[])]));
     }
 
     #[test]
@@ -1093,10 +1107,7 @@ mod tests {
 
     #[test]
     fn comment_between_list_elements() {
-        assert_eq!(
-            parse_ok("(1 ;; middle\n 2)"),
-            list(vec![int(1), int(2)])
-        );
+        assert_eq!(parse_ok("(1 ;; middle\n 2)"), list(vec![int(1), int(2)]));
     }
 
     #[test]
@@ -1114,11 +1125,7 @@ mod tests {
     #[test]
     fn comment_only_input_is_error() {
         let err = parse_str(";; just a comment\n").unwrap_err();
-        assert!(
-            matches!(err, ParseError::IOError { .. }),
-            "got {:?}",
-            err
-        );
+        assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
     }
 
     #[test]
