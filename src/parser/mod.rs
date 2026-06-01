@@ -1035,4 +1035,68 @@ mod tests {
         // The whole input is the bare atom `foo` at top level.
         assert_eq!(parse_ok("foo;;bar\n"), ident("foo"));
     }
+
+    #[test]
+    fn inline_trailing_comment() {
+        assert_eq!(
+            parse_ok("(1 2) ;; trailing comment\n"),
+            list(vec![int(1), int(2)])
+        );
+    }
+
+    #[test]
+    fn comment_between_list_elements() {
+        assert_eq!(
+            parse_ok("(1 ;; middle\n 2)"),
+            list(vec![int(1), int(2)])
+        );
+    }
+
+    #[test]
+    fn comment_ending_at_eof_without_newline() {
+        // No trailing newline after the comment.
+        assert_eq!(parse_ok("42 ;; bye"), int(42));
+    }
+
+    #[test]
+    fn semicolon_inside_string_is_literal() {
+        // The `;;` is part of the string, not a comment marker.
+        assert_eq!(parse_ok(r#""a;;b""#), string("a;;b"));
+    }
+
+    #[test]
+    fn comment_only_input_is_error() {
+        let err = parse_str(";; just a comment\n").unwrap_err();
+        assert!(
+            matches!(err, ParseError::IOError { .. }),
+            "got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn position_after_comment_tracks_line() {
+        // The `)` is the first non-trivia byte and sits on line 2.
+        let err = parse_str(";; comment\n)").unwrap_err();
+        match err {
+            ParseError::UnexpectedCloseParen { at } => {
+                assert_eq!(at.line, 2);
+                assert_eq!(at.col, 1);
+            }
+            other => panic!("expected UnexpectedCloseParen, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn stray_semicolon_is_error() {
+        // A lone `;` not followed by another `;` is not a comment and not a
+        // valid token. Inside a list it surfaces as StraySemicolon rather
+        // than panicking (parse_ident used to assert here).
+        let err = parse_str("(foo ;bar)").unwrap_err();
+        assert!(
+            matches!(err, ParseError::StraySemicolon { .. }),
+            "got {:?}",
+            err
+        );
+    }
 }
