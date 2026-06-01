@@ -1002,4 +1002,11 @@ mod tests {
         let expected = list(vec![ident("defn"), ident("square"), inner_args, inner_body]);
         assert_eq!(parse_ok("(defn square (x) (* x x))"), expected);
     }
+
+    // ----- line comments -----
+
+    #[test]
+    fn comment_at_top_level_before_form() {
+        assert_eq!(parse_ok(";; hello\n42"), int(42));
+    }
 }
