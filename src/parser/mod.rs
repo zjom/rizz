@@ -61,7 +61,7 @@ pub struct Parser<R: Read> {
 }
 
 const WHITESPACE: [u8; 4] = [b'\n', b'\r', b'\t', b' '];
-const IDENT_SEPARATORS: [u8; 6] = [b'\n', b'\r', b'\t', b' ', b')', b'('];
+const IDENT_SEPARATORS: [u8; 7] = [b'\n', b'\r', b'\t', b' ', b')', b'(', b';'];
 
 impl<R> Parser<R>
 where
@@ -1008,5 +1008,12 @@ mod tests {
     #[test]
     fn comment_at_top_level_before_form() {
         assert_eq!(parse_ok(";; hello\n42"), int(42));
+    }
+
+    #[test]
+    fn semicolon_terminates_identifier() {
+        // `foo;;bar\n` should lex as identifier `foo` then a comment.
+        // The whole input is the bare atom `foo` at top level.
+        assert_eq!(parse_ok("foo;;bar\n"), ident("foo"));
     }
 }
