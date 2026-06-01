@@ -228,9 +228,9 @@ fn fmap() -> NativeFn {
         let f = &args[0];
         match &*args[1] {
             Value::Str(s) => {
-                let res = s
-                    .chars()
-                    .try_fold(String::with_capacity(s.len()), |mut acc, c| {
+                let res = s.chars().try_fold(
+                    String::with_capacity(s.len()),
+                    |mut acc, c| -> Result<_, RuntimeError> {
                         let x = apply(f, &[Rc::new(c.to_string().into())], env)?;
                         let s = x.as_str().ok_or_else(|| {
                             RuntimeError::type_mismatch("fmap", "lambda to return str", &x)
@@ -238,7 +238,8 @@ fn fmap() -> NativeFn {
 
                         acc.push_str(s.as_ref());
                         Ok(acc)
-                    })?;
+                    },
+                )?;
                 Ok((Rc::new(res.into()), env.clone()))
             }
             Value::Array(xs) => {

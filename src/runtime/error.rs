@@ -28,6 +28,12 @@ pub enum RuntimeError {
 
     #[error("{name} failed: {reason}")]
     ArithmeticError { name: Rc<str>, reason: Rc<str> },
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 impl RuntimeError {

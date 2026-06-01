@@ -8,6 +8,7 @@ description = "rust lisp"
 repository = "https://github.com/zjom/rizz"
 
 [dependencies]
+anyhow = "1.0.102"
 im = "15.1.0"
 ordered-float = "5.3.0"
 thiserror = "2.0.18"
