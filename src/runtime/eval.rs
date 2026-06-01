@@ -18,6 +18,7 @@ const KW_QUASIQUOTE: &str = "quasi";
 const KW_UNQUOTE: &str = "unquote";
 const KW_UNQUOTE_SPLICE: &str = "unquote-splice";
 const KW_IF: &str = "if";
+const KW_DO: &str = "do";
 
 /// Evaluates `form` in environment `ctx`, returning the value and the resulting
 /// environment.
@@ -55,6 +56,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                         return Ok((v, env.clone()));
                     }
                     KW_IF => return eval_if(tail, ctx),
+                    KW_DO => return eval_do(tail, ctx),
                     _ => {}
                 }
             }
@@ -237,6 +239,22 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeE
     let (val, env) = eval(items[1].clone(), env)?;
     let env = env.update(name.clone(), val.clone());
     Ok((val, env))
+}
+
+/// `(do f1 f2 ... fn)`: evaluates each form in order, threading the env so a
+/// `let`/`fn` introduced by an earlier form is visible to later ones. Returns
+/// the last form's value (Unit for an empty `(do)`) along with the threaded
+/// env, so bindings inside `do` leak to its surrounding scope — `do` is a
+/// sequencing primitive, not a call boundary.
+fn eval_do(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let mut env = env.clone();
+    let mut last = Rc::new(Value::Unit);
+    for form in Value::iter(tail) {
+        let (v, e) = eval(form, &env)?;
+        last = v;
+        env = e;
+    }
+    Ok((last, env))
 }
 
 /// `(if cond then else)`: evaluates `cond`, then evaluates only the matching
@@ -867,6 +885,55 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    // ----- do special form -----
+
+    #[test]
+    fn empty_do_is_unit() {
+        // (do) -> ()
+        let form = list(vec![ident(KW_DO)]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Unit);
+    }
+
+    #[test]
+    fn do_returns_last_form_value() {
+        // (do 1 2 3) -> 3
+        let form = list(vec![ident(KW_DO), int(1), int(2), int(3)]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Int(3));
+    }
+
+    #[test]
+    fn do_threads_env_across_forms() {
+        // (do (let x 5) x) -> 5; later form sees the binding from the earlier.
+        let form = list(vec![
+            ident(KW_DO),
+            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            ident("x"),
+        ]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Int(5));
+    }
+
+    #[test]
+    fn do_leaks_bindings_to_surrounding_env() {
+        // After (do (let x 5)) the surrounding env has x = 5: `do` is a
+        // sequencing primitive, not a scope boundary.
+        let form = list(vec![
+            ident(KW_DO),
+            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+        ]);
+        let (_, env) = eval_ok(form, &Env::new());
+        assert_eq!(*lookup(&env, "x"), Value::Int(5));
+    }
+
+    #[test]
+    fn do_propagates_error_from_a_form() {
+        let form = list(vec![ident(KW_DO), int(1), ident("undefined"), int(3)]);
+        let err = eval_err(form, &Env::new());
+        assert!(matches!(err, RuntimeError::UnknownIdent(s) if &*s == "undefined"));
     }
 
     // ----- quasiquote -----

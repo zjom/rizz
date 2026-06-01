@@ -273,3 +273,28 @@ fn comments_separate_top_level_forms() {
         Value::Int(3)
     );
 }
+
+// ----- do: explicit sequencing -----
+
+#[test]
+fn do_returns_last_form() {
+    assert_eq!(*run("(do 1 2 (+ 1 2))"), Value::Int(3));
+}
+
+#[test]
+fn do_threads_let_to_later_forms() {
+    assert_eq!(*run("(do (let x 7) (* x 2))"), Value::Int(14));
+}
+
+#[test]
+fn do_lets_a_function_body_run_a_sequence() {
+    // The original motivation: a fn body can hold a multi-statement sequence
+    // by wrapping it in (do ...). The result is the last form's value.
+    let src = "
+        ((fn run (x)
+           (do (let y (* x 2))
+               (let z (+ y 1))
+               (+ y z)))
+         3)";
+    assert_eq!(*run(src), Value::Int(13)); // y=6, z=7, y+z=13
+}
