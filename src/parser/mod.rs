@@ -1,9 +1,11 @@
-//! Reads source bytes into an [`Sexp`] tree.
+//! Reads source bytes into a sequence of [`Sexp`] forms.
 //!
-//! The grammar is minimal: a program is a single form — an atom
-//! ([`Atomic`]: strings, ints, floats, identifiers), a parenthesized list, a
-//! collection, or a reader-macro form (`'`, `` ` ``, `,`, `,@`). Lists are
-//! represented as cons chains terminated by [`Sexp::Unit`] (nil).
+//! The grammar is minimal: a program is a sequence of one-or-more top-level
+//! forms — each form is an atom ([`Atomic`]: strings, ints, floats,
+//! identifiers), a parenthesized list, a collection, or a reader-macro form
+//! (`'`, `` ` ``, `,`, `,@`). Lists are represented as cons chains terminated
+//! by [`Sexp::Unit`] (nil). Multiple top-level forms are implicitly sequenced
+//! and evaluated in order, sharing one threaded environment.
 //!
 //! [`Parser`] streams from any [`Read`] one buffer at a time and tracks a
 //! [`Position`] (line/column/byte) so every [`ParseError`] can point at the
@@ -77,18 +79,26 @@ where
         }
     }
 
-    /// Parses a single top-level form — any expression: an atom, list,
-    /// collection, or reader-macro form. Leading and trailing whitespace are
-    /// skipped; any remaining non-whitespace input is rejected as trailing.
-    pub fn parse(&mut self) -> Result<Sexp, ParseError> {
-        let form = self.parse_expr()?;
+    /// Parses one or more top-level forms — each is an atom, list, collection,
+    /// or reader-macro form. Whitespace and `;;` line comments between forms
+    /// are skipped. Empty input (or comment-only input) is an error; otherwise
+    /// every form up to EOF is returned in source order so the caller can
+    /// evaluate them as an implicitly sequenced program.
+    pub fn parse(&mut self) -> Result<Vec<Sexp>, ParseError> {
+        let mut forms = Vec::new();
         self.skip_trivia()?;
-        match self.peek_eof()? {
-            None => Ok(form),
-            Some(got) => Err(ParseError::TrailingInput {
+        if self.peek_eof()?.is_none() {
+            return Err(ParseError::IOError {
+                source: std::io::ErrorKind::UnexpectedEof.into(),
                 at: self.at(),
-                got: got.into(),
-            }),
+            });
+        }
+        loop {
+            forms.push(self.parse_expr()?);
+            self.skip_trivia()?;
+            if self.peek_eof()?.is_none() {
+                return Ok(forms);
+            }
         }
     }
 
@@ -553,7 +563,16 @@ mod tests {
 
     // ----- helpers -----
 
+    /// Parses `input` and asserts exactly one top-level form, returning it.
+    /// Most tests cover a single form; multi-form parsing has its own tests.
     fn parse_str(input: &str) -> Result<Sexp, ParseError> {
+        parse_all(input).map(|mut forms| {
+            assert_eq!(forms.len(), 1, "expected exactly one top-level form");
+            forms.pop().unwrap()
+        })
+    }
+
+    fn parse_all(input: &str) -> Result<Vec<Sexp>, ParseError> {
         Parser::new(input.as_bytes()).parse()
     }
 
@@ -879,23 +898,36 @@ mod tests {
         assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
     }
 
+    // ----- multiple top-level forms -----
+
     #[test]
-    fn trailing_form_is_error() {
-        let err = parse_str("(1 2) (3 4)").unwrap_err();
-        assert!(
-            matches!(err, ParseError::TrailingInput { .. }),
-            "got {:?}",
-            err
+    fn multiple_top_level_forms_collected_in_order() {
+        // Two whitespace-separated lists yield two forms; the program is
+        // implicitly sequenced.
+        assert_eq!(
+            parse_all("(1 2) (3 4)").unwrap(),
+            vec![list(vec![int(1), int(2)]), list(vec![int(3), int(4)])],
         );
     }
 
     #[test]
-    fn trailing_atom_is_error() {
-        let err = parse_str("'(1 2) foo").unwrap_err();
-        assert!(
-            matches!(err, ParseError::TrailingInput { .. }),
-            "got {:?}",
-            err
+    fn quoted_form_followed_by_atom_is_two_forms() {
+        // `'(1 2)` is a single reader-macro form `(quote (1 2))`; `foo` is the
+        // second top-level form.
+        let quoted = list(vec![ident("quote"), list(vec![int(1), int(2)])]);
+        assert_eq!(parse_all("'(1 2) foo").unwrap(), vec![quoted, ident("foo")]);
+    }
+
+    #[test]
+    fn comment_between_top_level_forms_is_skipped() {
+        // Inter-form trivia (whitespace + line comments) is consumed between
+        // top-level forms just like between list elements.
+        assert_eq!(
+            parse_all("(let x 1) ;; bind\n(+ x 2)").unwrap(),
+            vec![
+                list(vec![ident("let"), ident("x"), int(1)]),
+                list(vec![ident("+"), ident("x"), int(2)]),
+            ],
         );
     }
 
@@ -1023,7 +1055,7 @@ mod tests {
     fn parses_from_cursor() {
         use std::io::Cursor;
         let mut p = Parser::new(Cursor::new(b"(1 2)".to_vec()));
-        assert_eq!(p.parse().unwrap(), list(vec![int(1), int(2)]));
+        assert_eq!(p.parse().unwrap(), vec![list(vec![int(1), int(2)])]);
     }
 
     // ----- realistic-ish input -----

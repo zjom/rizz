@@ -11,9 +11,6 @@ pub enum ParseError {
     #[error("stray `;` at {at} (use `;;` for a line comment)")]
     StraySemicolon { at: Position },
 
-    #[error("unexpected trailing input {at}: {got}")]
-    TrailingInput { at: Position, got: char },
-
     #[error("expected `{expected}` {at}, got: {got}")]
     ExpectedToken {
         expected: char,

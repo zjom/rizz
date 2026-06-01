@@ -242,3 +242,34 @@ fn map_get_put_roundtrip() {
     // put a key, read it back through the polymorphic get
     assert_eq!(*run("(get (put {1: 2} 3 4) 3)"), Value::Int(4));
 }
+
+// ----- implicitly sequenced top-level forms -----
+
+#[test]
+fn program_value_is_last_form() {
+    // A program is a sequence of forms; the program's value is the last one.
+    assert_eq!(*run("(+ 1 2)\n(+ 3 4)"), Value::Int(7));
+}
+
+#[test]
+fn let_binding_persists_across_top_level_forms() {
+    // `let` in form 1 binds `x`; form 2 references it. Without env threading
+    // across forms this would fail with UnknownIdent.
+    assert_eq!(*run("(let x 10)\n(+ x 5)"), Value::Int(15));
+}
+
+#[test]
+fn fn_defined_in_one_form_callable_from_the_next() {
+    assert_eq!(
+        *run("(fn sq (x) (* x x))\n(sq 6)"),
+        Value::Int(36)
+    );
+}
+
+#[test]
+fn comments_separate_top_level_forms() {
+    assert_eq!(
+        *run("(let x 1) ;; bind x\n(let y 2) ;; bind y\n(+ x y)"),
+        Value::Int(3)
+    );
+}
