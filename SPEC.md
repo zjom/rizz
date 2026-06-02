@@ -35,7 +35,7 @@ The initial environment is the [prelude](#11-prelude-builtins).
 
 ### 2.1 Whitespace
 
-The bytes ` `, `\t`, `\r`, `\n` are whitespace. Whitespace separates tokens
+The bytes ``, `\t`, `\r`, `\n` are whitespace. Whitespace separates tokens
 but is otherwise insignificant.
 
 ### 2.2 Comments
@@ -53,12 +53,12 @@ A `;;` starts a line comment that runs to the next newline (or EOF). A single
 
 Four atomic token kinds:
 
-| Atom    | Syntax                                                  | Notes |
-|---------|---------------------------------------------------------|-------|
-| Int     | `-?[0-9]+`                                              | 64-bit signed. Overflow at parse time is an error. |
-| Float   | `-?[0-9]+\.[0-9]*`                                       | IEEE-754 64-bit. `1.` parses as `1.0`. Two dots → error. |
-| String  | `"..."` with escapes `\\`, `\"`, `\n`, `\r`, `\t`        | Any other `\x` is an error. Must be UTF-8. |
-| Ident   | A run of bytes terminated by ` `, `\t`, `\r`, `\n`, `(`, `)`, `[`, `]`, `{`, `}`, or `;` | Identifiers may include `-`, `+`, `<`, `>`, `=`, `?`, `!`, `*`, `/`, etc. |
+| Atom   | Syntax                                                                                  | Notes                                                                     |
+| ------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Int    | `-?[0-9]+`                                                                              | 64-bit signed. Overflow at parse time is an error.                        |
+| Float  | `-?[0-9]+\.[0-9]*`                                                                      | IEEE-754 64-bit. `1.` parses as `1.0`. Two dots → error.                  |
+| String | `"..."` with escapes `\\`, `\"`, `\n`, `\r`, `\t`                                       | Any other `\x` is an error. Must be UTF-8.                                |
+| Ident  | A run of bytes terminated by ``, `\t`, `\r`, `\n`, `(`, `)`, `[`, `]`, `{`, `}`, or `;` | Identifiers may include `-`, `+`, `<`, `>`, `=`, `?`, `!`, `*`, `/`, etc. |
 
 A leading `-` followed by a digit dispatches to number parsing; otherwise `-`
 begins an identifier. Identifiers are interned: equal names share one
@@ -66,15 +66,15 @@ begins an identifier. Identifiers are interned: equal names share one
 
 ### 2.4 Compound forms
 
-| Form              | Syntax                          |
-|-------------------|---------------------------------|
-| List              | `( elem* )`                     |
-| Array             | `[ elem* ]` (whitespace-separated) |
-| Map               | `{ key : value, ... }` (whitespace-separated entries; `:` separates key from value) |
-| Quote             | `'X` ≡ `(quote X)`              |
-| Quasiquote        | `` `X `` ≡ `(quasi X)`          |
-| Unquote           | `,X` ≡ `(unquote X)`            |
-| Unquote-splicing  | `,@X` ≡ `(unquote-splice X)`    |
+| Form             | Syntax                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| List             | `( elem* )`                                                                         |
+| Array            | `[ elem* ]` (whitespace-separated)                                                  |
+| Map              | `{ key : value, ... }` (whitespace-separated entries; `:` separates key from value) |
+| Quote            | `'X` ≡ `(quote X)`                                                                  |
+| Quasiquote       | `` `X `` ≡ `(quasi X)`                                                              |
+| Unquote          | `,X` ≡ `(unquote X)`                                                                |
+| Unquote-splicing | `,@X` ≡ `(unquote-splice X)`                                                        |
 
 The empty list `()` parses to **nil** (a.k.a. `Unit`).
 
@@ -360,71 +360,71 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 10.1 Arithmetic & comparison (`numbers`)
 
-| Name  | Arity | Description |
-|-------|-------|-------------|
-| `+`   | 2 | Addition (`int×int` or `float×float`). Overflows error. |
-| `-`   | 2 | Subtraction. |
-| `*`   | 2 | Multiplication. |
-| `/`   | 2 | Division. Integer divide-by-zero errors. |
-| `cmp` | 2 | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors. |
-| `>`   | 2 | Greater than. |
-| `>=`  | 2 | Greater or equal. |
-| `<`   | 2 | Less than. |
-| `<=`  | 2 | Less or equal. |
+| Name  | Arity | Description                                                |
+| ----- | ----- | ---------------------------------------------------------- |
+| `+`   | 2     | Addition (`int×int` or `float×float`). Overflows error.    |
+| `-`   | 2     | Subtraction.                                               |
+| `*`   | 2     | Multiplication.                                            |
+| `/`   | 2     | Division. Integer divide-by-zero errors.                   |
+| `cmp` | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors. |
+| `>`   | 2     | Greater than.                                              |
+| `>=`  | 2     | Greater or equal.                                          |
+| `<`   | 2     | Less than.                                                 |
+| `<=`  | 2     | Less or equal.                                             |
 
 ### 10.2 Equality (`eq`)
 
-| Name | Arity | Description |
-|------|-------|-------------|
-| `=`  | 2 | Structural equality. |
-| `!=` | 2 | Structural inequality. |
-| `!`  | 1 | Boolean negation of truthiness. |
+| Name | Arity | Description                     |
+| ---- | ----- | ------------------------------- |
+| `=`  | 2     | Structural equality.            |
+| `!=` | 2     | Structural inequality.          |
+| `!`  | 1     | Boolean negation of truthiness. |
 
 ### 10.3 Polymorphic collections (`collections`)
 
-| Name        | Arity | Works on            | Description |
-|-------------|-------|---------------------|-------------|
-| `len`       | 1 | str/array/map           | Length (str by char). |
-| `get`       | 2 | str/array/map           | Index or key lookup; miss → `()`. |
-| `concat`    | 2 | str+str / arr+arr / map+map | Join; right map wins on key collisions. |
-| `slice`     | 3 | str/array               | Half-open `[start, end)`, clamped. |
-| `reverse`   | 1 | str/array               | Reversed copy. |
-| `first`     | 1 | str/array               | Head, or `()` if empty. |
-| `last`      | 1 | str/array               | Tail element, or `()` if empty. |
-| `rest`      | 1 | str/array               | All but the first. |
-| `contains?` | 2 | str/array/map           | Substring / element / key test. |
-| `fmap`      | 2 | str/array/map           | Map a function. For maps, `f` takes `(k v)` and returns `[k' v']`. |
-| `filter`    | 2 | str/array/map           | Keep where predicate is truthy. For maps, `pred` takes `(k v)`. |
-| `reduce`    | 3 | str/array/map           | Left fold from `init`. For maps, `f` takes `(acc k v)`. |
+| Name        | Arity | Works on                    | Description                                                        |
+| ----------- | ----- | --------------------------- | ------------------------------------------------------------------ |
+| `len`       | 1     | str/array/map               | Length (str by char).                                              |
+| `get`       | 2     | str/array/map               | Index or key lookup; miss → `()`.                                  |
+| `concat`    | 2     | str+str / arr+arr / map+map | Join; right map wins on key collisions.                            |
+| `slice`     | 3     | str/array                   | Half-open `[start, end)`, clamped.                                 |
+| `reverse`   | 1     | str/array                   | Reversed copy.                                                     |
+| `first`     | 1     | str/array                   | Head, or `()` if empty.                                            |
+| `last`      | 1     | str/array                   | Tail element, or `()` if empty.                                    |
+| `rest`      | 1     | str/array                   | All but the first.                                                 |
+| `contains?` | 2     | str/array/map               | Substring / element / key test.                                    |
+| `fmap`      | 2     | str/array/map               | Map a function. For maps, `f` takes `(k v)` and returns `[k' v']`. |
+| `filter`    | 2     | str/array/map               | Keep where predicate is truthy. For maps, `pred` takes `(k v)`.    |
+| `reduce`    | 3     | str/array/map               | Left fold from `init`. For maps, `f` takes `(acc k v)`.            |
 
 ### 10.4 Arrays (`array`)
 
-| Name    | Arity | Description |
-|---------|-------|-------------|
-| `push`  | 2 | Append an element. |
-| `range` | 2 | Array of ints in `[start, end)`. |
+| Name    | Arity | Description                      |
+| ------- | ----- | -------------------------------- |
+| `push`  | 2     | Append an element.               |
+| `range` | 2     | Array of ints in `[start, end)`. |
 
 ### 10.5 Maps (`map`)
 
-| Name     | Arity | Description |
-|----------|-------|-------------|
-| `put`    | 3 | New map with `(k → v)` inserted. |
-| `del`    | 2 | New map with key removed (no-op if absent). |
-| `keys`   | 1 | Array of keys (unspecified order). |
-| `values` | 1 | Array of values (unspecified order). |
+| Name     | Arity | Description                                 |
+| -------- | ----- | ------------------------------------------- |
+| `put`    | 3     | New map with `(k → v)` inserted.            |
+| `del`    | 2     | New map with key removed (no-op if absent). |
+| `keys`   | 1     | Array of keys (unspecified order).          |
+| `values` | 1     | Array of values (unspecified order).        |
 
 ### 10.6 Strings (`str`)
 
-| Name           | Arity | Description |
-|----------------|-------|-------------|
-| `to-str`       | 1 | Stringify any value (top-level strings unquoted, nested strings quoted). |
-| `str-upper`    | 1 | Uppercase. |
-| `str-lower`    | 1 | Lowercase. |
-| `str-trim`     | 1 | Strip surrounding whitespace. |
-| `str-split`    | 2 | Split into an array; empty separator → per-char. |
-| `str-join`     | 2 | Join an array with a separator (elements via `to-str`). |
-| `str-replace`  | 3 | Replace all occurrences of a substring. |
-| `str->int`     | 1 | Parse a decimal integer (`()` on failure). |
+| Name          | Arity | Description                                                              |
+| ------------- | ----- | ------------------------------------------------------------------------ |
+| `to-str`      | 1     | Stringify any value (top-level strings unquoted, nested strings quoted). |
+| `str-upper`   | 1     | Uppercase.                                                               |
+| `str-lower`   | 1     | Lowercase.                                                               |
+| `str-trim`    | 1     | Strip surrounding whitespace.                                            |
+| `str-split`   | 2     | Split into an array; empty separator → per-char.                         |
+| `str-join`    | 2     | Join an array with a separator (elements via `to-str`).                  |
+| `str-replace` | 3     | Replace all occurrences of a substring.                                  |
+| `str->int`    | 1     | Parse a decimal integer (`()` on failure).                               |
 
 ---
 
