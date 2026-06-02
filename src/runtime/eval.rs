@@ -42,19 +42,10 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
         Value::Cons { head, tail } => {
             if let Value::Ident(ident) = &**head {
                 match ident.as_ref() {
-                    KW_DEFVAR => {
-                        let (v, env) = eval_defvar(tail, ctx)?;
-                        return eval(v, &env);
-                    }
-                    KW_QUOTE => {
-                        let (v, env) = eval_quote(tail, ctx)?;
-                        return Ok((v, env.clone()));
-                    }
+                    KW_DEFVAR => return eval_defvar(tail, ctx),
+                    KW_QUOTE => return eval_quote(tail, ctx),
                     KW_QUASIQUOTE => return eval_quasiquote(tail, ctx),
-                    KW_DEFUN => {
-                        let (v, env) = eval_defun(tail, ctx)?;
-                        return Ok((v, env.clone()));
-                    }
+                    KW_DEFUN => return eval_defun(tail, ctx),
                     KW_IF => return eval_if(tail, ctx),
                     KW_DO => return eval_do(tail, ctx),
                     _ => {}
@@ -63,13 +54,13 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
             let (callable, ctx) = eval(head.clone(), ctx)?;
             match &*callable {
                 Value::NativeFn(native) => {
-                    let (v, ctx) = native.call(tail, &ctx)?;
-                    eval(v, &ctx)
+                    // Bindings introduced while evaluating arguments thread
+                    // between sibling args but must not leak past the call.
+                    let (v, _) = native.call(tail, &ctx)?;
+                    Ok((v, ctx))
                 }
                 Value::Closure(closure) => {
-                    let (args, ctx) = eval_and_collect(tail, &ctx)?;
-                    // A call must not leak the callee's local bindings back into
-                    // the caller, so keep the caller's env rather than the body's.
+                    let (args, _) = eval_and_collect(tail, &ctx)?;
                     let (v, _) = eval_closure(&args, closure)?;
                     Ok((v, ctx))
                 }
@@ -83,31 +74,25 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                 | Value::Ident(_) => Err(RuntimeError::NotCallable { value: callable }),
             }
         }
-        Value::Closure(closure) => {
-            let (v, _) = eval_closure(&[], closure)?;
-            Ok((v, ctx.clone()))
-        }
+        Value::Closure(_) => Ok((form.clone(), ctx.clone())),
         Value::Array(xs) => {
-            let mut ctx = ctx.clone();
+            // Each element is evaluated in the surrounding env independently;
+            // bindings do not thread between siblings and do not leak outward.
             let mut out = Vector::new();
             for x in xs.iter() {
-                let (v, env) = eval(x.clone(), &ctx)?;
-                ctx = env;
-                out.push_back(v.clone());
+                let (v, _) = eval(x.clone(), ctx)?;
+                out.push_back(v);
             }
-            Ok((Rc::new(Value::Array(out)), ctx))
+            Ok((Rc::new(Value::Array(out)), ctx.clone()))
         }
         Value::Map(m) => {
-            let mut ctx = ctx.clone();
             let mut out = HashMap::new();
             for (k, v) in m.iter() {
-                let (kv, env) = eval(k.clone(), &ctx)?;
-                ctx = env;
-                let (vv, env) = eval(v.clone(), &ctx)?;
-                ctx = env;
-                out.insert(kv.clone(), vv.clone());
+                let (kv, _) = eval(k.clone(), ctx)?;
+                let (vv, _) = eval(v.clone(), ctx)?;
+                out.insert(kv, vv);
             }
-            Ok((Rc::new(Value::Map(out)), ctx))
+            Ok((Rc::new(Value::Map(out)), ctx.clone()))
         }
     }
 }
@@ -247,14 +232,16 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeE
 /// env, so bindings inside `do` leak to its surrounding scope — `do` is a
 /// sequencing primitive, not a call boundary.
 fn eval_do(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
-    let mut env = env.clone();
+    // `do` is a scope boundary: bindings introduced inside thread to later
+    // forms within the block, but never leak to the surrounding env.
+    let mut inner = env.clone();
     let mut last = Rc::new(Value::Unit);
     for form in Value::iter(tail) {
-        let (v, e) = eval(form, &env)?;
+        let (v, e) = eval(form, &inner)?;
         last = v;
-        env = e;
+        inner = e;
     }
-    Ok((last, env))
+    Ok((last, env.clone()))
 }
 
 /// `(if cond then else)`: evaluates `cond`, then evaluates only the matching
@@ -269,12 +256,13 @@ fn eval_if(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError
         });
     }
 
-    let (cond, env) = eval(items[0].clone(), env)?;
-    if cond.is_truthy() {
-        eval(items[1].clone(), &env)
+    let (cond, _) = eval(items[0].clone(), env)?;
+    let (v, _) = if cond.is_truthy() {
+        eval(items[1].clone(), env)?
     } else {
-        eval(items[2].clone(), &env)
-    }
+        eval(items[2].clone(), env)?
+    };
+    Ok((v, env.clone()))
 }
 
 /// `(quote x)`: returns `x` unevaluated.
@@ -319,26 +307,47 @@ fn quasi(datum: &Rc<Value>, env: &Env) -> Result<Rc<Value>, RuntimeError> {
             got: KW_QUASIQUOTE.into(),
         });
     }
-    let Value::Cons { .. } = &**datum else {
-        return Ok(datum.clone());
-    };
-
-    let mut out: Vec<Rc<Value>> = Vec::new();
-    for elem in Value::iter(datum) {
-        if let Some(tail) = tagged(&elem, KW_UNQUOTE_SPLICE) {
-            let (spliced, _) = eval(unquote_operand(KW_UNQUOTE_SPLICE, tail)?, env)?;
-            out.extend(Value::iter(&spliced));
-        } else {
-            out.push(quasi(&elem, env)?);
+    match &**datum {
+        Value::Cons { .. } => {
+            let mut out: Vec<Rc<Value>> = Vec::new();
+            for elem in Value::iter(datum) {
+                if let Some(tail) = tagged(&elem, KW_UNQUOTE_SPLICE) {
+                    let (spliced, _) = eval(unquote_operand(KW_UNQUOTE_SPLICE, tail)?, env)?;
+                    out.extend(Value::iter(&spliced));
+                } else {
+                    out.push(quasi(&elem, env)?);
+                }
+            }
+            Ok(out
+                .into_iter()
+                .rev()
+                .fold(Rc::new(Value::Unit), |tail, head| {
+                    Rc::new(Value::Cons { head, tail })
+                }))
         }
+        Value::Array(xs) => {
+            let mut out = Vector::new();
+            for x in xs.iter() {
+                if let Some(tail) = tagged(x, KW_UNQUOTE_SPLICE) {
+                    let (spliced, _) = eval(unquote_operand(KW_UNQUOTE_SPLICE, tail)?, env)?;
+                    for e in Value::iter(&spliced) {
+                        out.push_back(e);
+                    }
+                } else {
+                    out.push_back(quasi(x, env)?);
+                }
+            }
+            Ok(Rc::new(Value::Array(out)))
+        }
+        Value::Map(m) => {
+            let mut out = HashMap::new();
+            for (k, v) in m.iter() {
+                out.insert(quasi(k, env)?, quasi(v, env)?);
+            }
+            Ok(Rc::new(Value::Map(out)))
+        }
+        _ => Ok(datum.clone()),
     }
-
-    Ok(out
-        .into_iter()
-        .rev()
-        .fold(Rc::new(Value::Unit), |tail, head| {
-            Rc::new(Value::Cons { head, tail })
-        }))
 }
 
 /// If `v` is a list `(name . rest)`, returns its tail; otherwise `None`.
@@ -635,34 +644,48 @@ mod tests {
     // ----- closures -----
 
     #[test]
-    fn zero_arg_closure_form_evaluates_its_body() {
+    fn closure_value_self_evaluates() {
+        // A bare closure value is a value, not a call: evaluating it returns
+        // the closure itself rather than invoking it.
         let clo = Rc::new(Value::Closure(Rc::new(Closure {
             name: "".into(),
             params: vec![],
             body: int(7),
             env: Env::new(),
         })));
-        let (v, _) = eval_ok(clo, &Env::new());
-        assert_eq!(*v, Value::Int(7));
+        let (v, _) = eval_ok(clo.clone(), &Env::new());
+        assert!(matches!(&*v, Value::Closure(_)));
+        assert_eq!(v, clo);
     }
 
     #[test]
-    fn closure_form_with_params_errors_on_zero_args() {
+    fn closure_with_params_self_evaluates() {
         let clo = Rc::new(Value::Closure(Rc::new(Closure {
             name: "".into(),
             params: vec!["x".into()],
             body: ident("x"),
             env: Env::new(),
         })));
-        let err = eval_err(clo, &Env::new());
-        assert!(matches!(
-            err,
-            RuntimeError::ArityMismatch {
-                expected: 1,
-                got: 0,
-                ..
-            }
-        ));
+        let (v, _) = eval_ok(clo.clone(), &Env::new());
+        assert_eq!(v, clo);
+    }
+
+    #[test]
+    fn let_aliasing_a_function_does_not_invoke_it() {
+        // (let f id) where id is a closure: f is bound to the closure, and the
+        // form's value is the closure itself — not a call to it.
+        let id = Rc::new(Value::Closure(Rc::new(Closure {
+            name: "id".into(),
+            params: vec!["x".into()],
+            body: ident("x"),
+            env: Env::new(),
+        })));
+        let env = Env::new().update("id".into(), id.clone());
+        let form = list(vec![ident("let"), ident("f"), ident("id")]);
+        let (v, env) = eval_ok(form, &env);
+        assert!(matches!(&*v, Value::Closure(_)));
+        assert_eq!(v, id);
+        assert_eq!(lookup(&env, "f"), id);
     }
 
     /// Build an `Rc<Closure>` for exercising `eval_closure` directly.
@@ -918,15 +941,62 @@ mod tests {
     }
 
     #[test]
-    fn do_leaks_bindings_to_surrounding_env() {
-        // After (do (let x 5)) the surrounding env has x = 5: `do` is a
-        // sequencing primitive, not a scope boundary.
+    fn do_is_a_scope_boundary() {
+        // After (do (let x 5)) the surrounding env must not see `x`: `do`
+        // threads bindings between its own forms but seals them at its edge.
         let form = list(vec![
             ident(KW_DO),
             list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
         ]);
         let (_, env) = eval_ok(form, &Env::new());
-        assert_eq!(*lookup(&env, "x"), Value::Int(5));
+        assert!(env.get(&Rc::from("x")).is_none());
+    }
+
+    #[test]
+    fn let_in_arg_position_does_not_leak_to_caller() {
+        // (plus (let x 5) 1) -> 6, but `x` must not leak out of the call.
+        let env = Env::new().update("plus".into(), add_builtin());
+        let form = list(vec![
+            ident("plus"),
+            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            int(1),
+        ]);
+        let (v, env) = eval_ok(form, &env);
+        assert_eq!(*v, Value::Int(6));
+        assert!(env.get(&Rc::from("x")).is_none());
+    }
+
+    #[test]
+    fn if_branch_bindings_do_not_leak() {
+        // (if 1 (let x 5) 0) returns 5 but `x` does not leak to the caller.
+        let form = list(vec![
+            ident(KW_IF),
+            int(1),
+            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            int(0),
+        ]);
+        let (v, env) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Int(5));
+        assert!(env.get(&Rc::from("x")).is_none());
+    }
+
+    #[test]
+    fn array_element_bindings_do_not_leak() {
+        // [(let x 5) 1] evaluates to [5 1] but `x` does not leak outward.
+        let form = array(vec![
+            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            int(1),
+        ]);
+        let (v, env) = eval_ok(form, &Env::new());
+        match &*v {
+            Value::Array(xs) => {
+                assert_eq!(xs.len(), 2);
+                assert_eq!(*xs[0], Value::Int(5));
+                assert_eq!(*xs[1], Value::Int(1));
+            }
+            other => panic!("expected array, got {other:?}"),
+        }
+        assert!(env.get(&Rc::from("x")).is_none());
     }
 
     #[test]

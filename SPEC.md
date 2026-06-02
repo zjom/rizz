@@ -141,12 +141,12 @@ later forms.
 
 ### 4.1 Self-evaluating forms
 
-`Int`, `Float`, `Str`, `Unit`, `NativeFn`, `Array`, `Map` evaluate to
-themselves. Arrays and maps additionally evaluate their elements/values in
-left-to-right order, threading the env.
+`Int`, `Float`, `Str`, `Unit`, `NativeFn`, `Closure` evaluate to themselves.
 
-A bare `Closure` value, when evaluated as a form, is called with zero
-arguments.
+Arrays and maps evaluate each contained element/key/value in the surrounding
+env independently. Bindings introduced inside one element do **not** thread
+to its siblings and do **not** leak out of the array/map literal — each slot
+is its own scope.
 
 ### 4.2 Identifiers
 
@@ -168,7 +168,8 @@ A call **does not leak** the callee's bindings into the caller: the caller's
 env is restored after the call returns.
 
 Argument evaluation order matters: bindings created by earlier arguments
-(e.g. `(+ (let x 5) x)`) are visible to later ones.
+(e.g. `(+ (let x 5) x)`) are visible to later arguments of the same call,
+but are dropped once the call returns — they do not leak to the caller.
 
 ---
 
@@ -222,9 +223,15 @@ Errors: arity ≠ 3.
 (do FORM*)
 ```
 
-Evaluates each form in order, threading the env, and returns the last value
-(or `()` if empty). `do` is **not** a scope boundary: bindings introduced by a
-`let`/`fn` inside `do` are visible after `do` returns.
+Evaluates each form in order, threading the env between them, and returns
+the last value (or `()` if empty). `do` **is** a scope boundary: a later
+form within the same `do` sees `let`/`fn` bindings introduced by earlier
+forms, but those bindings are sealed at the closing `)` and do not leak to
+the surrounding env.
+
+Top-level forms are not wrapped in `do`; the program driver threads bindings
+between them explicitly, which is how top-level `let`/`fn` become visible to
+later top-level forms.
 
 ### 5.5 `quote` — literal
 
