@@ -1,5 +1,5 @@
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     rc::Rc,
@@ -297,8 +297,14 @@ impl Numeric for f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Debug
+// Debug/ Display
 // ---------------------------------------------------------------------------
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display())
+    }
+}
 
 const MAX_DEBUG_DEPTH: usize = 4;
 
