@@ -98,7 +98,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
 }
 
 /// Applies a callable to already-evaluated `args`. Dispatches closures through
-/// [`eval_closure`] and native fns through [`NativeFn::apply`]. The caller's
+/// [`eval_closure`] and native fns through [`NativeFn::apply`](crate::runtime::native::NativeFn). The caller's
 /// `ctx` is threaded to native fns but the returned env is discarded (a call
 /// must not leak callee bindings), so only the resulting value is returned.
 pub fn apply(

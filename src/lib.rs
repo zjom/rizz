@@ -2,7 +2,7 @@
 //!
 //! Source text flows through three stages:
 //!
-//! 1. [`parser`] reads bytes into a sequence of [`Sexp`](parser::Sexp) forms,
+//! 1. [`parser`] reads bytes into a sequence of [`Sexp`] forms,
 //!    tracking line/column [`Position`](parser::Position) for error reporting.
 //! 2. [`runtime`] lowers each `Sexp` into a [`Value`] and evaluates the forms
 //!    against an [`Env`] of bindings, threaded across forms so a definition
