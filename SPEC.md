@@ -139,6 +139,13 @@ to be the same numeric kind (`int*int` or `float*float`). Mixed types raise a
 sequencing, `do`, and `let` inside expressions all communicate bindings to
 later forms.
 
+You can call `eval` in rizz itself to evaluate some quoted data. Note that head must be callable or you'll get a runtime error.
+
+```
+(let three = '(+ 1 2))
+(eval three) ;; 3
+```
+
 ### 4.1 Self-evaluating forms
 
 `Int`, `Float`, `Str`, `Unit`, `NativeFn`, `Closure` evaluate to themselves.
@@ -347,7 +354,7 @@ Position-tagged (`line`, `col`, `byte`):
 These names are dispatched as special forms when in head position:
 
 ```
-let   fn   if   do   quote   quasi   unquote   unquote-splice
+let   fn   if   do   quote   quasi   unquote   unquote-splice eval
 ```
 
 The reader-macro prefixes `'`, `` ` ``, `,`, `,@` expand to `(quote ...)`,
@@ -384,20 +391,20 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 10.3 Polymorphic collections (`collections`)
 
-| Name        | Arity | Works on                    | Description                                                        |
-| ----------- | ----- | --------------------------- | ------------------------------------------------------------------ |
-| `len`       | 1     | str/array/map               | Length (str by char).                                              |
-| `get`       | 2     | str/array/map               | Index or key lookup; miss → `()`.                                  |
-| `concat`    | 2     | str+str / arr+arr / map+map | Join; right map wins on key collisions.                            |
-| `slice`     | 3     | str/array                   | Half-open `[start, end)`, clamped.                                 |
-| `reverse`   | 1     | str/array                   | Reversed copy.                                                     |
-| `first`     | 1     | str/array                   | Head, or `()` if empty.                                            |
-| `last`      | 1     | str/array                   | Tail element, or `()` if empty.                                    |
-| `rest`      | 1     | str/array                   | All but the first.                                                 |
-| `contains?` | 2     | str/array/map               | Substring / element / key test.                                    |
-| `fmap`      | 2     | str/array/map               | Map a function. For maps, `f` takes `(k v)` and returns `[k' v']`. |
-| `filter`    | 2     | str/array/map               | Keep where predicate is truthy. For maps, `pred` takes `(k v)`.    |
-| `reduce`    | 3     | str/array/map               | Left fold from `init`. For maps, `f` takes `(acc k v)`.            |
+| Name        | Arity | Works on                                | Description                                                        |
+| ----------- | ----- | --------------------------------------- | ------------------------------------------------------------------ |
+| `len`       | 1     | str/array/map/list                      | Length (str by char).                                              |
+| `get`       | 2     | str/array/map/list                      | Index or key lookup; miss → `()`.                                  |
+| `concat`    | 2     | str+str / arr+arr / map+map / list+list | Join; right map wins on key collisions.                            |
+| `slice`     | 3     | str/array/list                          | Half-open `[start, end)`, clamped.                                 |
+| `reverse`   | 1     | str/array/list                          | Reversed copy.                                                     |
+| `first`     | 1     | str/array/list                          | Head, or `()` if empty.                                            |
+| `last`      | 1     | str/array/list                          | Tail element, or `()` if empty.                                    |
+| `rest`      | 1     | str/array/list                          | All but the first.                                                 |
+| `contains?` | 2     | str/array/map/list                      | Substring / element / key test.                                    |
+| `fmap`      | 2     | str/array/map/list                      | Map a function. For maps, `f` takes `(k v)` and returns `[k' v']`. |
+| `filter`    | 2     | str/array/map/list                      | Keep where predicate is truthy. For maps, `pred` takes `(k v)`.    |
+| `reduce`    | 3     | str/array/map/list                      | Left fold from `init`. For maps, `f` takes `(acc k v)`.            |
 
 ### 10.4 Arrays (`array`)
 
@@ -427,6 +434,14 @@ All builtins are bound in the initial env. Names and arities below; see
 | `str-join`    | 2     | Join an array with a separator (elements via `to-str`).                  |
 | `str-replace` | 3     | Replace all occurrences of a substring.                                  |
 | `str->int`    | 1     | Parse a decimal integer (`()` on failure).                               |
+
+### 10.7 Lists (`list`)
+
+| Name   | Arity | Description                                                                                                                                     |
+| ------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cons` | 2     | `(cons head tail)`: a new cons cell. `tail` is typically a list (a cons chain or `()`) but any value is permitted — improper pairs are allowed. |
+| `car`  | 1     | `(car xs)`: the head of a cons cell. `(car ())` is `()`.                                                                                        |
+| `cdr`  | 1     | `(cdr xs)`: the tail of a cons cell. `(cdr ())` is `()`.                                                                                        |
 
 ---
 
