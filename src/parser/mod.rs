@@ -62,7 +62,7 @@ pub struct Parser<R: Read> {
 }
 
 const WHITESPACE: &[u8] = b"\n\r\t ";
-const IDENT_SEPARATORS: &[u8] = b"\n\r\t ;()[]{}";
+const IDENT_SEPARATORS: &[u8] = b"\n\r\t ;()[]{}:";
 
 impl<R> Parser<R>
 where
@@ -851,6 +851,14 @@ mod tests {
         let v = Rc::new(list(vec![ident("quote"), ident("foo")]));
         let m = std::collections::HashMap::from([(Rc::new(string("1")), v)]);
         assert_eq!(parse_ok(r#"({"1": 'foo})"#), list(vec![map(m.into())]));
+    }
+
+    #[test]
+    fn one_element_map_str_with_quoted_key() {
+        let k = Rc::new(list(vec![ident("quote"), ident("foo")]));
+        let v = Rc::new(string("1"));
+        let m = std::collections::HashMap::from([(k, v)]);
+        assert_eq!(parse_ok(r#"({ 'foo: "1"})"#), list(vec![map(m.into())]));
     }
 
     #[test]
