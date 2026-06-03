@@ -14,11 +14,10 @@
 
 mod error;
 mod position;
-
 pub use error::*;
 use im::{HashMap, Vector};
 use ordered_float::OrderedFloat;
-use position::Position;
+pub use position::Position;
 use std::{
     collections::HashSet,
     io::{BufRead, BufReader, Read},

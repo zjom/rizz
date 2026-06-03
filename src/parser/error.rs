@@ -55,3 +55,12 @@ pub enum ParseError {
         at: Position,
     },
 }
+
+impl ParseError {
+    pub fn from_io_error(err: std::io::Error, pos: Option<Position>) -> Self {
+        Self::IOError {
+            source: err,
+            at: pos.unwrap_or_default(),
+        }
+    }
+}
