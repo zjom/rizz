@@ -22,5 +22,4 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-default = ["cli"]
 cli = ["dep:clap", "dep:rustyline"]
