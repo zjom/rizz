@@ -45,7 +45,13 @@ fn len() -> NativeFn {
             Value::Array(xs) => xs.len() as i64,
             Value::Map(m) => m.len() as i64,
             v if is_list(v) => Value::iter(&args[0]).count() as i64,
-            other => return Err(RuntimeError::type_mismatch("len", "str/array/map/list", other)),
+            other => {
+                return Err(RuntimeError::type_mismatch(
+                    "len",
+                    "str/array/map/list",
+                    other,
+                ));
+            }
         };
         Ok(Rc::new(Value::Int(n)))
     })
@@ -79,7 +85,11 @@ fn slice() -> NativeFn {
                 let (s, e) = clamp_range(start, end, items.len());
                 Ok(Rc::new(cons_list(items.into_iter().skip(s).take(e - s))))
             }
-            other => Err(RuntimeError::type_mismatch("slice", "array/str/list", other)),
+            other => Err(RuntimeError::type_mismatch(
+                "slice",
+                "array/str/list",
+                other,
+            )),
         }
     })
 }
@@ -233,7 +243,11 @@ fn first() -> NativeFn {
         }),
         Value::Cons { head, .. } => Ok(head.clone()),
         Value::Unit => Ok(Rc::new(Value::Unit)),
-        other => Err(RuntimeError::type_mismatch("first", "array/str/list", other)),
+        other => Err(RuntimeError::type_mismatch(
+            "first",
+            "array/str/list",
+            other,
+        )),
     })
 }
 
@@ -670,7 +684,10 @@ mod tests {
             *run_ok("(get (concat (quote (1 2)) (quote (3 4))) 2)"),
             Value::Int(3)
         );
-        assert_eq!(*run_ok("(len (slice (quote (1 2 3 4 5)) 1 4))"), Value::Int(3));
+        assert_eq!(
+            *run_ok("(len (slice (quote (1 2 3 4 5)) 1 4))"),
+            Value::Int(3)
+        );
         assert_eq!(*run_ok("(first (reverse (quote (1 2 3))))"), Value::Int(3));
         assert_eq!(*run_ok("(contains? (quote (1 2 3)) 2)"), Value::Int(1));
         assert_eq!(*run_ok("(contains? (quote (1 2 3)) 9)"), Value::Int(0));

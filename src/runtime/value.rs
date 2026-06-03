@@ -32,7 +32,10 @@ pub enum Value {
     Float(OrderedFloat<f64>),
     Ident(Rc<str>),
     Unit,
-    Cons { head: Rc<Value>, tail: Rc<Value> },
+    Cons {
+        head: Rc<Value>,
+        tail: Rc<Value>,
+    },
     NativeFn(Rc<NativeFn>),
     Closure(Rc<Closure>),
     /// A user-defined macro. Structurally a [`Closure`], but at a call site its

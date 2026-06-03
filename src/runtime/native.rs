@@ -87,11 +87,7 @@ impl NativeFn {
     /// The `Impure` arm returns the env its function produced. Callers that want
     /// env-isolation (the common case) should discard that env and keep the
     /// caller's — see [`crate::runtime::apply`].
-    pub fn apply(
-        &self,
-        args: &[Rc<Value>],
-        env: &Env,
-    ) -> Result<(Rc<Value>, Env), RuntimeError> {
+    pub fn apply(&self, args: &[Rc<Value>], env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
         match self {
             Self::Pure { f, nargs, name } => {
                 validate_args(name, args, *nargs)?;
