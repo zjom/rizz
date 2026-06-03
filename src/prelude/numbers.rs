@@ -13,17 +13,43 @@ use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 /// The arithmetic/comparison builtins: `+ - * /`, `cmp`, and `> >= < <=`.
 pub fn env() -> Env {
-    Env::of_builtins(vec![
-        ("+", add()),
-        ("-", sub()),
-        ("*", mul()),
-        ("/", div()),
-        ("cmp", cmp()),
-        (">", gt()),
-        (">=", gte()),
-        ("<", lt()),
-        ("<=", lte()),
-    ])
+    let mut entries: Vec<(&str, NativeFn)> = Vec::new();
+    let mut aliases: Vec<(&str, &str)> = Vec::new();
+
+    macro_rules! b {
+        ($name:expr, $f:expr) => {
+            entries.push(($name, $f()));
+        };
+    }
+    macro_rules! alias {
+        ($a:expr => $t:expr) => {
+            aliases.push(($a, $t));
+        };
+    }
+    b!("sum", add);
+    alias!("+"=>"sum");
+    b!("sub", sub);
+    alias!("-"=>"sub");
+    b!("mul", mul);
+    alias!("*"=>"mul");
+    b!("div", div);
+    alias!("/"=>"div");
+    b!("cmp", cmp);
+    b!("gt", gt);
+    alias!(">" => "gt");
+    b!("gte", gte);
+    alias!(">=" => "gte");
+    b!("lt", lt);
+    alias!("<" => "lt");
+    b!("lte", lte);
+    alias!("<=" => "lte");
+
+    let mut env = Env::of_builtins(entries);
+    for (a, t) in aliases {
+        let v = env.get(&Rc::<str>::from(t)).expect("alias target").clone();
+        env = env.update(a.into(), v);
+    }
+    env
 }
 
 /// `ctx` extended with this module's builtins.
