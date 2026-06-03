@@ -283,6 +283,181 @@ fn do_threads_let_to_later_forms() {
     assert_eq!(*run("(do (let x 7) (* x 2))"), Value::Int(14));
 }
 
+// ----- ref / deref / set! -----
+
+#[test]
+fn ref_deref_roundtrip() {
+    assert_eq!(*run("(deref (ref 5))"), Value::Int(5));
+    assert_eq!(*run("(deref (ref \"hi\"))"), Value::Str("hi".into()));
+}
+
+#[test]
+fn set_returns_the_new_value() {
+    // Useful for chaining; if you expected unit/old, this is the footgun.
+    assert_eq!(*run("(set! (ref 1) 42)"), Value::Int(42));
+}
+
+#[test]
+fn set_then_deref_sees_the_update() {
+    let src = "
+        (let r (ref 0))
+        (set! r 9)
+        (deref r)";
+    assert_eq!(*run(src), Value::Int(9));
+}
+
+#[test]
+fn aliased_bindings_share_the_cell() {
+    // `b` is bound to the same ref as `a`; mutation through `a` is visible via `b`.
+    let src = "
+        (let a (ref 0))
+        (let b a)
+        (set! a 7)
+        (deref b)";
+    assert_eq!(*run(src), Value::Int(7));
+}
+
+#[test]
+fn closure_captures_the_cell_not_a_snapshot() {
+    // Canonical opt-in mutability: a counter survives across calls because the
+    // closure's captured env holds the *Rc* to the same RefCell.
+    let src = "
+        (let c (ref 0))
+        (fn bump () (set! c (+ (deref c) 1)))
+        (bump) (bump) (bump)
+        (deref c)";
+    assert_eq!(*run(src), Value::Int(3));
+}
+
+#[test]
+fn set_on_non_ref_errors() {
+    assert!(rizz::parse_and_run("(set! 5 1)".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("(set! \"x\" 1)".as_bytes()).is_err());
+}
+
+#[test]
+fn deref_on_non_ref_errors() {
+    assert!(rizz::parse_and_run("(deref 5)".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("(deref [1 2])".as_bytes()).is_err());
+}
+
+#[test]
+fn ref_equality_is_identity_not_contents() {
+    // Footgun: two refs holding the same value are NOT structurally equal —
+    // equality is pointer identity on the cell.
+    assert_eq!(*run("(= (ref 5) (ref 5))"), Value::Int(0));
+    // A ref equals itself.
+    assert_eq!(*run("(let r (ref 5)) (= r r)"), Value::Int(1));
+    // Aliased binding still points to the same cell.
+    assert_eq!(*run("(let a (ref 5)) (let b a) (= a b)"), Value::Int(1));
+}
+
+#[test]
+fn ref_truthiness_recurses_into_contents() {
+    // Footgun: a ref to a falsy value is itself falsy. Most languages treat any
+    // box/handle as truthy; rizz peers through.
+    assert_eq!(*run("(if (ref 0) 1 2)"), Value::Int(2));
+    assert_eq!(*run("(if (ref \"\") 1 2)"), Value::Int(2));
+    assert_eq!(*run("(if (ref ()) 1 2)"), Value::Int(2));
+    assert_eq!(*run("(if (ref 1) 1 2)"), Value::Int(1));
+}
+
+#[test]
+fn refs_auto_deref_through_arithmetic() {
+    // Footgun: arithmetic accepts a ref-to-number transparently. There is no
+    // explicit `deref` needed, which can hide type confusion.
+    assert_eq!(*run("(+ (ref 5) 1)"), Value::Int(6));
+    assert_eq!(*run("(+ (ref 5) (ref 7))"), Value::Int(12));
+    assert_eq!(*run("(* (ref 3) (ref 4))"), Value::Int(12));
+}
+
+#[test]
+fn refs_auto_deref_through_comparison() {
+    // Same footgun, on comparison operators.
+    assert_eq!(*run("(< (ref 1) 2)"), Value::Int(1));
+    assert_eq!(*run("(>= (ref 5) (ref 5))"), Value::Int(1));
+}
+
+#[test]
+fn nested_refs_require_repeated_deref() {
+    // (ref x) does NOT auto-collapse if x is already a ref — you get a ref-of-ref.
+    assert_eq!(*run("(deref (deref (ref (ref 5))))"), Value::Int(5));
+    // One deref leaves you with a ref, which is still truthy/usable.
+    let v = run("(deref (ref (ref 5)))");
+    assert!(matches!(*v, Value::Ref(_)));
+}
+
+#[test]
+fn ref_inside_array_is_shared() {
+    // Putting a ref into an array stores the same cell; mutating it after
+    // construction is visible when you read it back out.
+    let src = "
+        (let r (ref 1))
+        (let xs [r])
+        (set! r 99)
+        (deref (get xs 0))";
+    assert_eq!(*run(src), Value::Int(99));
+}
+
+#[test]
+fn arithmetic_on_array_ref_element_works_transparently() {
+    // Combining the auto-deref footgun with collections.
+    let src = "
+        (let r (ref 10))
+        (let xs [r])
+        (set! r 5)
+        (+ (get xs 0) 1)";
+    assert_eq!(*run(src), Value::Int(6));
+}
+
+#[test]
+fn set_with_ref_value_creates_alias_not_copy() {
+    // Footgun: set! stores the value you hand it; if that value is itself a
+    // ref, the cell now holds a ref (not a snapshot of its contents).
+    let src = "
+        (let inner (ref 1))
+        (let outer (ref 0))
+        (set! outer inner)
+        (set! inner 42)
+        (deref (deref outer))";
+    assert_eq!(*run(src), Value::Int(42));
+}
+
+#[test]
+fn closure_keeps_ref_after_outer_binding_shadowed() {
+    // The SPEC says closures snapshot their env. The snapshot still contains
+    // the same Rc<RefCell>, so a later top-level `(let c ...)` rebinding does
+    // not detach the closure from the original cell.
+    let src = "
+        (let c (ref 0))
+        (fn bump () (set! c (+ (deref c) 1)))
+        (let c 999)
+        (bump)
+        (bump)
+        (bump)";
+    // (bump) returns the post-increment value of the ORIGINAL cell.
+    assert_eq!(*run(src), Value::Int(3));
+}
+
+#[test]
+fn ref_in_head_position_is_callable_if_it_holds_a_fn() {
+    // Eval auto-derefs the head when it resolves to a ref-of-callable, so a
+    // ref-to-fn can be invoked directly in head position.
+    let src = "
+        (let f (ref (fn sq (x) (* x x))))
+        (f 6)";
+    assert_eq!(*run(src), Value::Int(36));
+
+    // Nested ref-of-ref-of-fn also peels.
+    let src_nested = "
+        (let f (ref (ref (fn sq (x) (* x x)))))
+        (f 7)";
+    assert_eq!(*run(src_nested), Value::Int(49));
+
+    // A ref holding a non-callable still errors with NotCallable.
+    assert!(rizz::parse_and_run("((ref 5))".as_bytes()).is_err());
+}
+
 #[test]
 fn do_lets_a_function_body_run_a_sequence() {
     // The original motivation: a fn body can hold a multi-statement sequence

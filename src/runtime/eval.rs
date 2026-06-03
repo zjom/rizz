@@ -36,7 +36,8 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
         | Value::Str(_)
         | Value::Float(_)
         | Value::NativeFn(_)
-        | Value::Macro(_) => Ok((form.clone(), ctx.clone())),
+        | Value::Macro(_)
+        | Value::Ref(_) => Ok((form.clone(), ctx.clone())),
         Value::Ident(ident) => {
             let form = ctx
                 .get(ident)
@@ -59,6 +60,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                 }
             }
             let (callable, ctx) = eval(head.clone(), ctx)?;
+            let callable = deref_callable(callable);
             match &*callable {
                 Value::NativeFn(native) => {
                     // Bindings introduced while evaluating arguments thread
@@ -81,6 +83,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                     Ok((v, ctx))
                 }
                 Value::Int(_)
+                | Value::Ref(_)
                 | Value::Unit
                 | Value::Str(_)
                 | Value::Float(_)
@@ -122,7 +125,8 @@ pub fn apply(
     args: &[Rc<Value>],
     ctx: &Env,
 ) -> Result<Rc<Value>, RuntimeError> {
-    match &**callable {
+    let callable = deref_callable(callable.clone());
+    match &*callable {
         Value::Closure(c) => {
             let (v, _) = eval_closure(args, c)?;
             Ok(v)
@@ -135,6 +139,29 @@ pub fn apply(
             value: callable.clone(),
         }),
     }
+}
+
+/// Peels `Value::Ref` layers off `v` as long as the cell holds something the
+/// runtime can dispatch (a native fn, closure, macro, or another such ref).
+/// Stops at the first non-dispatchable value and returns it unchanged, so the
+/// usual `NotCallable` path still reports a sensible value.
+fn deref_callable(v: Rc<Value>) -> Rc<Value> {
+    fn is_dispatchable(v: &Value) -> bool {
+        match v {
+            Value::NativeFn(_) | Value::Closure(_) | Value::Macro(_) => true,
+            Value::Ref(cell) => is_dispatchable(&cell.borrow()),
+            _ => false,
+        }
+    }
+    let mut cur = v;
+    while let Value::Ref(cell) = &*cur.clone() {
+        let inner = cell.borrow().clone();
+        if !is_dispatchable(&inner) {
+            break;
+        }
+        cur = Rc::new(inner);
+    }
+    cur
 }
 
 pub fn eval_and_collect(

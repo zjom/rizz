@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     fmt::{Debug, Display},
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
@@ -44,6 +45,7 @@ pub enum Value {
     Macro(Rc<Closure>),
     Array(Vector<Rc<Value>>),
     Map(HashMap<Rc<Value>, Rc<Value>>),
+    Ref(Rc<RefCell<Value>>),
 }
 
 /// A user-defined function: its `name`, parameter names, body form, and the
@@ -69,6 +71,7 @@ impl Value {
     }
 
     /// The variant's name, for use in error messages.
+    // TODO: recurse into collection types and show full type
     pub fn type_name(v: &Value) -> &'static str {
         match v {
             Self::Str(_) => "str",
@@ -82,6 +85,7 @@ impl Value {
             Self::Macro(_) => "macro",
             Self::Array(_) => "array",
             Self::Map(_) => "map",
+            Self::Ref(_) => "ref",
         }
     }
 
@@ -113,19 +117,32 @@ impl Value {
             Self::Cons { .. } => true,
             Self::Array(xs) => !xs.is_empty(),
             Self::Map(m) => !m.is_empty(),
+            Self::Ref(v) => v.borrow().is_truthy(),
         }
     }
 
     pub fn is_callable(&self) -> bool {
-        matches!(self, Value::NativeFn(_) | Value::Closure(_))
+        match self {
+            Value::NativeFn(_) | Value::Closure(_) => true,
+            Value::Ref(v) => v.borrow().is_callable(),
+            _ => false,
+        }
     }
 
     pub fn is_unit(&self) -> bool {
-        matches!(self, Value::Unit)
+        match self {
+            Value::Unit => true,
+            Value::Ref(v) => v.borrow().is_unit(),
+            _ => false,
+        }
     }
 
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Value::Float(_) | Value::Int(_))
+        match self {
+            Value::Float(_) | Value::Int(_) => true,
+            Value::Ref(v) => v.borrow().is_numeric(),
+            _ => false,
+        }
     }
 
     // --- Accessors ---
@@ -133,6 +150,7 @@ impl Value {
     pub fn as_int(&self) -> Option<i64> {
         match self {
             Value::Int(n) => Some(*n),
+            Value::Ref(v) => v.borrow().as_int(),
             _ => None,
         }
     }
@@ -140,6 +158,7 @@ impl Value {
     pub fn as_float(&self) -> Option<f64> {
         match self {
             Value::Float(n) => Some(n.0),
+            Value::Ref(v) => v.borrow().as_float(),
             _ => None,
         }
     }
@@ -147,6 +166,7 @@ impl Value {
     pub fn as_str(&self) -> Option<Rc<str>> {
         match self {
             Value::Str(s) => Some(s.clone()),
+            Value::Ref(v) => v.borrow().as_str(),
             _ => None,
         }
     }
@@ -154,6 +174,7 @@ impl Value {
     pub fn as_array(&self) -> Option<Vector<Rc<Value>>> {
         match self {
             Value::Array(xs) => Some(xs.clone()),
+            Value::Ref(v) => v.borrow().as_array(),
             _ => None,
         }
     }
@@ -161,6 +182,7 @@ impl Value {
     pub fn as_map(&self) -> Option<HashMap<Rc<Value>, Rc<Value>>> {
         match self {
             Value::Map(xs) => Some(xs.clone()),
+            Value::Ref(v) => v.borrow().as_map(),
             _ => None,
         }
     }
@@ -203,6 +225,7 @@ impl Value {
             }
             Value::NativeFn(_) | Value::Closure(_) => "<fn>".to_string(),
             Value::Macro(_) => "<macro>".to_string(),
+            Value::Ref(v) => v.borrow().repr(),
         }
     }
 }
@@ -228,6 +251,7 @@ impl PartialEq for Value {
             // but one equals itself (required for `Eq` reflexivity, which in
             // turn lets `Value` key a `Map`).
             (Value::NativeFn(a), Value::NativeFn(b)) => Rc::ptr_eq(a, b),
+            (Value::Ref(a), Value::Ref(b)) => Rc::ptr_eq(a, b),
             (Value::Closure(a), Value::Closure(b)) => a == b,
             (Value::Macro(a), Value::Macro(b)) => a == b,
             _ => false,
@@ -269,7 +293,7 @@ impl Hash for Value {
             // Callables hash by discriminant only. Equal callables (same Rc, or
             // structurally-equal closures) share that hash; collisions between
             // distinct ones are allowed.
-            Value::NativeFn(_) | Value::Closure(_) | Value::Macro(_) => {}
+            Value::Ref(_) | Value::NativeFn(_) | Value::Closure(_) | Value::Macro(_) => {}
         }
     }
 }
@@ -405,6 +429,7 @@ impl Debug for DepthLimited<'_> {
                 }
                 write!(f, ">")
             }
+            Value::Ref(v) => write!(f, "<ref {}>", v.borrow()),
         }
     }
 }

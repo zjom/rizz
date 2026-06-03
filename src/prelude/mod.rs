@@ -9,11 +9,12 @@ pub mod cons;
 pub mod eq;
 pub mod map;
 pub mod numbers;
+pub mod ref_;
 pub mod str;
 
 use crate::runtime::Env;
 
-/// The default environment: every builtin from [`numbers`], [`eq`], [`map`], [`collections`], [`mod@str`], [`mod@array`], [`cons`].
+/// The default environment: every builtin from [`numbers`], [`eq`], [`map`], [`collections`], [`mod@str`], [`mod@array`], [`cons`], [`ref_`].
 pub fn env() -> Env {
     Env::new()
         .union(numbers::env())
@@ -23,6 +24,7 @@ pub fn env() -> Env {
         .union(str::env())
         .union(array::env())
         .union(cons::env())
+        .union(ref_::env())
 }
 
 /// The default environment merged with `e`. On key collisions the prelude's
