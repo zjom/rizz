@@ -13,12 +13,14 @@
 //! [`parse_and_run`] wires the stages together for the common case.
 
 use crate::parser::Sexp;
-use crate::runtime::{Env, Value};
+use crate::runtime::Value;
 use std::{io::Read, rc::Rc};
 
 pub mod parser;
+pub use parser::{ParseError, Parser};
 pub mod prelude;
 pub mod runtime;
+pub use runtime::{Env, RuntimeError};
 
 /// Parses every top-level form from `r` and evaluates them in source order
 /// against a fresh environment seeded with the [`prelude`]. The forms are
@@ -41,7 +43,7 @@ pub fn parse_and_run_with_env<R: Read>(r: R, env: &Env) -> Result<(Rc<Value>, En
 /// Evaluates `forms` in order, threading `env` between them, and returns the
 /// last form's value alongside the final env. `Parser::parse` already rejects
 /// empty input, so `forms` is non-empty here.
-fn eval_forms(forms: Vec<Sexp>, env: &Env) -> Result<(Rc<Value>, Env), runtime::RuntimeError> {
+pub fn eval_forms(forms: Vec<Sexp>, env: &Env) -> Result<(Rc<Value>, Env), runtime::RuntimeError> {
     let mut env = env.clone();
     let mut last = Rc::new(Value::Unit);
     for form in forms {
