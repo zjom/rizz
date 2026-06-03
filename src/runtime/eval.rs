@@ -20,6 +20,7 @@ const KW_UNQUOTE: &str = "unquote";
 const KW_UNQUOTE_SPLICE: &str = "unquote-splice";
 const KW_IF: &str = "if";
 const KW_DO: &str = "do";
+const KW_EVAL: &str = "eval";
 
 /// Evaluates `form` in environment `ctx`, returning the value and the resulting
 /// environment.
@@ -53,6 +54,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                     KW_DEFMACRO => return eval_defmacro(tail, ctx),
                     KW_IF => return eval_if(tail, ctx),
                     KW_DO => return eval_do(tail, ctx),
+                    KW_EVAL => return eval(tail.clone(), ctx),
                     _ => {}
                 }
             }
