@@ -121,8 +121,7 @@ and native functions — is **true**.
 `=` is structural equality. Lists, arrays, maps, and atoms compare by
 contents. Two functions are equal only if they are the same allocation
 (closures: structural equality of name/params/body/env; native fns: pointer
-identity). NaN floats compare unequal to themselves only at the arithmetic
-layer; `OrderedFloat` makes them equal here so values can key maps.
+identity). All NaN floats compare equal.
 
 ### 3.3 Numeric coercion
 
