@@ -10,6 +10,7 @@ use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 pub fn env() -> Env {
     Env::of_builtins(vec![
         ("push", push()),
+        ("push!", push_bang()),
         ("range", range()),
         ("of", of()),
         ("from", from()),
@@ -64,6 +65,26 @@ fn push() -> NativeFn {
             Ok(Rc::new(Value::Array(out)))
         }
         other => Err(RuntimeError::type_mismatch("push", "array", other)),
+    })
+}
+
+/// `(push! ref v)`: appends `v` to the array held in `ref` and returns the new
+/// array. Errors if `ref` is not a ref, or its cell does not hold an array.
+fn push_bang() -> NativeFn {
+    NativeFn::pure("push!".into(), 2, |args| match &*args[0] {
+        Value::Ref(cell) => {
+            let new = match &*cell.borrow() {
+                Value::Array(xs) => {
+                    let mut out = xs.clone();
+                    out.push_back(args[1].clone());
+                    Value::Array(out)
+                }
+                other => return Err(RuntimeError::type_mismatch("push!", "ref<array>", other)),
+            };
+            *cell.borrow_mut() = new.clone();
+            Ok(Rc::new(new))
+        }
+        other => Err(RuntimeError::type_mismatch("push!", "ref", other)),
     })
 }
 

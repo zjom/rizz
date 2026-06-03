@@ -458,6 +458,126 @@ fn ref_in_head_position_is_callable_if_it_holds_a_fn() {
     assert!(rizz::parse_and_run("((ref 5))".as_bytes()).is_err());
 }
 
+// ----- bang ops on refs: push! / car! / cdr! / put! / del! -----
+
+#[test]
+fn push_bang_appends_to_array_held_in_ref() {
+    let src = "
+        (let r (ref [1 2]))
+        (push! r 3)
+        (len (deref r))";
+    assert_eq!(*run(src), Value::Int(3));
+}
+
+#[test]
+fn push_bang_returns_the_new_array() {
+    assert_eq!(*run("(len (push! (ref [1 2]) 9))"), Value::Int(3));
+}
+
+#[test]
+fn push_bang_errors_on_non_ref() {
+    assert!(rizz::parse_and_run("(push! [1 2] 3)".as_bytes()).is_err());
+}
+
+#[test]
+fn push_bang_errors_when_ref_holds_non_array() {
+    assert!(rizz::parse_and_run("(push! (ref 5) 1)".as_bytes()).is_err());
+}
+
+#[test]
+fn put_bang_mutates_map_in_ref() {
+    let src = "
+        (let r (ref {1: 2}))
+        (put! r 3 4)
+        (get (deref r) 3)";
+    assert_eq!(*run(src), Value::Int(4));
+}
+
+#[test]
+fn put_bang_overwrites_existing_key() {
+    let src = "
+        (let r (ref {1: 2}))
+        (put! r 1 99)
+        (get (deref r) 1)";
+    assert_eq!(*run(src), Value::Int(99));
+}
+
+#[test]
+fn del_bang_removes_key_from_ref() {
+    let src = "
+        (let r (ref {1: 2 3: 4}))
+        (del! r 1)
+        (len (deref r))";
+    assert_eq!(*run(src), Value::Int(1));
+}
+
+#[test]
+fn del_bang_is_a_noop_when_key_absent() {
+    let src = "
+        (let r (ref {1: 2}))
+        (del! r 99)
+        (len (deref r))";
+    assert_eq!(*run(src), Value::Int(1));
+}
+
+#[test]
+fn put_and_del_bang_error_on_wrong_inner_type() {
+    assert!(rizz::parse_and_run("(put! (ref [1 2]) 0 9)".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("(del! (ref [1 2]) 0)".as_bytes()).is_err());
+}
+
+#[test]
+fn car_bang_replaces_head_keeps_tail() {
+    let src = "
+        (let r (ref (cons 1 (cons 2 ()))))
+        (car! r 9)
+        (car (deref r))";
+    assert_eq!(*run(src), Value::Int(9));
+
+    // tail is preserved
+    let src_tail = "
+        (let r (ref (cons 1 (cons 2 ()))))
+        (car! r 9)
+        (car (cdr (deref r)))";
+    assert_eq!(*run(src_tail), Value::Int(2));
+}
+
+#[test]
+fn cdr_bang_replaces_tail_keeps_head() {
+    let src = "
+        (let r (ref (cons 1 (cons 2 ()))))
+        (cdr! r (cons 7 ()))
+        (car (cdr (deref r)))";
+    assert_eq!(*run(src), Value::Int(7));
+
+    // head is preserved
+    let src_head = "
+        (let r (ref (cons 1 (cons 2 ()))))
+        (cdr! r ())
+        (car (deref r))";
+    assert_eq!(*run(src_head), Value::Int(1));
+}
+
+#[test]
+fn car_and_cdr_bang_error_on_non_cons() {
+    assert!(rizz::parse_and_run("(car! (ref 5) 0)".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("(cdr! (ref 5) ())".as_bytes()).is_err());
+    // Unit is not a cons cell — there is no slot to replace.
+    assert!(rizz::parse_and_run("(car! (ref ()) 0)".as_bytes()).is_err());
+}
+
+#[test]
+fn bang_ops_are_visible_through_aliases() {
+    // Same footgun-as-feature as set!: aliased bindings share the cell, so a
+    // mutation through one is seen through the other.
+    let src = "
+        (let a (ref [1 2]))
+        (let b a)
+        (push! a 3)
+        (len (deref b))";
+    assert_eq!(*run(src), Value::Int(3));
+}
+
 #[test]
 fn do_lets_a_function_body_run_a_sequence() {
     // The original motivation: a fn body can hold a multi-statement sequence

@@ -8,9 +8,11 @@ use crate::runtime::{Env, NativeFn};
 pub fn env() -> Env {
     Env::of_builtins(vec![
         ("put", put()),
+        ("put!", put_bang()),
         ("keys", keys()),
         ("values", values()),
         ("del", del()),
+        ("del!", del_bang()),
     ])
 }
 
@@ -55,6 +57,39 @@ fn del() -> NativeFn {
     NativeFn::pure("del".into(), 2, |args| match &*args[0] {
         Value::Map(m) => Ok(Rc::new(Value::Map(m.without(&args[1])))),
         other => Err(RuntimeError::type_mismatch("del", "map", other)),
+    })
+}
+
+/// `(put! ref k v)`: inserts `(k → v)` into the map held in `ref` and returns
+/// the new map. Errors if `ref` is not a ref, or its cell does not hold a map.
+fn put_bang() -> NativeFn {
+    NativeFn::pure("put!".into(), 3, |args| match &*args[0] {
+        Value::Ref(cell) => {
+            let new = match &*cell.borrow() {
+                Value::Map(m) => Value::Map(m.update(args[1].clone(), args[2].clone())),
+                other => return Err(RuntimeError::type_mismatch("put!", "ref<map>", other)),
+            };
+            *cell.borrow_mut() = new.clone();
+            Ok(Rc::new(new))
+        }
+        other => Err(RuntimeError::type_mismatch("put!", "ref", other)),
+    })
+}
+
+/// `(del! ref k)`: removes key `k` from the map held in `ref` (a no-op if `k`
+/// is absent) and returns the new map. Errors if `ref` is not a ref, or its
+/// cell does not hold a map.
+fn del_bang() -> NativeFn {
+    NativeFn::pure("del!".into(), 2, |args| match &*args[0] {
+        Value::Ref(cell) => {
+            let new = match &*cell.borrow() {
+                Value::Map(m) => Value::Map(m.without(&args[1])),
+                other => return Err(RuntimeError::type_mismatch("del!", "ref<map>", other)),
+            };
+            *cell.borrow_mut() = new.clone();
+            Ok(Rc::new(new))
+        }
+        other => Err(RuntimeError::type_mismatch("del!", "ref", other)),
     })
 }
 

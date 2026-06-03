@@ -11,7 +11,13 @@ use std::rc::Rc;
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![("cons", cons()), ("car", car()), ("cdr", cdr())])
+    Env::of_builtins(vec![
+        ("cons", cons()),
+        ("car", car()),
+        ("car!", car_bang()),
+        ("cdr", cdr()),
+        ("cdr!", cdr_bang()),
+    ])
 }
 
 /// `(cons head tail)`: a new cons cell. `tail` is typically a list (a cons
@@ -40,6 +46,46 @@ fn cdr() -> NativeFn {
         Value::Cons { tail, .. } => Ok(tail.clone()),
         Value::Unit => Ok(Rc::new(Value::Unit)),
         other => Err(RuntimeError::type_mismatch("cdr", "cons/()", other)),
+    })
+}
+
+/// `(car! ref v)`: replaces the head of the cons cell held in `ref` with `v`
+/// and returns the new cons. Errors if `ref` is not a ref, or its cell does
+/// not hold a cons.
+fn car_bang() -> NativeFn {
+    NativeFn::pure("car!".into(), 2, |args| match &*args[0] {
+        Value::Ref(cell) => {
+            let new = match &*cell.borrow() {
+                Value::Cons { tail, .. } => Value::Cons {
+                    head: args[1].clone(),
+                    tail: tail.clone(),
+                },
+                other => return Err(RuntimeError::type_mismatch("car!", "ref<cons>", other)),
+            };
+            *cell.borrow_mut() = new.clone();
+            Ok(Rc::new(new))
+        }
+        other => Err(RuntimeError::type_mismatch("car!", "ref", other)),
+    })
+}
+
+/// `(cdr! ref v)`: replaces the tail of the cons cell held in `ref` with `v`
+/// and returns the new cons. Errors if `ref` is not a ref, or its cell does
+/// not hold a cons.
+fn cdr_bang() -> NativeFn {
+    NativeFn::pure("cdr!".into(), 2, |args| match &*args[0] {
+        Value::Ref(cell) => {
+            let new = match &*cell.borrow() {
+                Value::Cons { head, .. } => Value::Cons {
+                    head: head.clone(),
+                    tail: args[1].clone(),
+                },
+                other => return Err(RuntimeError::type_mismatch("cdr!", "ref<cons>", other)),
+            };
+            *cell.borrow_mut() = new.clone();
+            Ok(Rc::new(new))
+        }
+        other => Err(RuntimeError::type_mismatch("cdr!", "ref", other)),
     })
 }
 

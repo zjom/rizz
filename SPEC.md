@@ -98,6 +98,7 @@ Array     — persistent vector (im::Vector)
 Map       — persistent hash map (im::HashMap), keys may be any Value
 NativeFn  — builtin function
 Closure   — user-defined function (lexically scoped)
+Ref       — mutable cell (see §8); the only mutable value kind
 ```
 
 Lists are `Cons` chains terminated by `Unit`. A bare value (a non-cons) is
@@ -116,18 +117,26 @@ Used by `if` and `not`. The following are **false**:
 Everything else — including non-empty lists, non-zero numbers, all closures
 and native functions — is **true**.
 
+A `Ref` is truthy iff its current contents are truthy: `(if (ref 0) ...)` takes
+the else branch. See §8.
+
 ### 3.2 Equality and hashing
 
 `=` is structural equality. Lists, arrays, maps, and atoms compare by
 contents. Two functions are equal only if they are the same allocation
 (closures: structural equality of name/params/body/env; native fns: pointer
-identity). All NaN floats compare equal.
+identity). Refs compare by pointer identity of the underlying cell — two
+distinct `(ref 5)` cells are not equal. All NaN floats compare equal.
 
 ### 3.3 Numeric coercion
 
 There is none. Arithmetic and comparison are binary and require both operands
 to be the same numeric kind (`int*int` or `float*float`). Mixed types raise a
 `TypeMismatch`.
+
+Numeric ops do transparently see through a `Ref` whose contents are a number:
+`(+ (ref 5) 1) => 6`. Refs are similarly transparent to `<`, `>=`, etc. This
+is the one place values are read through a ref without an explicit `deref`.
 
 ---
 
@@ -164,7 +173,9 @@ A `Cons` is interpreted as `(head . tail)`. If `head` is one of the keyword
 identifiers below, the form is a [special form](#5-special-forms). Otherwise
 the form is a **function application**:
 
-1. Evaluate `head` to obtain a callable.
+1. Evaluate `head` to obtain a callable. If the result is a `Ref` (or chain
+   of refs) whose innermost contents are dispatchable, the refs are peeled
+   and dispatch proceeds against the contents.
 2. For a `NativeFn`: dispatch to its `call` (which handles arg evaluation).
 3. For a `Closure`: evaluate every argument in `tail` left to right, threading
    the env; then call the closure on the resulting values.
@@ -322,12 +333,67 @@ Insertion order is not preserved.
 
 ---
 
-## 8. Errors
+## 8. Mutability
+
+rizz is mostly value-oriented: `let`/`fn` produce a new env, collections are
+persistent, calls don't leak bindings. The exception is the **ref** — a
+heap cell whose contents can be replaced in place. Refs are the only path
+to mutation; everything else stays immutable.
+
+### 8.1 Refs
+
+A `Ref` is a value that holds a single `Value` in a mutable cell. Two
+bindings of the same ref share the cell, so a write through one is visible
+through every other binding pointing at it. Closures that capture a ref
+capture the cell — not a snapshot of its contents — so mutations made after
+the closure was defined are visible inside the body.
+
+| Name    | Arity | Description                                                                     |
+| ------- | ----- | ------------------------------------------------------------------------------- |
+| `ref`   | 1     | `(ref v)`: allocates a new ref initialized to `v`.                              |
+| `deref` | 1     | `(deref r)`: returns the current contents of the cell. Errors on non-ref.       |
+| `set!`  | 2     | `(set! r v)`: stores `v` in the cell and returns the new value. Errors on non-ref. |
+
+`set!` stores its argument verbatim. If `v` is itself a ref, the cell now
+aliases it — there is no implicit deref on the way in. Likewise `(ref (ref x))`
+is a two-layer ref; both layers must be `deref`d to reach `x`.
+
+### 8.2 In-place collection ops
+
+Each `!`-suffixed op takes a ref whose cell holds a specific collection kind,
+mutates it, and returns the post-mutation value that the cell now holds. They
+error if the first argument is not a ref, or if its cell does not hold the
+expected inner type. They do not work on bare collections — for non-mutating
+updates use the unsuffixed forms (`push`, `put`, `del`, `cons`).
+
+| Name    | Arity | Cell type | Description                          |
+| ------- | ----- | --------- | ------------------------------------ |
+| `push!` | 2     | array     | Appends an element.                  |
+| `put!`  | 3     | map       | Inserts `(k → v)`.                   |
+| `del!`  | 2     | map       | Removes a key; no-op if absent.      |
+| `car!`  | 2     | cons      | Replaces the head; tail preserved.   |
+| `cdr!`  | 2     | cons      | Replaces the tail; head preserved.   |
+
+### 8.3 Semantics and footguns
+
+- **Equality is by cell identity.** `(= (ref 5) (ref 5))` is `0`. A ref equals
+  itself and any binding aliased to it.
+- **Truthiness recurses into the cell** (§3.1).
+- **Numeric and comparison ops auto-deref** (§3.3).
+- **Head-position auto-deref** (§4.3): a call whose head resolves to a
+  ref-of-callable dispatches as if the head were the callable directly. A ref
+  holding a non-callable still errors with `NotCallable`.
+- **No auto-collapse on construction.** `ref`, `set!`, `push!`, `put!`, `car!`,
+  `cdr!` all store the value handed to them as-is; nesting refs nests storage.
+
+---
+
+## 9. Errors
 
 Two top-level error families. Both carry enough detail to point at the
 problem.
 
-### 8.1 Parse errors (`ParseError`)
+### 9.1 Parse errors (`ParseError`)
 
 Position-tagged (`line`, `col`, `byte`):
 
@@ -338,7 +404,7 @@ Position-tagged (`line`, `col`, `byte`):
 - `ParseFloatError`, `ParseIntError` — malformed/overflowing numbers.
 - `IOError` — underlying reader failure, including unexpected EOF.
 
-### 8.2 Runtime errors (`RuntimeError`)
+### 9.2 Runtime errors (`RuntimeError`)
 
 - `UnknownIdent(name)` — unbound identifier.
 - `NotCallable { value }` — calling a non-callable.
@@ -348,7 +414,7 @@ Position-tagged (`line`, `col`, `byte`):
 
 ---
 
-## 9. Reserved identifiers
+## 10. Reserved identifiers
 
 These names are dispatched as special forms when in head position:
 
@@ -361,12 +427,12 @@ The reader-macro prefixes `'`, `` ` ``, `,`, `,@` expand to `(quote ...)`,
 
 ---
 
-## 10. Built-in environment
+## 11. Built-in environment
 
 All builtins are bound in the initial env. Names and arities below; see
 `src/prelude/` for full semantics. `1`/`0` is used for boolean results.
 
-### 10.1 Arithmetic & comparison (`numbers`)
+### 11.1 Arithmetic & comparison (`numbers`)
 
 | Name  | Arity | Description                                                |
 | ----- | ----- | ---------------------------------------------------------- |
@@ -380,7 +446,7 @@ All builtins are bound in the initial env. Names and arities below; see
 | `<`   | 2     | Less than.                                                 |
 | `<=`  | 2     | Less or equal.                                             |
 
-### 10.2 Equality (`eq`)
+### 11.2 Equality (`eq`)
 
 | Name | Arity | Description                     |
 | ---- | ----- | ------------------------------- |
@@ -388,7 +454,7 @@ All builtins are bound in the initial env. Names and arities below; see
 | `!=` | 2     | Structural inequality.          |
 | `!`  | 1     | Boolean negation of truthiness. |
 
-### 10.3 Polymorphic collections (`collections`)
+### 11.3 Polymorphic collections (`collections`)
 
 | Name        | Arity | Works on                                | Description                                                        |
 | ----------- | ----- | --------------------------------------- | ------------------------------------------------------------------ |
@@ -405,23 +471,26 @@ All builtins are bound in the initial env. Names and arities below; see
 | `filter`    | 2     | str/array/map/list                      | Keep where predicate is truthy. For maps, `pred` takes `(k v)`.    |
 | `reduce`    | 3     | str/array/map/list                      | Left fold from `init`. For maps, `f` takes `(acc k v)`.            |
 
-### 10.4 Arrays (`array`)
+### 11.4 Arrays (`array`)
 
-| Name    | Arity | Description                      |
-| ------- | ----- | -------------------------------- |
-| `push`  | 2     | Append an element.               |
-| `range` | 2     | Array of ints in `[start, end)`. |
+| Name    | Arity | Description                                   |
+| ------- | ----- | --------------------------------------------- |
+| `push`  | 2     | Append an element.                            |
+| `push!` | 2     | In-place append on a ref-of-array (see §8.2). |
+| `range` | 2     | Array of ints in `[start, end)`.              |
 
-### 10.5 Maps (`map`)
+### 11.5 Maps (`map`)
 
-| Name     | Arity | Description                                 |
-| -------- | ----- | ------------------------------------------- |
-| `put`    | 3     | New map with `(k → v)` inserted.            |
-| `del`    | 2     | New map with key removed (no-op if absent). |
-| `keys`   | 1     | Array of keys (unspecified order).          |
-| `values` | 1     | Array of values (unspecified order).        |
+| Name     | Arity | Description                                       |
+| -------- | ----- | ------------------------------------------------- |
+| `put`    | 3     | New map with `(k → v)` inserted.                  |
+| `put!`   | 3     | In-place insert on a ref-of-map (see §8.2).       |
+| `del`    | 2     | New map with key removed (no-op if absent).       |
+| `del!`   | 2     | In-place remove on a ref-of-map (see §8.2).       |
+| `keys`   | 1     | Array of keys (unspecified order).                |
+| `values` | 1     | Array of values (unspecified order).              |
 
-### 10.6 Strings (`str`)
+### 11.6 Strings (`str`)
 
 | Name          | Arity | Description                                                              |
 | ------------- | ----- | ------------------------------------------------------------------------ |
@@ -434,17 +503,29 @@ All builtins are bound in the initial env. Names and arities below; see
 | `str-replace` | 3     | Replace all occurrences of a substring.                                  |
 | `str->int`    | 1     | Parse a decimal integer (`()` on failure).                               |
 
-### 10.7 Lists (`list`)
+### 11.7 Lists (`list`)
 
 | Name   | Arity | Description                                                                                                                                     |
 | ------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cons` | 2     | `(cons head tail)`: a new cons cell. `tail` is typically a list (a cons chain or `()`) but any value is permitted — improper pairs are allowed. |
 | `car`  | 1     | `(car xs)`: the head of a cons cell. `(car ())` is `()`.                                                                                        |
+| `car!` | 2     | In-place head replacement on a ref-of-cons (see §8.2).                                                                                          |
 | `cdr`  | 1     | `(cdr xs)`: the tail of a cons cell. `(cdr ())` is `()`.                                                                                        |
+| `cdr!` | 2     | In-place tail replacement on a ref-of-cons (see §8.2).                                                                                          |
+
+### 11.8 Mutability (`ref_`)
+
+See §8 for full semantics.
+
+| Name    | Arity | Description                                  |
+| ------- | ----- | -------------------------------------------- |
+| `ref`   | 1     | Allocate a new ref initialized to a value.   |
+| `deref` | 1     | Read the cell's current contents.            |
+| `set!`  | 2     | Replace the cell's contents; returns new.    |
 
 ---
 
-## 11. Examples
+## 12. Examples
 
 Recursive factorial:
 
@@ -479,13 +560,20 @@ A small pipeline:
                      (range 0 6)))         ;; => 12
 ```
 
+A counter via a captured ref:
+
+```
+(let c (ref 0))
+(fn bump () (set! c (+ (deref c) 1)))
+(bump) (bump) (bump)
+(deref c)             ;; => 3
+```
+
 ---
 
-## 12. Non-goals (current implementation)
+## 13. Non-goals (current implementation)
 
 - No tail-call optimization; deep recursion can exhaust the host stack.
 - No variadic functions; arity is exact.
-- No mutation: every binding update produces a new env; collections are
-  persistent (structural sharing).
 - No module system, no I/O outside the prelude, no exception form.
 - No nested quasiquote depth tracking.
