@@ -9,9 +9,11 @@ description = "rust lisp"
 
 [dependencies]
 anyhow = "1.0.102"
+bon = "3.9.1"
 clap = { version = "4.6.1", features = ["derive"], optional = true }
 im = "15.1.0"
 ordered-float = "5.3.0"
+rustyline = { version = "18.0.0", optional = true, features = ["derive"] }
 thiserror = "2.0.18"
 
 [[bin]]
@@ -21,4 +23,4 @@ required-features = ["cli"]
 
 [features]
 default = ["cli"]
-cli = ["dep:clap"]
+cli = ["dep:clap", "dep:rustyline"]

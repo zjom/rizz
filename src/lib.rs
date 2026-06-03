@@ -12,6 +12,11 @@
 //!
 //! [`parse_and_run`] wires the stages together for the common case.
 
+#[cfg(feature = "cli")]
+pub mod cli;
+#[cfg(feature = "cli")]
+mod repl;
+
 use crate::parser::Sexp;
 use crate::runtime::Value;
 use std::{io::Read, rc::Rc};
