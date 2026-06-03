@@ -1,8 +1,10 @@
 //! Polymorphic collection builtins that dispatch on the runtime type of their
 //! collection argument: `len`, `get`, `concat`, `slice`, `contains?`,
 //! `reverse`, `first`, `rest`, `last`, and the higher-order transforms `fmap`,
-//! `filter`, `reduce`. The higher-order fns are *impure* so they receive the
-//! `Env` needed to invoke user closures via [`crate::runtime::apply`].
+//! `filter`, `reduce`. Supported collection shapes are strings, arrays, maps,
+//! and cons lists (with `()` treated as the empty list). The higher-order fns
+//! are *impure* so they receive the `Env` needed to invoke user closures via
+//! [`crate::runtime::apply`].
 //!
 //! Caveat: the evaluator re-evaluates whatever value a native fn returns, so for
 //! a returned array each element is evaluated a second time. Self-evaluating
@@ -11,6 +13,7 @@
 //! value — a closure or an unquoted identifier — would thus be re-evaluated by
 //! the caller and misbehave; current callbacks return data, so this isn't hit.
 
+use crate::prelude::cons::{cons_list, is_list};
 use crate::runtime::apply;
 use im::{HashMap, Vector};
 use std::rc::Rc;
@@ -34,22 +37,23 @@ pub fn env() -> Env {
     ])
 }
 
-/// `(len coll)`: element count of a str (by char), array, or map.
+/// `(len coll)`: element count of a str (by char), array, map, or cons list.
 fn len() -> NativeFn {
     NativeFn::pure("len".into(), 1, |args| {
         let n = match &*args[0] {
             Value::Str(s) => s.chars().count() as i64,
             Value::Array(xs) => xs.len() as i64,
             Value::Map(m) => m.len() as i64,
-            other => return Err(RuntimeError::type_mismatch("len", "str/array/map", other)),
+            v if is_list(v) => Value::iter(&args[0]).count() as i64,
+            other => return Err(RuntimeError::type_mismatch("len", "str/array/map/list", other)),
         };
         Ok(Rc::new(Value::Int(n)))
     })
 }
 
 /// `(slice coll start end)`: half-open `[start, end)` sub-sequence of a string
-/// (by char) or array. Indices are clamped to `[0, len]`; `start > end` yields
-/// an empty result.
+/// (by char), array, or cons list. Indices are clamped to `[0, len]`;
+/// `start > end` yields an empty result.
 fn slice() -> NativeFn {
     NativeFn::pure("slice".into(), 3, |args| {
         let start = args[1]
@@ -70,7 +74,12 @@ fn slice() -> NativeFn {
                 let out: String = chars[s..e].iter().collect();
                 Ok(Rc::new(Value::Str(out.into())))
             }
-            other => Err(RuntimeError::type_mismatch("slice", "array/str", other)),
+            v if is_list(v) => {
+                let items: Vec<Rc<Value>> = Value::iter(&args[0]).collect();
+                let (s, e) = clamp_range(start, end, items.len());
+                Ok(Rc::new(cons_list(items.into_iter().skip(s).take(e - s))))
+            }
+            other => Err(RuntimeError::type_mismatch("slice", "array/str/list", other)),
         }
     })
 }
@@ -84,38 +93,46 @@ fn clamp_range(start: i64, end: i64, len: usize) -> (usize, usize) {
     (s, e.max(s))
 }
 
-/// `(concat a b)`: joins two strings, two arrays, or two maps. For maps, the
-/// second operand's entries win on key collisions.
+/// `(concat a b)`: joins two strings, two arrays, two maps, or two cons
+/// lists. For maps, the second operand's entries win on key collisions.
 fn concat() -> NativeFn {
-    NativeFn::pure("concat".into(), 2, |args| match (&*args[0], &*args[1]) {
-        (Value::Str(a), Value::Str(b)) => {
-            let mut s = String::with_capacity(a.len() + b.len());
-            s.push_str(a);
-            s.push_str(b);
-            Ok(Rc::new(Value::Str(s.into())))
+    NativeFn::pure("concat".into(), 2, |args| {
+        if is_list(&args[0]) && is_list(&args[1]) {
+            let items: Vec<Rc<Value>> =
+                Value::iter(&args[0]).chain(Value::iter(&args[1])).collect();
+            return Ok(Rc::new(cons_list(items)));
         }
-        (Value::Array(a), Value::Array(b)) => {
-            let mut out = a.clone();
-            out.append(b.clone());
-            Ok(Rc::new(Value::Array(out)))
-        }
-        (Value::Map(a), Value::Map(b)) => {
-            let mut out = a.clone();
-            for (k, v) in b.iter() {
-                out.insert(k.clone(), v.clone());
+        match (&*args[0], &*args[1]) {
+            (Value::Str(a), Value::Str(b)) => {
+                let mut s = String::with_capacity(a.len() + b.len());
+                s.push_str(a);
+                s.push_str(b);
+                Ok(Rc::new(Value::Str(s.into())))
             }
-            Ok(Rc::new(Value::Map(out)))
+            (Value::Array(a), Value::Array(b)) => {
+                let mut out = a.clone();
+                out.append(b.clone());
+                Ok(Rc::new(Value::Array(out)))
+            }
+            (Value::Map(a), Value::Map(b)) => {
+                let mut out = a.clone();
+                for (k, v) in b.iter() {
+                    out.insert(k.clone(), v.clone());
+                }
+                Ok(Rc::new(Value::Map(out)))
+            }
+            (other, _) => Err(RuntimeError::type_mismatch(
+                "concat",
+                "two strs, two arrays, two maps, or two lists",
+                other,
+            )),
         }
-        (other, _) => Err(RuntimeError::type_mismatch(
-            "concat",
-            "two strs, two arrays, or two maps",
-            other,
-        )),
     })
 }
 
-/// `(get coll k)`: map value at key `k`, array element at int index `k`, or the
-/// 1-char string at int index `k`. A miss or out-of-bounds index yields `()`.
+/// `(get coll k)`: map value at key `k`, array/list element at int index `k`,
+/// or the 1-char string at int index `k`. A miss or out-of-bounds index
+/// yields `()`.
 fn get() -> NativeFn {
     NativeFn::pure("get".into(), 2, |args| match &*args[0] {
         Value::Map(m) => Ok(m
@@ -139,7 +156,20 @@ fn get() -> NativeFn {
                 None => Rc::new(Value::Unit),
             })
         }
-        other => Err(RuntimeError::type_mismatch("get", "map/array/str", other)),
+        v if is_list(v) => {
+            let idx = args[1]
+                .as_int()
+                .ok_or_else(|| RuntimeError::type_mismatch("get", "int index", &args[1]))?;
+            let v = usize::try_from(idx)
+                .ok()
+                .and_then(|i| Value::iter(&args[0]).nth(i));
+            Ok(v.unwrap_or_else(|| Rc::new(Value::Unit)))
+        }
+        other => Err(RuntimeError::type_mismatch(
+            "get",
+            "map/array/str/list",
+            other,
+        )),
     })
 }
 
@@ -156,10 +186,11 @@ fn contains() -> NativeFn {
             }
             Value::Array(xs) => xs.iter().any(|x| x == &args[1]),
             Value::Map(m) => m.contains_key(&args[1]),
+            v if is_list(v) => Value::iter(&args[0]).any(|x| x == args[1]),
             other => {
                 return Err(RuntimeError::type_mismatch(
                     "contains?",
-                    "str/array/map",
+                    "str/array/map/list",
                     other,
                 ));
             }
@@ -168,7 +199,7 @@ fn contains() -> NativeFn {
     })
 }
 
-/// `(reverse coll)`: reverses a string (by char) or array.
+/// `(reverse coll)`: reverses a string (by char), array, or cons list.
 fn reverse() -> NativeFn {
     NativeFn::pure("reverse".into(), 1, |args| match &*args[0] {
         Value::Array(xs) => {
@@ -179,11 +210,20 @@ fn reverse() -> NativeFn {
             let out: String = s.chars().rev().collect();
             Ok(Rc::new(Value::Str(out.into())))
         }
-        other => Err(RuntimeError::type_mismatch("reverse", "array/str", other)),
+        v if is_list(v) => {
+            let items: Vec<Rc<Value>> = Value::iter(&args[0]).collect();
+            Ok(Rc::new(cons_list(items.into_iter().rev())))
+        }
+        other => Err(RuntimeError::type_mismatch(
+            "reverse",
+            "array/str/list",
+            other,
+        )),
     })
 }
 
-/// `(first coll)`: first element of an array, or first char of a string, or `()`.
+/// `(first coll)`: first element of an array or cons list, or first char of a
+/// string. `()` on an empty input.
 fn first() -> NativeFn {
     NativeFn::pure("first".into(), 1, |args| match &*args[0] {
         Value::Array(xs) => Ok(xs.front().cloned().unwrap_or_else(|| Rc::new(Value::Unit))),
@@ -191,11 +231,14 @@ fn first() -> NativeFn {
             Some(c) => Rc::new(Value::Str(c.to_string().into())),
             None => Rc::new(Value::Unit),
         }),
-        other => Err(RuntimeError::type_mismatch("first", "array/str", other)),
+        Value::Cons { head, .. } => Ok(head.clone()),
+        Value::Unit => Ok(Rc::new(Value::Unit)),
+        other => Err(RuntimeError::type_mismatch("first", "array/str/list", other)),
     })
 }
 
-/// `(last coll)`: last element of an array, or last char of a string, or `()`.
+/// `(last coll)`: last element of an array or cons list, or last char of a
+/// string. `()` on an empty input.
 fn last() -> NativeFn {
     NativeFn::pure("last".into(), 1, |args| match &*args[0] {
         Value::Array(xs) => Ok(xs.back().cloned().unwrap_or_else(|| Rc::new(Value::Unit))),
@@ -203,12 +246,16 @@ fn last() -> NativeFn {
             Some(c) => Rc::new(Value::Str(c.to_string().into())),
             None => Rc::new(Value::Unit),
         }),
-        other => Err(RuntimeError::type_mismatch("last", "array/str", other)),
+        v if is_list(v) => Ok(Value::iter(&args[0])
+            .last()
+            .unwrap_or_else(|| Rc::new(Value::Unit))),
+        other => Err(RuntimeError::type_mismatch("last", "array/str/list", other)),
     })
 }
 
-/// `(rest coll)`: all but the first element of an array, or all but the first
-/// char of a string. An empty or single-element input yields an empty result.
+/// `(rest coll)`: all but the first element of an array or cons list, or all
+/// but the first char of a string. An empty or single-element input yields
+/// an empty result.
 fn rest() -> NativeFn {
     NativeFn::pure("rest".into(), 1, |args| match &*args[0] {
         Value::Array(xs) => {
@@ -219,7 +266,9 @@ fn rest() -> NativeFn {
             let out: String = s.chars().skip(1).collect();
             Ok(Rc::new(Value::Str(out.into())))
         }
-        other => Err(RuntimeError::type_mismatch("rest", "array/str", other)),
+        Value::Cons { tail, .. } => Ok(tail.clone()),
+        Value::Unit => Ok(Rc::new(Value::Unit)),
+        other => Err(RuntimeError::type_mismatch("rest", "array/str/list", other)),
     })
 }
 
@@ -272,7 +321,18 @@ fn fmap() -> NativeFn {
                 })?;
                 Ok((Rc::new(Value::Map(m)), env.clone()))
             }
-            other => Err(RuntimeError::type_mismatch("fmap", "array/map/str", other)),
+            v if is_list(v) => {
+                let mut out: Vec<Rc<Value>> = Vec::new();
+                for x in Value::iter(&args[1]) {
+                    out.push(apply(f, std::slice::from_ref(&x), env)?);
+                }
+                Ok((Rc::new(cons_list(out)), env.clone()))
+            }
+            other => Err(RuntimeError::type_mismatch(
+                "fmap",
+                "array/map/str/list",
+                other,
+            )),
         }
     })
 }
@@ -313,10 +373,19 @@ fn filter() -> NativeFn {
                 }
                 Value::Map(acc)
             }
+            v if is_list(v) => {
+                let mut acc: Vec<Rc<Value>> = Vec::new();
+                for x in Value::iter(&args[1]) {
+                    if apply(pred, std::slice::from_ref(&x), env)?.is_truthy() {
+                        acc.push(x);
+                    }
+                }
+                cons_list(acc)
+            }
             other => {
                 return Err(RuntimeError::type_mismatch(
                     "filter",
-                    "array/map/str",
+                    "array/map/str/list",
                     other,
                 ));
             }
@@ -349,10 +418,15 @@ fn reduce() -> NativeFn {
                     acc = apply(f, &[acc.clone(), k.clone(), v.clone()], env)?;
                 }
             }
+            v if is_list(v) => {
+                for x in Value::iter(&args[2]) {
+                    acc = apply(f, &[acc.clone(), x], env)?;
+                }
+            }
             other => {
                 return Err(RuntimeError::type_mismatch(
                     "reduce",
-                    "array/map/str",
+                    "array/map/str/list",
                     other,
                 ));
             }
@@ -572,6 +646,54 @@ mod tests {
             run("(reduce + 0 5)"),
             Err(RizzError::RuntimeError(RuntimeError::TypeMismatch { .. }))
         ));
+    }
+
+    #[test]
+    fn list_polymorphic_basics() {
+        // len, first, last, rest, get over cons lists
+        assert_eq!(*run_ok("(len (quote (1 2 3)))"), Value::Int(3));
+        assert_eq!(*run_ok("(len ())"), Value::Int(0));
+        assert_eq!(*run_ok("(first (quote (1 2 3)))"), Value::Int(1));
+        assert_eq!(*run_ok("(last (quote (1 2 3)))"), Value::Int(3));
+        assert_eq!(*run_ok("(len (rest (quote (1 2 3))))"), Value::Int(2));
+        assert_eq!(*run_ok("(get (quote (10 20 30)) 1)"), Value::Int(20));
+        assert_eq!(*run_ok("(get (quote (1 2)) 9)"), Value::Unit);
+    }
+
+    #[test]
+    fn list_concat_slice_reverse_contains() {
+        assert_eq!(
+            *run_ok("(len (concat (quote (1 2)) (quote (3 4 5))))"),
+            Value::Int(5)
+        );
+        assert_eq!(
+            *run_ok("(get (concat (quote (1 2)) (quote (3 4))) 2)"),
+            Value::Int(3)
+        );
+        assert_eq!(*run_ok("(len (slice (quote (1 2 3 4 5)) 1 4))"), Value::Int(3));
+        assert_eq!(*run_ok("(first (reverse (quote (1 2 3))))"), Value::Int(3));
+        assert_eq!(*run_ok("(contains? (quote (1 2 3)) 2)"), Value::Int(1));
+        assert_eq!(*run_ok("(contains? (quote (1 2 3)) 9)"), Value::Int(0));
+    }
+
+    #[test]
+    fn list_higher_order() {
+        // fmap returns a list and preserves length
+        assert_eq!(
+            *run_ok("(len (fmap (fn d (x) (* x 2)) (quote (1 2 3))))"),
+            Value::Int(3)
+        );
+        assert_eq!(
+            *run_ok("(first (fmap (fn d (x) (* x 2)) (quote (1 2 3))))"),
+            Value::Int(2)
+        );
+        // filter keeps elements matching predicate
+        assert_eq!(
+            *run_ok("(len (filter (fn p (x) (>= x 2)) (quote (1 2 3 4))))"),
+            Value::Int(3)
+        );
+        // reduce folds
+        assert_eq!(*run_ok("(reduce + 0 (quote (1 2 3 4)))"), Value::Int(10));
     }
 
     #[test]
