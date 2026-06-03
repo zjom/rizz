@@ -224,14 +224,16 @@ Errors: arity ≠ 3.
 ```
 
 Evaluates each form in order, threading the env between them, and returns
-the last value (or `()` if empty). `do` **is** a scope boundary: a later
+the last value (or `()` if empty). `do` is **not** a scope boundary: a later
 form within the same `do` sees `let`/`fn` bindings introduced by earlier
-forms, but those bindings are sealed at the closing `)` and do not leak to
-the surrounding env.
+forms, and those bindings also leak out to the surrounding env. `do` is
+pure sequencing — semantically equivalent to splicing its forms into the
+enclosing position.
 
 Top-level forms are not wrapped in `do`; the program driver threads bindings
 between them explicitly, which is how top-level `let`/`fn` become visible to
-later top-level forms.
+later top-level forms. Wrapping a sequence in `do` produces the same
+binding-visibility behavior in an expression position.
 
 ### 5.5 `quote` — literal
 

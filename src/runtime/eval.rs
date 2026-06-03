@@ -226,14 +226,13 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeE
     Ok((val, env))
 }
 
-/// `(do f1 f2 ... fn)`: evaluates each form in order, threading the env so a
-/// `let`/`fn` introduced by an earlier form is visible to later ones. Returns
-/// the last form's value (Unit for an empty `(do)`) along with the threaded
-/// env, so bindings inside `do` leak to its surrounding scope — `do` is a
-/// sequencing primitive, not a call boundary.
+/// `(do f1 f2 ... fn)`: pure sequencing. Evaluates each form in order,
+/// threading the env so a `let`/`fn` introduced by an earlier form is visible
+/// to later ones, and returns the last form's value (Unit for an empty `(do)`)
+/// along with the threaded env. `do` is not a scope boundary: bindings
+/// introduced inside it leak to the surrounding env, just as with top-level
+/// sequencing.
 fn eval_do(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
-    // `do` is a scope boundary: bindings introduced inside thread to later
-    // forms within the block, but never leak to the surrounding env.
     let mut inner = env.clone();
     let mut last = Rc::new(Value::Unit);
     for form in Value::iter(tail) {
@@ -241,7 +240,7 @@ fn eval_do(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError
         last = v;
         inner = e;
     }
-    Ok((last, env.clone()))
+    Ok((last, inner))
 }
 
 /// `(if cond then else)`: evaluates `cond`, then evaluates only the matching
@@ -941,15 +940,13 @@ mod tests {
     }
 
     #[test]
-    fn do_is_a_scope_boundary() {
-        // After (do (let x 5)) the surrounding env must not see `x`: `do`
-        // threads bindings between its own forms but seals them at its edge.
+    fn do_leaks_scope() {
         let form = list(vec![
             ident(KW_DO),
             list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
         ]);
         let (_, env) = eval_ok(form, &Env::new());
-        assert!(env.get(&Rc::from("x")).is_none());
+        assert!(env.get(&Rc::from("x")).is_some_and(|x| *x == int(5)));
     }
 
     #[test]
