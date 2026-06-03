@@ -2,13 +2,57 @@
 //! transforms (`fmap`, `filter`, `reduce`) are polymorphic over all collections
 //! and live in [`crate::prelude::collections`].
 
-use im::Vector;
+use im::{Vector, vector};
 use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![("push", push()), ("range", range())])
+    Env::of_builtins(vec![
+        ("push", push()),
+        ("range", range()),
+        ("of", of()),
+        ("from", from()),
+    ])
+}
+
+/// `(array-from xs)`: constructs an array from `xs`
+/// output array shape depends on the type of `xs`
+///
+/// string => array of len 1 strings
+/// map => array of [key, value]
+/// array => self
+/// list => array following [Value::iter] semantics
+/// other => [other]
+///
+/// `(array-from "abc")` => `["a" "b" "c"]`
+/// `(array-from {'a:1 'b:2 'c:3})` => [['a 1] ['b 2] ['c 3]]
+/// `(array-from [1 2 3])` => [1 2 3]
+/// `(array-from '(1 2 3))` => [1 2 3]
+/// `(array-from 123)` => 123
+fn from() -> NativeFn {
+    NativeFn::pure("array-from".into(), 1, |args| {
+        Ok(Rc::new(Value::Array(match args[0].as_ref() {
+            Value::Str(s) => s
+                .chars()
+                .map(|b| Rc::new(Value::Str(b.to_string().into())))
+                .collect::<Vector<_>>(),
+            Value::Map(m) => m
+                .into_iter()
+                .map(|(k, v)| Rc::new(Value::Array(vector![k.clone(), v.clone()])))
+                .collect(),
+            Value::Array(xs) => xs.clone(),
+            _ => Value::iter(&args[0]).collect(),
+        })))
+    })
+}
+
+/// `(array-of v)`: constructs an array with a single value.
+/// this is equivalent to `[v]`
+fn of() -> NativeFn {
+    NativeFn::pure("array-of".into(), 1, |args| {
+        Ok(Rc::new(Value::Array(Vector::unit(args[0].clone()))))
+    })
 }
 
 /// `(push arr v)`: a new array with `v` appended at the end.
