@@ -13,6 +13,7 @@ use std::rc::Rc;
 // Identifiers that, in head position, are special forms rather than calls.
 const KW_DEFVAR: &str = "let";
 const KW_DEFUN: &str = "fn";
+const KW_DEFMACRO: &str = "defmacro";
 const KW_QUOTE: &str = "quote";
 const KW_QUASIQUOTE: &str = "quasi";
 const KW_UNQUOTE: &str = "unquote";
@@ -29,9 +30,12 @@ const KW_DO: &str = "do";
 /// callable, which is then applied as a native function or closure.
 pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     match &*form {
-        Value::Int(_) | Value::Unit | Value::Str(_) | Value::Float(_) | Value::NativeFn(_) => {
-            Ok((form.clone(), ctx.clone()))
-        }
+        Value::Int(_)
+        | Value::Unit
+        | Value::Str(_)
+        | Value::Float(_)
+        | Value::NativeFn(_)
+        | Value::Macro(_) => Ok((form.clone(), ctx.clone())),
         Value::Ident(ident) => {
             let form = ctx
                 .get(ident)
@@ -46,6 +50,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                     KW_QUOTE => return eval_quote(tail, ctx),
                     KW_QUASIQUOTE => return eval_quasiquote(tail, ctx),
                     KW_DEFUN => return eval_defun(tail, ctx),
+                    KW_DEFMACRO => return eval_defmacro(tail, ctx),
                     KW_IF => return eval_if(tail, ctx),
                     KW_DO => return eval_do(tail, ctx),
                     _ => {}
@@ -62,6 +67,15 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                 Value::Closure(closure) => {
                     let (args, _) = eval_and_collect(tail, &ctx)?;
                     let (v, _) = eval_closure(&args, closure)?;
+                    Ok((v, ctx))
+                }
+                Value::Macro(macro_) => {
+                    // Bind unevaluated arguments to the macro's params,
+                    // evaluate its body to produce an expansion form, then
+                    // evaluate the expansion in the caller's environment.
+                    let args: Vec<_> = Value::iter(tail).collect();
+                    let (expansion, _) = expand_macro(&args, macro_)?;
+                    let (v, _) = eval(expansion, &ctx)?;
                     Ok((v, ctx))
                 }
                 Value::Int(_)
@@ -161,6 +175,31 @@ fn eval_closure(
     eval(closure.body.clone(), &call_env)
 }
 
+/// Expands `macro_` with `args` (unevaluated): checks arity, self-binds the
+/// macro under its own name so the body can recursively expand to a call to
+/// itself, binds each parameter to its (unevaluated) argument in the captured
+/// environment, then evaluates the body to produce the expansion form.
+fn expand_macro(
+    args: &[Rc<Value>],
+    macro_: &Rc<Closure>,
+) -> Result<(Rc<Value>, Env), RuntimeError> {
+    if macro_.params.len() != args.len() {
+        return Err(RuntimeError::ArityMismatch {
+            name: macro_.name.clone(),
+            expected: macro_.params.len(),
+            got: args.len(),
+        });
+    }
+    let mut call_env = macro_
+        .env
+        .clone()
+        .update(macro_.name.clone(), Rc::new(Value::Macro(macro_.clone())));
+    for (ident, arg) in macro_.params.iter().zip(args) {
+        call_env = call_env.update(ident.clone(), arg.clone());
+    }
+    eval(macro_.body.clone(), &call_env)
+}
+
 /// `(fn name (params...) body)`: builds a [`Closure`] capturing `env`, binds it
 /// under `name`, and returns the closure along with the extended environment.
 fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
@@ -200,6 +239,50 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeEr
     })));
     let env = env.clone().update(name.clone(), closure.clone());
     Ok((closure, env))
+}
+
+/// `(defmacro name (params...) body)`: builds a [`Closure`] capturing `env`,
+/// wraps it as a [`Value::Macro`], binds it under `name`, and returns the macro
+/// along with the extended environment. At a call site, a macro receives its
+/// arguments **unevaluated** and its body's result is then evaluated in the
+/// caller's env (see the `Value::Macro` arm of [`eval`]).
+fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let items: Vec<_> = Value::iter(tail).collect();
+    if items.len() != 3 {
+        return Err(RuntimeError::ArityMismatch {
+            name: KW_DEFMACRO.into(),
+            expected: 3,
+            got: items.len(),
+        });
+    }
+    let Value::Ident(name) = &*items[0] else {
+        return Err(RuntimeError::TypeMismatch {
+            name: KW_DEFMACRO.into(),
+            expected: "ident".into(),
+            got: Value::type_name(&items[0]).into(),
+        });
+    };
+
+    let mut params = Vec::new();
+    for param in Value::iter(&items[1]) {
+        let Value::Ident(p) = &*param else {
+            return Err(RuntimeError::TypeMismatch {
+                name: KW_DEFMACRO.into(),
+                expected: "ident".into(),
+                got: Value::type_name(&param).into(),
+            });
+        };
+        params.push(p.clone());
+    }
+
+    let mac = Rc::new(Value::Macro(Rc::new(Closure {
+        name: name.clone(),
+        params,
+        body: items[2].clone(),
+        env: env.clone(),
+    })));
+    let env = env.clone().update(name.clone(), mac.clone());
+    Ok((mac, env))
 }
 
 /// `(let name value)`: evaluates `value`, binds it to `name`, and returns the

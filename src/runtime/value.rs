@@ -35,6 +35,10 @@ pub enum Value {
     Cons { head: Rc<Value>, tail: Rc<Value> },
     NativeFn(Rc<NativeFn>),
     Closure(Rc<Closure>),
+    /// A user-defined macro. Structurally a [`Closure`], but at a call site its
+    /// arguments are passed unevaluated; the body produces a form that is then
+    /// evaluated in the caller's environment.
+    Macro(Rc<Closure>),
     Array(Vector<Rc<Value>>),
     Map(HashMap<Rc<Value>, Rc<Value>>),
 }
@@ -72,6 +76,7 @@ impl Value {
             Self::Cons { .. } => "cons",
             Self::NativeFn(_) => "native",
             Self::Closure(_) => "closure",
+            Self::Macro(_) => "macro",
             Self::Array(_) => "array",
             Self::Map(_) => "map",
         }
@@ -101,6 +106,7 @@ impl Value {
             Self::Unit => false,
             Self::NativeFn(_) => true,
             Self::Closure(_) => true,
+            Self::Macro(_) => true,
             Self::Cons { .. } => true,
             Self::Array(xs) => !xs.is_empty(),
             Self::Map(m) => !m.is_empty(),
@@ -193,6 +199,7 @@ impl Value {
                 format!("({})", inner.join(" "))
             }
             Value::NativeFn(_) | Value::Closure(_) => "<fn>".to_string(),
+            Value::Macro(_) => "<macro>".to_string(),
         }
     }
 }
@@ -219,6 +226,7 @@ impl PartialEq for Value {
             // turn lets `Value` key a `Map`).
             (Value::NativeFn(a), Value::NativeFn(b)) => Rc::ptr_eq(a, b),
             (Value::Closure(a), Value::Closure(b)) => a == b,
+            (Value::Macro(a), Value::Macro(b)) => a == b,
             _ => false,
         }
     }
@@ -258,7 +266,7 @@ impl Hash for Value {
             // Callables hash by discriminant only. Equal callables (same Rc, or
             // structurally-equal closures) share that hash; collisions between
             // distinct ones are allowed.
-            Value::NativeFn(_) | Value::Closure(_) => {}
+            Value::NativeFn(_) | Value::Closure(_) | Value::Macro(_) => {}
         }
     }
 }
@@ -334,6 +342,7 @@ impl Debug for DepthLimited<'_> {
             Value::Unit => write!(f, "<()>"),
             Value::NativeFn(_) => write!(f, "<native_fn>"),
             Value::Closure(c) => write!(f, "<closure params={:?}>", c.params),
+            Value::Macro(c) => write!(f, "<macro params={:?}>", c.params),
             Value::Cons { head, tail } => {
                 if self.depth == 0 {
                     write!(f, "<expr ...>")
