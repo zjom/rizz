@@ -13,7 +13,7 @@ pub mod str;
 
 use crate::runtime::Env;
 
-/// The default environment: every builtin from [`numbers`], [`eq`], [`map`], [`collections`], [`mod@str`], [`mod@array`], [`mod@cons`].
+/// The default environment: every builtin from [`numbers`], [`eq`], [`map`], [`collections`], [`mod@str`], [`mod@array`], [`cons`].
 pub fn env() -> Env {
     Env::new()
         .union(numbers::env())
