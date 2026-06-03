@@ -18,22 +18,9 @@ pub enum ParseError {
         got: char,
     },
 
-    #[error("expected `,` or `{expected}` {at}, got: {got}")]
-    ExpectedCommaOrToken {
-        expected: char,
-        at: Position,
-        got: char,
-    },
-
     #[error("str not utf-8 at {at}: {source}")]
     UTF8Error {
         source: std::str::Utf8Error,
-        at: Position,
-    },
-
-    #[error("string not utf-8 at {at}: {source}")]
-    FromUTF8Error {
-        source: std::string::FromUtf8Error,
         at: Position,
     },
 
