@@ -8,10 +8,11 @@
 
 use crate::runtime::{Closure, Env, RuntimeError, Value};
 use im::{HashMap, Vector};
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 // Identifiers that, in head position, are special forms rather than calls.
 const KW_DEFVAR: &str = "let";
+const KW_DEFVAR_REF: &str = "let!";
 const KW_DEFUN: &str = "fn";
 const KW_DEFMACRO: &str = "defmacro";
 const KW_QUOTE: &str = "quote";
@@ -49,6 +50,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
             if let Value::Ident(ident) = &**head {
                 match ident.as_ref() {
                     KW_DEFVAR => return eval_defvar(tail, ctx),
+                    KW_DEFVAR_REF => return eval_defvar_ref(tail, ctx),
                     KW_QUOTE => return eval_quote(tail, ctx),
                     KW_QUASIQUOTE => return eval_quasiquote(tail, ctx),
                     KW_DEFUN => return eval_defun(tail, ctx),
@@ -335,6 +337,33 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeE
 
     let (val, env) = eval(items[1].clone(), env)?;
     let env = env.update(name.clone(), val.clone());
+    Ok((val, env))
+}
+
+/// `(let! name value)`: evaluates `value`, wraps it in ref, binds it to `name`, and returns the
+/// value with the extended environment.
+fn eval_defvar_ref(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let items: Vec<_> = Value::iter(tail).collect();
+    if items.len() != 2 {
+        return Err(RuntimeError::ArityMismatch {
+            name: KW_DEFVAR_REF.into(),
+            expected: 2,
+            got: items.len(),
+        });
+    }
+    let Value::Ident(name) = &*items[0] else {
+        return Err(RuntimeError::TypeMismatch {
+            name: KW_DEFVAR_REF.into(),
+            expected: "ident".into(),
+            got: Value::type_name(&items[0]).into(),
+        });
+    };
+
+    let (val, env) = eval(items[1].clone(), env)?;
+    let env = env.update(
+        name.clone(),
+        Value::Ref(Rc::new(RefCell::new(val.as_ref().clone()))).into(),
+    );
     Ok((val, env))
 }
 
