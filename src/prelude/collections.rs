@@ -22,6 +22,8 @@ use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 pub fn env() -> Env {
     Env::of_builtins(vec![
+        ("all", all()),
+        ("any", any()),
         ("len", len()),
         ("get", get()),
         ("concat", concat()),
@@ -537,8 +539,36 @@ fn zip() -> NativeFn {
     })
 }
 
+fn all() -> NativeFn {
+    let name: Rc<str> = "all".into();
+    NativeFn::impure(name.clone(), 2, move |args, env| {
+        let f = &args[0];
+        let it = to_iter(&name, &args[1]).unwrap_or(Box::new(vec![args[1].clone()].into_iter()));
+        for x in it {
+            if !apply(f, &[x], env)?.is_truthy() {
+                return Ok((Rc::new(false.into()), env.clone()));
+            }
+        }
+        Ok((Rc::new(true.into()), env.clone()))
+    })
+}
+
+fn any() -> NativeFn {
+    let name: Rc<str> = "any".into();
+    NativeFn::impure(name.clone(), 2, move |args, env| {
+        let f = &args[0];
+        let it = to_iter(&name, &args[1]).unwrap_or(Box::new(vec![args[1].clone()].into_iter()));
+        for x in it {
+            if apply(f, &[x], env)?.is_truthy() {
+                return Ok((Rc::new(true.into()), env.clone()));
+            }
+        }
+        Ok((Rc::new(false.into()), env.clone()))
+    })
+}
+
 fn to_iter(
-    name: &'static str,
+    name: &str,
     val: &Rc<Value>,
 ) -> Result<Box<dyn Iterator<Item = Rc<Value>>>, RuntimeError> {
     match &**val {

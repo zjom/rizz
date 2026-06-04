@@ -487,6 +487,8 @@ All builtins are bound in the initial env. Names and arities below; see
 
 | Name        | Arity | Works on                                | Description                                                                                         |
 | ----------- | ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `all`       | 2     | str/array/map/list                      | Applies predicate `p` to each element. Returns false if `p` returns false else true.                |
+| `any`       | 2     | str/array/map/list                      | Applies predicate `p` to each element. Returns true if `p` returns true else false                  |
 | `len`       | 1     | str/array/map/list                      | Length (str by char).                                                                               |
 | `get`       | 2     | str/array/map/list                      | Index or key lookup; miss → `()`.                                                                   |
 | `concat`    | 2     | str+str / arr+arr / map+map / list+list | Join; right map wins on key collisions.                                                             |
