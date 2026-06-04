@@ -434,27 +434,27 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 11.1 Arithmetic & comparison (`numbers`)
 
-| Name  | Arity | Description                                                |
-| ----- | ----- | ---------------------------------------------------------- |
-| `+`   | 2     | Addition (`int×int` or `float×float`). Overflows error.    |
-| `-`   | 2     | Subtraction.                                               |
-| `*`   | 2     | Multiplication.                                            |
-| `/`   | 2     | Division. Integer divide-by-zero errors.                   |
-| `cmp` | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors. |
-| `>`   | 2     | Greater than.                                              |
-| `>=`  | 2     | Greater or equal.                                          |
-| `<`   | 2     | Less than.                                                 |
-| `<=`  | 2     | Less or equal.                                             |
+| Name        | Arity | Description                                                |
+| ----------- | ----- | ---------------------------------------------------------- |
+| `+`, `sum`  | 2     | Addition (`int×int` or `float×float`). Overflows error.    |
+| `-`, `sub`  | 2     | Subtraction.                                               |
+| `*`, `mul`  | 2     | Multiplication.                                            |
+| `/`, `div`  | 2     | Division. Integer divide-by-zero errors.                   |
+| `cmp`       | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors. |
+| `>`, `gt`   | 2     | Greater than.                                              |
+| `>=`, `gte` | 2     | Greater or equal.                                          |
+| `<`, `lt`   | 2     | Less than.                                                 |
+| `<=`, `lte` | 2     | Less or equal.                                             |
 
 ### 11.2 Equality (`eq`)
 
-| Name         | Arity | Description                     |
-| ------------ | ----- | ------------------------------- |
-| `=`, `eq`    | 2     | Structural equality.            |
-| `!=`, `neq`  | 2     | Structural inequality.          |
-| `!`, `not`   | 1     | Boolean negation of truthiness. |
-| `&&`, `and`  | 2     |                                 |
-| `\|\|`, `or` | 2     |                                 |
+| Name         | Arity | Description                        |
+| ------------ | ----- | ---------------------------------- |
+| `=`, `eq`    | 2     | Structural equality.               |
+| `!=`, `neq`  | 2     | Structural inequality.             |
+| `!`, `not`   | 1     | Boolean negation of truthiness.    |
+| `&&`, `and`  | 2     | Truthy if both truthy else falsy   |
+| `\|\|`, `or` | 2     | Truthy if either truthy else falsy |
 
 ### 11.3 Polymorphic collections (`collections`)
 
