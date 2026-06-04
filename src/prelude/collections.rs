@@ -1,6 +1,6 @@
 //! Polymorphic collection builtins that dispatch on the runtime type of their
 //! collection argument: `len`, `get`, `concat`, `slice`, `contains?`,
-//! `reverse`, `first`, `rest`, `last`, and the higher-order transforms `fmap`,
+//! `reverse`, `first`, `rest`, `last`, `zip` and the higher-order transforms `fmap`,
 //! `fmapi`, `filter`, `reduce`. Supported collection shapes are strings, arrays, maps,
 //! and cons lists (with `()` treated as the empty list). The higher-order fns
 //! are *impure* so they receive the `Env` needed to invoke user closures via
@@ -15,7 +15,7 @@
 
 use crate::prelude::cons::{cons_list, is_list};
 use crate::runtime::apply;
-use im::{HashMap, Vector};
+use im::{HashMap, Vector, vector};
 use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
@@ -35,6 +35,7 @@ pub fn env() -> Env {
         ("fmapi", fmapi()),
         ("filter", filter()),
         ("reduce", reduce()),
+        ("zip", zip()),
     ])
 }
 
@@ -519,6 +520,55 @@ fn reduce() -> NativeFn {
     })
 }
 
+/// `(zip a b)`: takes two collections and produces a cons list of 2-element arrays (pairs).
+/// If collection a is shorter than collection b, terminates when a terminates;
+/// if b is shorter than a, terminates when b terminates.
+fn zip() -> NativeFn {
+    NativeFn::pure("zip".into(), 2, |args| {
+        let iter_a = to_iter("zip", &args[0])?;
+        let iter_b = to_iter("zip", &args[1])?;
+
+        let pairs: Vec<Rc<Value>> = iter_a
+            .zip(iter_b)
+            .map(|(a, b)| Rc::new(Value::Array(vector![a, b])))
+            .collect();
+
+        Ok(Rc::new(cons_list(pairs)))
+    })
+}
+
+fn to_iter(
+    name: &'static str,
+    val: &Rc<Value>,
+) -> Result<Box<dyn Iterator<Item = Rc<Value>>>, RuntimeError> {
+    match &**val {
+        Value::Str(s) => {
+            let chars: Vec<Rc<Value>> = s
+                .chars()
+                .map(|c| Rc::new(Value::Str(c.to_string().into())))
+                .collect();
+            Ok(Box::new(chars.into_iter()))
+        }
+        Value::Array(xs) => Ok(Box::new(xs.iter().cloned().collect::<Vec<_>>().into_iter())),
+        Value::Map(m) => {
+            let entries: Vec<Rc<Value>> = m
+                .iter()
+                .map(|(k, v)| Rc::new(Value::Array(vector![k.clone(), v.clone()])))
+                .collect();
+            Ok(Box::new(entries.into_iter()))
+        }
+        v if is_list(v) => {
+            let items: Vec<Rc<Value>> = Value::iter(val).collect();
+            Ok(Box::new(items.into_iter()))
+        }
+        other => Err(RuntimeError::type_mismatch(
+            name,
+            "array/map/str/list",
+            other,
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -790,5 +840,36 @@ mod tests {
             run("(fmap + [1 2 3])"),
             Err(RizzError::RuntimeError(RuntimeError::ArityMismatch { .. }))
         ));
+    }
+
+    #[test]
+    fn zip_collections() {
+        // Zip two arrays of same length
+        let res = run_ok("(zip [1 2] [3 4])");
+        assert_eq!(res.repr(), "([1 3] [2 4])");
+
+        // Zip two arrays of different lengths (first shorter)
+        let res = run_ok("(zip [1 2] [3 4 5 6])");
+        assert_eq!(res.repr(), "([1 3] [2 4])");
+
+        // Zip two arrays of different lengths (second shorter)
+        let res = run_ok("(zip [1 2 3 4] [5 6])");
+        assert_eq!(res.repr(), "([1 5] [2 6])");
+
+        // Zip with empty collection
+        let res = run_ok("(zip [1 2] (range 0 0))");
+        assert_eq!(res.repr(), "()");
+
+        // Zip strings
+        let res = run_ok("(zip \"ab\" \"cd\")");
+        assert_eq!(res.repr(), "([\"a\" \"c\"] [\"b\" \"d\"])");
+
+        // Zip lists
+        let res = run_ok("(zip (quote (1 2)) (quote (3 4)))");
+        assert_eq!(res.repr(), "([1 3] [2 4])");
+
+        // Zip mixed types (array and list)
+        let res = run_ok("(zip [1 2] (quote (3 4)))");
+        assert_eq!(res.repr(), "([1 3] [2 4])");
     }
 }

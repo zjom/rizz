@@ -496,6 +496,7 @@ All builtins are bound in the initial env. Names and arities below; see
 | `fmapi`     | 2     | str/array/map/list                      | Map a function with index. `f` takes `(i, x)`. For maps, `f` takes `(i k v)` and returns `[k' v']`. |
 | `filter`    | 2     | str/array/map/list                      | Keep where predicate is truthy. For maps, `pred` takes `(k v)`.                                     |
 | `reduce`    | 3     | str/array/map/list                      | Left fold from `init`. For maps, `f` takes `(acc k v)`.                                             |
+| `zip`       | 2     | str/array/map/list                      | Creates a list of pairs; has a max len of min(len(a) len(b))                                        |
 
 ### 11.4 Arrays (`array`)
 

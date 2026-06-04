@@ -654,3 +654,13 @@ fn do_lets_a_function_body_run_a_sequence() {
          3)";
     assert_eq!(*run(src), Value::Int(13)); // y=6, z=7, y+z=13
 }
+
+#[test]
+fn zip_e2e() {
+    let src = "
+        (let a [1 2 3])
+        (let b [4 5 6])
+        (zip a b)";
+    let res = run(src);
+    assert_eq!(res.repr(), "([1 4] [2 5] [3 6])");
+}
