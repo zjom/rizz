@@ -68,7 +68,7 @@ begins an identifier. Identifiers are interned: equal names share one
 
 | Form             | Syntax                                                                              |
 | ---------------- | ----------------------------------------------------------------------------------- |
-| List             | `( elem* )`                                                                         |
+| List             | `( elem* )` or `( elem+ . tail )` (improper / dotted)                               |
 | Array            | `[ elem* ]` (whitespace-separated)                                                  |
 | Map              | `{ key : value, ... }` (whitespace-separated entries; `:` separates key from value) |
 | Quote            | `'X` ≡ `(quote X)`                                                                  |
@@ -77,6 +77,14 @@ begins an identifier. Identifiers are interned: equal names share one
 | Unquote-splicing | `,@X` ≡ `(unquote-splice X)`                                                        |
 
 The empty list `()` parses to **nil** (a.k.a. `Unit`).
+
+A standalone `.` between two list elements introduces a **dotted (improper)
+list**: `(a b . c)` parses to `Cons(a, Cons(b, c))` rather than terminating in
+`Unit`. The dot is recognized only when surrounded by whitespace (or followed
+by `)`), so it does not interfere with floats (`1.5`) or identifiers that
+contain `.` (`foo.bar`). Exactly one form may follow the dot; it becomes the
+final tail. The primary use is variadic [`fn`](#52-fn--define-a-function)
+parameter lists.
 
 Note: a stray top-level `)` is an `UnexpectedCloseParen`; an unterminated list
 is reported as a missing `)`.
@@ -212,6 +220,8 @@ Errors: arity ≠ 2; `NAME` not an ident.
 
 ```
 (fn NAME (PARAMS...) BODY)
+(fn NAME (PARAMS... . REST) BODY)   ;; variadic via dotted tail
+(fn NAME REST BODY)                 ;; variadic via bare ident — all args bundled
 ```
 
 Creates a closure capturing the current env (lexical scope), binds it under
@@ -219,9 +229,18 @@ Creates a closure capturing the current env (lexical scope), binds it under
 body, which is what enables recursion. `PARAMS` is a list of identifiers (use
 `()` for zero parameters).
 
+A dotted-tail param list `(a b . rest)` makes the function **variadic**: `a`
+and `b` are required positional parameters, and any further arguments at the
+call site are bundled into a cons list and bound to `rest`. With exactly the
+positional count the rest binding is `()`. A bare identifier in the params
+position is shorthand for `(. ident)` — zero positional params, all arguments
+go to the rest list. Calling a variadic function with fewer than the
+positional count is an `ArityMismatch`.
+
 The body is a single form; for multi-step bodies wrap with `do`.
 
-Errors: arity ≠ 3; `NAME` not an ident; any param not an ident.
+Errors: arity ≠ 3; `NAME` not an ident; any param (positional or rest) not an
+ident.
 
 ### 5.3 `if` — conditional
 
@@ -295,13 +314,17 @@ Errors: arity ≠ 1 for `quasi`, `unquote`, and `unquote-splice`.
 
 - `name`: the function's own identifier (bound inside the body so it can
   recurse).
-- `params`: a list of identifier names.
+- `params`: a list of positional identifier names.
+- `rest`: an optional identifier for the rest parameter (variadic closures
+  only; see §5.2).
 - `body`: a single form.
 - `env`: a snapshot of the lexical env at the point of definition.
 
-Calling a closure binds each parameter to its argument in the captured env
-(plus the self-binding for recursion), then evaluates the body. Arity must
-match exactly.
+Calling a closure binds each positional parameter to its argument in the
+captured env (plus the self-binding for recursion), then evaluates the body.
+For fixed-arity closures the argument count must match exactly. For variadic
+closures the call must supply at least `params.len()` arguments; the remainder
+are gathered into a cons list bound to the rest name.
 
 ### 6.2 Native functions
 
@@ -531,6 +554,22 @@ See §8 for full semantics.
 ---
 
 ## 12. Examples
+
+Variadic function via dotted rest:
+
+```
+(fn log (level . args)
+  (str-join (array-from (fmap to-str (cons level args))) " "))
+(log "info" "x =" 42)   ;; => "info x = 42"
+```
+
+Fully variadic via bare-ident params:
+
+```
+(fn sum xs (reduce + 0 xs))
+(sum 1 2 3 4)           ;; => 10
+```
+
 
 Recursive factorial:
 

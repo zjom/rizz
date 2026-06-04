@@ -182,57 +182,108 @@ pub fn eval_and_collect(
 
 /// Applies `closure` to `args`: checks arity, binds the closure to its own
 /// name (so the body can recurse) and each parameter to its argument in the
-/// captured environment, then evaluates the body.
+/// captured environment, then evaluates the body. For variadic closures
+/// (`closure.rest = Some(_)`) the trailing arguments past `params.len()` are
+/// bundled into a cons list and bound under the rest name.
 fn eval_closure(
     args: &[Rc<Value>],
     closure: &Rc<Closure>,
 ) -> Result<(Rc<Value>, Env), RuntimeError> {
-    if closure.params.len() != args.len() {
-        return Err(RuntimeError::ArityMismatch {
-            name: "<closure>".into(),
-            expected: closure.params.len(),
-            got: args.len(),
-        });
-    }
-
-    // Bind the closure under its own name so the body can call itself.
-    let mut call_env = closure.env.clone().update(
-        closure.name.clone(),
+    bind_and_eval(
+        args,
+        &closure.name,
+        &closure.params,
+        closure.rest.as_ref(),
+        &closure.body,
+        &closure.env,
         Rc::new(Value::Closure(closure.clone())),
-    );
-    for (ident, arg) in closure.params.iter().zip(args) {
-        call_env = call_env.update(ident.clone(), arg.clone());
-    }
-    eval(closure.body.clone(), &call_env)
+    )
 }
 
 /// Expands `macro_` with `args` (unevaluated): checks arity, self-binds the
 /// macro under its own name so the body can recursively expand to a call to
 /// itself, binds each parameter to its (unevaluated) argument in the captured
 /// environment, then evaluates the body to produce the expansion form.
+/// Variadic macros bundle the trailing unevaluated forms as a cons list.
 fn expand_macro(
     args: &[Rc<Value>],
     macro_: &Rc<Closure>,
 ) -> Result<(Rc<Value>, Env), RuntimeError> {
-    if macro_.params.len() != args.len() {
-        return Err(RuntimeError::ArityMismatch {
-            name: macro_.name.clone(),
-            expected: macro_.params.len(),
-            got: args.len(),
-        });
+    bind_and_eval(
+        args,
+        &macro_.name,
+        &macro_.params,
+        macro_.rest.as_ref(),
+        &macro_.body,
+        &macro_.env,
+        Rc::new(Value::Macro(macro_.clone())),
+    )
+}
+
+/// Shared body for closure invocation and macro expansion: checks arity, binds
+/// the self-reference plus the positional and rest params, then evaluates the
+/// body in the resulting env.
+fn bind_and_eval(
+    args: &[Rc<Value>],
+    name: &Rc<str>,
+    params: &[Rc<str>],
+    rest: Option<&Rc<str>>,
+    body: &Rc<Value>,
+    captured: &Env,
+    self_value: Rc<Value>,
+) -> Result<(Rc<Value>, Env), RuntimeError> {
+    match rest {
+        None if params.len() != args.len() => {
+            return Err(RuntimeError::ArityMismatch {
+                name: name.clone(),
+                expected: params.len(),
+                got: args.len(),
+            });
+        }
+        Some(_) if args.len() < params.len() => {
+            return Err(RuntimeError::ArityMismatch {
+                name: name.clone(),
+                expected: params.len(),
+                got: args.len(),
+            });
+        }
+        _ => {}
     }
-    let mut call_env = macro_
-        .env
-        .clone()
-        .update(macro_.name.clone(), Rc::new(Value::Macro(macro_.clone())));
-    for (ident, arg) in macro_.params.iter().zip(args) {
+
+    let mut call_env = captured.clone().update(name.clone(), self_value);
+    for (ident, arg) in params.iter().zip(args) {
         call_env = call_env.update(ident.clone(), arg.clone());
     }
-    eval(macro_.body.clone(), &call_env)
+    if let Some(rest_name) = rest {
+        let tail = args[params.len()..].iter().cloned();
+        let rest_list = cons_list_from(tail);
+        call_env = call_env.update(rest_name.clone(), rest_list);
+    }
+    eval(body.clone(), &call_env)
+}
+
+/// Builds a cons list from an iterator of values, terminated by `Unit`.
+fn cons_list_from<I>(items: I) -> Rc<Value>
+where
+    I: IntoIterator<Item = Rc<Value>>,
+    I::IntoIter: DoubleEndedIterator,
+{
+    items
+        .into_iter()
+        .rfold(Rc::new(Value::Unit), |tail, head| {
+            Rc::new(Value::Cons { head, tail })
+        })
 }
 
 /// `(fn name (params...) body)`: builds a [`Closure`] capturing `env`, binds it
 /// under `name`, and returns the closure along with the extended environment.
+///
+/// The param list accepts three shapes:
+/// - `(a b c)`: fixed arity.
+/// - `(a b . rest)`: dotted tail — `a` and `b` are required positional params;
+///   any remaining arguments are bundled into a cons list bound to `rest`.
+/// - bare ident `args`: shorthand for `(. args)` — every argument is bundled
+///   into the rest list, no positional params.
 fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     if items.len() != 3 {
@@ -250,26 +301,56 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeEr
         });
     };
 
-    let mut params = Vec::new();
-    for param in Value::iter(&items[1]) {
-        let Value::Ident(p) = &*param else {
-            return Err(RuntimeError::TypeMismatch {
-                name: KW_DEFUN.into(),
-                expected: "ident".into(),
-                got: Value::type_name(&param).into(),
-            });
-        };
-        params.push(p.clone());
-    }
+    let (params, rest) = parse_param_list(KW_DEFUN, &items[1])?;
 
     let closure = Rc::new(Value::Closure(Rc::new(Closure {
         name: name.clone(),
         params,
+        rest,
         body: items[2].clone(),
         env: env.clone(),
     })));
     let env = env.clone().update(name.clone(), closure.clone());
     Ok((closure, env))
+}
+
+/// Walks the param-list form for `fn`/`defmacro`. Accepts a cons chain of
+/// idents (`(a b c)`), a dotted chain whose final tail is an ident
+/// (`(a b . rest)`), or a single bare ident (fully variadic).
+fn parse_param_list(
+    form: &'static str,
+    params_form: &Rc<Value>,
+) -> Result<(Vec<Rc<str>>, Option<Rc<str>>), RuntimeError> {
+    if let Value::Ident(name) = &**params_form {
+        return Ok((Vec::new(), Some(name.clone())));
+    }
+
+    let mut params = Vec::new();
+    let mut cur = params_form.clone();
+    loop {
+        match &*cur.clone() {
+            Value::Unit => return Ok((params, None)),
+            Value::Cons { head, tail } => {
+                let Value::Ident(p) = &**head else {
+                    return Err(RuntimeError::TypeMismatch {
+                        name: form.into(),
+                        expected: "ident".into(),
+                        got: Value::type_name(head).into(),
+                    });
+                };
+                params.push(p.clone());
+                cur = tail.clone();
+            }
+            Value::Ident(rest_name) => return Ok((params, Some(rest_name.clone()))),
+            other => {
+                return Err(RuntimeError::TypeMismatch {
+                    name: form.into(),
+                    expected: "ident".into(),
+                    got: Value::type_name(other).into(),
+                });
+            }
+        }
+    }
 }
 
 /// `(defmacro name (params...) body)`: builds a [`Closure`] capturing `env`,
@@ -294,21 +375,12 @@ fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Runtim
         });
     };
 
-    let mut params = Vec::new();
-    for param in Value::iter(&items[1]) {
-        let Value::Ident(p) = &*param else {
-            return Err(RuntimeError::TypeMismatch {
-                name: KW_DEFMACRO.into(),
-                expected: "ident".into(),
-                got: Value::type_name(&param).into(),
-            });
-        };
-        params.push(p.clone());
-    }
+    let (params, rest) = parse_param_list(KW_DEFMACRO, &items[1])?;
 
     let mac = Rc::new(Value::Macro(Rc::new(Closure {
         name: name.clone(),
         params,
+        rest,
         body: items[2].clone(),
         env: env.clone(),
     })));
@@ -735,6 +807,7 @@ mod tests {
         let id = Rc::new(Value::Closure(Rc::new(Closure {
             name: "id".into(),
             params: vec!["x".into()],
+            rest: None,
             body: ident("x"),
             env: Env::new(),
         })));
@@ -790,6 +863,7 @@ mod tests {
         let clo = Rc::new(Value::Closure(Rc::new(Closure {
             name: "".into(),
             params: vec![],
+            rest: None,
             body: int(7),
             env: Env::new(),
         })));
@@ -803,6 +877,7 @@ mod tests {
         let clo = Rc::new(Value::Closure(Rc::new(Closure {
             name: "".into(),
             params: vec!["x".into()],
+            rest: None,
             body: ident("x"),
             env: Env::new(),
         })));
@@ -817,6 +892,7 @@ mod tests {
         let id = Rc::new(Value::Closure(Rc::new(Closure {
             name: "id".into(),
             params: vec!["x".into()],
+            rest: None,
             body: ident("x"),
             env: Env::new(),
         })));
@@ -833,6 +909,7 @@ mod tests {
         Rc::new(Closure {
             name: "".into(),
             params,
+            rest: None,
             body,
             env,
         })
@@ -1314,6 +1391,7 @@ mod tests {
         let clo = Rc::new(Value::Closure(Rc::new(Closure {
             name: "id".into(),
             params: vec!["x".into()],
+            rest: None,
             body: Rc::new(Value::Ident("x".into())),
             env: Env::new(),
         })));

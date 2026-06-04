@@ -101,6 +101,70 @@ fn let_binding_visible_to_later_args() {
     assert_eq!(*run("(+ (let x 5) x)"), Value::Int(10));
 }
 
+// ----- variadic functions: dotted-rest params -----
+
+#[test]
+fn variadic_rest_collects_trailing_args_as_list() {
+    // `rest` is bound to a cons list of the args past the positional ones.
+    assert_eq!(
+        *run("((fn f (a . rest) rest) 1 2 3 4)"),
+        int_list(&[2, 3, 4])
+    );
+}
+
+#[test]
+fn variadic_rest_is_empty_at_minimum_arity() {
+    // Exactly the positional count -> rest is the empty list ().
+    assert_eq!(*run("((fn f (a . rest) rest) 1)"), Value::Unit);
+}
+
+#[test]
+fn variadic_bare_ident_params_binds_all_args() {
+    // A bare ident in the params position is shorthand for (. args).
+    assert_eq!(
+        *run("((fn f args args) 10 20 30)"),
+        int_list(&[10, 20, 30])
+    );
+}
+
+#[test]
+fn variadic_bare_ident_with_zero_args_is_empty_list() {
+    assert_eq!(*run("((fn f args args) )"), Value::Unit);
+}
+
+#[test]
+fn variadic_too_few_args_errors() {
+    // Need at least one positional `a`; calling with none is an arity error.
+    let err =
+        rizz::parse_and_run("((fn f (a . rest) a))".as_bytes()).expect_err("expected arity error");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::ArityMismatch {
+            expected: 1,
+            got: 0,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn variadic_rest_works_with_splice() {
+    // Splice the bundled rest list back into a call -- a common variadic idiom.
+    assert_eq!(
+        *run("((fn sum-all args (reduce + 0 args)) 1 2 3 4 5)"),
+        Value::Int(15)
+    );
+}
+
+#[test]
+fn variadic_rest_passes_through_reduce() {
+    // Common variadic idiom: hand the bundled args to a higher-order fn.
+    assert_eq!(
+        *run("((fn f xs (reduce + 0 xs)) 1 2 3 4 5 6)"),
+        Value::Int(21)
+    );
+}
+
 // ----- quote / quasiquote with nesting -----
 
 #[test]

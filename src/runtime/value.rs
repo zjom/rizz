@@ -51,10 +51,17 @@ pub enum Value {
 /// A user-defined function: its `name`, parameter names, body form, and the
 /// `env` captured where it was defined (lexical scope). The name lets the body
 /// refer to itself, which is what enables recursion.
+///
+/// `rest` is `Some(name)` for variadic functions declared with a dotted-tail
+/// param list `(a b . rest)` (or a bare-ident param list `args`, which is
+/// shorthand for "zero positional params, rest is everything"). At a call site
+/// the trailing arguments past `params.len()` are bundled into a cons list and
+/// bound under that name. For fixed-arity functions `rest` is `None`.
 #[derive(Clone, PartialEq)]
 pub struct Closure {
     pub name: Rc<str>,
     pub params: Vec<Rc<str>>,
+    pub rest: Option<Rc<str>>,
     pub body: Rc<Value>,
     pub env: Env,
 }

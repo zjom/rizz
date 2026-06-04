@@ -118,7 +118,10 @@ where
 
     /// Parses the contents of a list after the opening `(` has been consumed,
     /// up to and including the matching `)`. Returns nil for `()`, otherwise
-    /// a cons chain `(head . tail)`.
+    /// a cons chain `(head . tail)`. An explicit `.` between elements introduces
+    /// a dotted (improper) list whose final tail is the form after the dot, so
+    /// `(a b . c)` parses to `Cons(a, Cons(b, c))` rather than terminating in
+    /// `Unit`.
     fn parse_list_tail(&mut self) -> Result<Sexp, ParseError> {
         self.skip_trivia()?;
         if self.peek_one()? == b')' {
@@ -130,6 +133,28 @@ where
 
         let head = self.parse_expr()?;
         self.skip_trivia()?;
+
+        if self.peek_dotted_marker()? {
+            self.read_byte()?; // consume '.'
+            self.skip_trivia()?;
+            let tail = self.parse_expr()?;
+            self.skip_trivia()?;
+            let at = self.at();
+            match self.read_byte()? {
+                b')' => {}
+                other => {
+                    return Err(ParseError::ExpectedToken {
+                        expected: ')',
+                        at,
+                        got: other.into(),
+                    });
+                }
+            }
+            return Ok(Sexp::Exp {
+                head: Rc::new(head),
+                tail: Rc::new(tail),
+            });
+        }
 
         // Tail is either another list element (implicit cons) or `)` (nil terminator).
         let tail = if self.peek_one()? == b')' {
@@ -143,6 +168,16 @@ where
             head: Rc::new(head),
             tail: Rc::new(tail),
         })
+    }
+
+    /// A `.` between list elements introduces a dotted tail iff it stands
+    /// alone — i.e. is immediately followed by whitespace or `)`. Floats
+    /// (`1.5`) and identifiers that contain `.` (`foo.bar`) never trigger this
+    /// path because they are consumed whole by `parse_expr` before the next
+    /// inter-element peek.
+    fn peek_dotted_marker(&mut self) -> Result<bool, ParseError> {
+        let [a, b] = self.peek_two()?;
+        Ok(a == b'.' && (WHITESPACE.contains(&b) || b == b')'))
     }
     fn parse_expr(&mut self) -> Result<Sexp, ParseError> {
         self.skip_trivia()?;
@@ -1159,6 +1194,67 @@ mod tests {
             }
             other => panic!("expected UnexpectedCloseParen, got {:?}", other),
         }
+    }
+
+    // ----- dotted lists -----
+
+    /// Build a cons chain ending in `tail` rather than `Unit`.
+    fn dotted(elems: Vec<Sexp>, tail: Sexp) -> Sexp {
+        elems.into_iter().rev().fold(tail, |t, h| Sexp::Exp {
+            head: Rc::new(h),
+            tail: Rc::new(t),
+        })
+    }
+
+    #[test]
+    fn dotted_pair_two_elements() {
+        // (a . b) -> Cons(a, b)
+        assert_eq!(parse_ok("(a . b)"), dotted(vec![ident("a")], ident("b")));
+    }
+
+    #[test]
+    fn dotted_list_collects_prefix_then_tail() {
+        // (a b c . d) -> Cons(a, Cons(b, Cons(c, d)))
+        assert_eq!(
+            parse_ok("(a b c . d)"),
+            dotted(vec![ident("a"), ident("b"), ident("c")], ident("d"))
+        );
+    }
+
+    #[test]
+    fn dotted_tail_can_be_arbitrary_form() {
+        // (a . (b c)) -> Cons(a, Cons(b, Cons(c, Unit))) -- equivalent to (a b c)
+        assert_eq!(
+            parse_ok("(a . (b c))"),
+            list(vec![ident("a"), ident("b"), ident("c")])
+        );
+    }
+
+    #[test]
+    fn dot_inside_identifier_is_not_a_marker() {
+        // (foo.bar baz) -> one ident `foo.bar`, then `baz`, terminated by Unit.
+        assert_eq!(
+            parse_ok("(foo.bar baz)"),
+            list(vec![ident("foo.bar"), ident("baz")])
+        );
+    }
+
+    #[test]
+    fn float_in_list_is_not_a_dotted_marker() {
+        // (1.5 2) -> list of floats; the `.` inside the float never reaches the
+        // inter-element peek.
+        assert_eq!(parse_ok("(1.5 2)"), list(vec![float(1.5), int(2)]));
+    }
+
+    #[test]
+    fn dotted_pair_with_extra_form_is_error() {
+        // (a . b c) -> after the dotted tail `b`, the next byte must be `)`.
+        let err = parse_str("(a . b c)").unwrap_err();
+        assert!(
+            matches!(err, ParseError::ExpectedToken { expected: ')', .. }),
+            "got {:?}",
+            err
+        );
     }
 
     #[test]
