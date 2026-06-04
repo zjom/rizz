@@ -29,6 +29,9 @@ pub enum NativeFn {
 impl NativeFn {
     /// construct a function that does care about the [`Env`]
     /// set `nargs` to 0 for a variadic function.
+    /// arity checking is done on an at least basis. ie if you specify `nargs`,
+    /// we guarantee that you will receive AT LEAST that many args.
+    /// there may or may not be more args after.
     pub fn pure<F>(name: Rc<str>, nargs: usize, f: F) -> NativeFn
     where
         F: Fn(&[Rc<Value>]) -> Result<Rc<Value>, RuntimeError> + 'static,
@@ -42,6 +45,9 @@ impl NativeFn {
 
     /// construct a function that does may or may not care about the [`Env`]
     /// set `nargs` to 0 for a variadic function.
+    /// arity checking is done on an at least basis. ie if you specify `nargs`,
+    /// we guarantee that you will receive AT LEAST that many args.
+    /// there may or may not be more args after.
     pub fn impure<F>(name: Rc<str>, nargs: usize, f: F) -> NativeFn
     where
         F: Fn(&[Rc<Value>], &Env) -> Result<(Rc<Value>, Env), RuntimeError> + 'static,
@@ -113,7 +119,7 @@ fn validate_args(name: &Rc<str>, args: &[Rc<Value>], nargs: usize) -> Result<(),
     if nargs == 0 {
         return Ok(());
     }
-    if args.len() != nargs {
+    if args.len() < nargs {
         return Err(RuntimeError::ArityMismatch {
             name: name.clone(),
             expected: nargs,
