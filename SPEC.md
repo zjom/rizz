@@ -442,7 +442,8 @@ Position-tagged (`line`, `col`, `byte`):
 These names are dispatched as special forms when in head position:
 
 ```
-let   fn   if   do   quote   quasi   unquote   unquote-splice eval
+let   let!  fn   if   do   quote   quasi   unquote   unquote-splice    eval
+defmacro
 ```
 
 The reader-macro prefixes `'`, `` ` ``, `,`, `,@` expand to `(quote ...)`,
