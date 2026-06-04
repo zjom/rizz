@@ -1,4 +1,4 @@
-//! String builtins. Names use a `str-` prefix; `to-str` stringifies any value.
+//! String builtins. Names use a `str-` prefix; `str-of` stringifies any value.
 
 use im::Vector;
 use std::rc::Rc;
@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![
+    let mut env = Env::of_builtins(vec![
         ("to-str", to_str()),
         ("str-upper", str_upper()),
         ("str-lower", str_lower()),
@@ -15,7 +15,14 @@ pub fn env() -> Env {
         ("str-join", str_join()),
         ("str-replace", str_replace()),
         ("str->int", str_to_int()),
-    ])
+    ]);
+
+    let v = env
+        .get(&Rc::<str>::from("to-str"))
+        .expect("alias target")
+        .clone();
+    env = env.update("str-of".into(), v);
+    env
 }
 
 /// `(to-str v)`: stringifies any value via [`Value::display`].

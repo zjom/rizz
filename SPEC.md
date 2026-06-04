@@ -527,16 +527,16 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 11.6 Strings (`str`)
 
-| Name          | Arity | Description                                                              |
-| ------------- | ----- | ------------------------------------------------------------------------ |
-| `to-str`      | 1     | Stringify any value (top-level strings unquoted, nested strings quoted). |
-| `str-upper`   | 1     | Uppercase.                                                               |
-| `str-lower`   | 1     | Lowercase.                                                               |
-| `str-trim`    | 1     | Strip surrounding whitespace.                                            |
-| `str-split`   | 2     | Split into an array; empty separator → per-char.                         |
-| `str-join`    | 2     | Join an array/list with a separator (elements via `to-str`).             |
-| `str-replace` | 3     | Replace all occurrences of a substring.                                  |
-| `str->int`    | 1     | Parse a decimal integer (`()` on failure).                               |
+| Name               | Arity | Description                                                              |
+| ------------------ | ----- | ------------------------------------------------------------------------ |
+| `to-str`, `str-of` | 1     | Stringify any value (top-level strings unquoted, nested strings quoted). |
+| `str-upper`        | 1     | Uppercase.                                                               |
+| `str-lower`        | 1     | Lowercase.                                                               |
+| `str-trim`         | 1     | Strip surrounding whitespace.                                            |
+| `str-split`        | 2     | Split into an array; empty separator → per-char.                         |
+| `str-join`         | 2     | Join an array/list with a separator (elements via `to-str`).             |
+| `str-replace`      | 3     | Replace all occurrences of a substring.                                  |
+| `str->int`         | 1     | Parse a decimal integer (`()` on failure).                               |
 
 ### 11.7 Lists (`list`)
 
