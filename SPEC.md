@@ -106,7 +106,7 @@ treated by iteration helpers as a one-element sequence containing itself.
 
 ### 3.1 Truthiness
 
-Used by `if` and `not`. The following are **false**:
+Used by `if`, `not`, `and`, `or`. The following are **false**:
 
 - `()` (Unit)
 - `0` (integer zero) and `0.0` (float zero)
@@ -579,6 +579,5 @@ A counter via a captured ref:
 ## 13. Non-goals (current implementation)
 
 - No tail-call optimization; deep recursion can exhaust the host stack.
-- No variadic functions; arity is exact.
 - No module system, no I/O outside the prelude, no exception form.
 - No nested quasiquote depth tracking.
