@@ -458,20 +458,20 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 11.1 Arithmetic & comparison (`numbers`)
 
-| Name        | Arity | Description                                                |
-| ----------- | ----- | ---------------------------------------------------------- |
-| `+`, `sum`  | 2     | Addition (`int×int` or `float×float`). Overflows error.    |
-| `-`, `sub`  | 2     | Subtraction.                                               |
-| `*`, `mul`  | 2     | Multiplication.                                            |
-| `/`, `div`  | 2     | Division. Integer divide-by-zero errors.                   |
-| `cmp`       | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors. |
-| `>`, `gt`   | 2     | Greater than.                                              |
-| `>=`, `gte` | 2     | Greater or equal.                                          |
-| `<`, `lt`   | 2     | Less than.                                                 |
-| `<=`, `lte` | 2     | Less or equal.                                             |
-| `min`       | 2     | Minimum of two numbers (`int×int` or `float×float`).       |
-| `max`       | 2     | Maximum of two numbers.                                    |
-| `clamp`     | 3     | Clamps a number to a `[low, high]` range.                  |
+| Name        | Arity | Description                                                                                                                    |
+| ----------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `+`, `sum`  | 2     | Addition (`int×int` or `float×float`). Overflows error.                                                                        |
+| `-`, `sub`  | 2     | Subtraction.                                                                                                                   |
+| `*`, `mul`  | 2     | Multiplication.                                                                                                                |
+| `/`, `div`  | 2     | Division. Integer divide-by-zero errors.                                                                                       |
+| `cmp`       | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors.                                                                     |
+| `>`, `gt`   | 2     | Greater than.                                                                                                                  |
+| `>=`, `gte` | 2     | Greater or equal.                                                                                                              |
+| `<`, `lt`   | 2     | Less than.                                                                                                                     |
+| `<=`, `lte` | 2     | Less or equal.                                                                                                                 |
+| `min`       | ≥ 1   | Minimum of numbers (all `int` or all `float`). Accepts either `n` numbers of the same type, or a single array/list of numbers. |
+| `max`       | ≥ 1   | Maximum of numbers. Accepts either `n` numbers of the same type, or a single array/list of numbers.                            |
+| `clamp`     | 3     | Clamps a number to a `[low, high]` range.                                                                                      |
 
 ### 11.2 Equality (`eq`)
 

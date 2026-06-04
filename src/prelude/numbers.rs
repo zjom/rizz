@@ -130,31 +130,213 @@ fn lte() -> NativeFn {
 }
 
 fn min() -> NativeFn {
-    binop(
-        "min",
-        |a, b| Ok(a.min(b)),
-        |a, b| {
-            if a.is_nan() || b.is_nan() {
-                Err("comparison with NaN")
-            } else {
-                Ok(a.min(b))
+    let name: Rc<str> = "min".into();
+    NativeFn::pure(name.clone(), 0, move |args| {
+        if args.is_empty() {
+            return Err(RuntimeError::ArityMismatch {
+                name: name.clone(),
+                expected: 1,
+                got: 0,
+            });
+        }
+
+        // `collection` controls whether error strings are wrapped in brackets.
+        let min_of = |xs: &[Rc<Value>], collection: bool| -> Result<Rc<Value>, RuntimeError> {
+            let fmt = |s: &str| -> Rc<str> {
+                if collection {
+                    format!("[{s}]").into()
+                } else {
+                    s.into()
+                }
+            };
+
+            if xs.is_empty() {
+                return Err(RuntimeError::TypeMismatch {
+                    name: name.clone(),
+                    expected: "non-empty array".into(),
+                    got: "[]".into(),
+                });
             }
-        },
-    )
+
+            match xs[0].as_ref() {
+                Value::Float(_) => {
+                    let (minimum, length) = xs
+                        .iter()
+                        .map_while(|x| x.as_float())
+                        .fold((f64::MAX, 0), |(min, len), x| (min.min(x), len + 1));
+                    if length != xs.len() {
+                        return Err(RuntimeError::TypeMismatch {
+                            name: name.clone(),
+                            expected: fmt("float*"),
+                            got: fmt("float* other"),
+                        });
+                    }
+                    Ok(Rc::new(Value::Float(minimum.into())))
+                }
+                Value::Int(_) => {
+                    let (minimum, length) = xs
+                        .iter()
+                        .map_while(|x| x.as_int())
+                        .fold((i64::MAX, 0), |(min, len), x| (min.min(x), len + 1));
+                    if length != xs.len() {
+                        return Err(RuntimeError::TypeMismatch {
+                            name: name.clone(),
+                            expected: fmt("int*"),
+                            got: fmt("int* other"),
+                        });
+                    }
+                    Ok(Rc::new(Value::Int(minimum)))
+                }
+                other => Err(RuntimeError::TypeMismatch {
+                    name: name.clone(),
+                    expected: fmt("number*"),
+                    got: if collection {
+                        format!("[{other}]")
+                    } else {
+                        other.to_string()
+                    }
+                    .into(),
+                }),
+            }
+        };
+
+        match args[0].as_ref() {
+            Value::Array(xs) => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::ArityMismatch {
+                        name: name.clone(),
+                        expected: 1,
+                        got: args.len(),
+                    });
+                }
+                let xs: Vec<_> = xs.iter().cloned().collect();
+                min_of(xs.as_slice(), true)
+            }
+            Value::Cons { .. } => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::ArityMismatch {
+                        name: name.clone(),
+                        expected: 1,
+                        got: args.len(),
+                    });
+                }
+
+                let xs = Value::iter(&args[0]).collect::<Vec<_>>();
+                min_of(&xs, true)
+            }
+            Value::Float(_) | Value::Int(_) => min_of(args, false),
+            other => Err(RuntimeError::TypeMismatch {
+                name: name.clone(),
+                expected: "number * | [number *] | '(number *)".into(),
+                got: format!("{other}").into(),
+            }),
+        }
+    })
 }
 
 fn max() -> NativeFn {
-    binop(
-        "max",
-        |a, b| Ok(a.max(b)),
-        |a, b| {
-            if a.is_nan() || b.is_nan() {
-                Err("comparison with NaN")
-            } else {
-                Ok(a.max(b))
+    let name: Rc<str> = "max".into();
+    NativeFn::pure(name.clone(), 0, move |args| {
+        if args.is_empty() {
+            return Err(RuntimeError::ArityMismatch {
+                name: name.clone(),
+                expected: 1,
+                got: 0,
+            });
+        }
+
+        // `collection` controls whether error strings are wrapped in brackets.
+        let max_of = |xs: &[Rc<Value>], collection: bool| -> Result<Rc<Value>, RuntimeError> {
+            let fmt = |s: &str| -> Rc<str> {
+                if collection {
+                    format!("[{s}]").into()
+                } else {
+                    s.into()
+                }
+            };
+
+            if xs.is_empty() {
+                return Err(RuntimeError::TypeMismatch {
+                    name: name.clone(),
+                    expected: "non-empty array".into(),
+                    got: "[]".into(),
+                });
             }
-        },
-    )
+
+            match xs[0].as_ref() {
+                Value::Float(_) => {
+                    let (maximum, length) = xs
+                        .iter()
+                        .map_while(|x| x.as_float())
+                        .fold((f64::MIN, 0), |(max, len), x| (max.max(x), len + 1));
+                    if length != xs.len() {
+                        return Err(RuntimeError::TypeMismatch {
+                            name: name.clone(),
+                            expected: fmt("float*"),
+                            got: fmt("float* other"),
+                        });
+                    }
+                    Ok(Rc::new(Value::Float(maximum.into())))
+                }
+                Value::Int(_) => {
+                    let (maximum, length) = xs
+                        .iter()
+                        .map_while(|x| x.as_int())
+                        .fold((i64::MIN, 0), |(max, len), x| (max.max(x), len + 1));
+                    if length != xs.len() {
+                        return Err(RuntimeError::TypeMismatch {
+                            name: name.clone(),
+                            expected: fmt("int*"),
+                            got: fmt("int* other"),
+                        });
+                    }
+                    Ok(Rc::new(Value::Int(maximum)))
+                }
+                other => Err(RuntimeError::TypeMismatch {
+                    name: name.clone(),
+                    expected: fmt("number*"),
+                    got: if collection {
+                        format!("[{other}]")
+                    } else {
+                        other.to_string()
+                    }
+                    .into(),
+                }),
+            }
+        };
+
+        match args[0].as_ref() {
+            Value::Array(xs) => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::ArityMismatch {
+                        name: name.clone(),
+                        expected: 1,
+                        got: args.len(),
+                    });
+                }
+                let xs: Vec<_> = xs.iter().cloned().collect();
+                max_of(xs.as_slice(), true)
+            }
+            Value::Cons { .. } => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::ArityMismatch {
+                        name: name.clone(),
+                        expected: 1,
+                        got: args.len(),
+                    });
+                }
+
+                let xs = Value::iter(&args[0]).collect::<Vec<_>>();
+                max_of(&xs, true)
+            }
+            Value::Float(_) | Value::Int(_) => max_of(args, false),
+            other => Err(RuntimeError::TypeMismatch {
+                name: name.clone(),
+                expected: "number * | [number *] | '(number *)".into(),
+                got: format!("{other}").into(),
+            }),
+        }
+    })
 }
 
 fn clamp() -> NativeFn {
@@ -202,7 +384,6 @@ fn clamp() -> NativeFn {
         })
     })
 }
-
 
 /// Attempts `op` for the numeric type `N`. Returns `Ok(None)` if the first
 /// argument isn't an `N` (so the caller can try the other type), `Err` if the
@@ -366,6 +547,24 @@ mod tests {
         // Mismatched types should error
         assert!(run("(min 10 2.5)").is_err());
         assert!(run("(max 1.5 10)").is_err());
+
+        // variadics
+        assert_eq!(*run_ok("(max 1 2 4 51 10)"), Value::Int(51));
+        assert_eq!(*run_ok("(max [1 2 4 51 10])"), Value::Int(51));
+        assert_eq!(*run_ok("(max '(1 2 4 51 10))"), Value::Int(51));
+        assert!(run("(max '(1 2) 4 51 10))").is_err());
+        assert!(run("(max [123] 4 51 10))").is_err());
+        assert!(run("(max 4 51 [123] 10))").is_err());
+        assert!(run("(max 4 51 '(123) 10))").is_err());
+        assert!(run("(max 4 51 0.2 10))").is_err());
+        assert_eq!(*run_ok("(min 1 2 4 51 10)"), Value::Int(1));
+        assert_eq!(*run_ok("(min [1 2 4 51 10])"), Value::Int(1));
+        assert_eq!(*run_ok("(min '(1 2 4 51 10))"), Value::Int(1));
+        assert!(run("(min '(1 2) 4 51 10))").is_err());
+        assert!(run("(min [123] 4 51 10))").is_err());
+        assert!(run("(min 4 51 [123] 10))").is_err());
+        assert!(run("(min 4 51 '(123) 10))").is_err());
+        assert!(run("(min 4 51 0.2 10))").is_err());
     }
 
     #[test]
