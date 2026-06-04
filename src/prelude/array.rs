@@ -12,8 +12,8 @@ pub fn env() -> Env {
         ("push", push()),
         ("push!", push_bang()),
         ("range", range()),
-        ("of", of()),
-        ("from", from()),
+        ("array-of", of()),
+        ("array-from", from()),
     ])
 }
 
