@@ -664,3 +664,11 @@ fn zip_e2e() {
     let res = run(src);
     assert_eq!(res.repr(), "([1 4] [2 5] [3 6])");
 }
+
+#[test]
+fn min_max_clamp_e2e() {
+    assert_eq!(*run("(min 5 10)"), Value::Int(5));
+    assert_eq!(*run("(max 5 10)"), Value::Int(10));
+    assert_eq!(*run("(clamp 7 1 5)"), Value::Int(5));
+}
+

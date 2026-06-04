@@ -43,6 +43,9 @@ pub fn env() -> Env {
     alias!("<" => "lt");
     b!("lte", lte);
     alias!("<=" => "lte");
+    b!("min", min);
+    b!("max", max);
+    b!("clamp", clamp);
 
     let mut env = Env::of_builtins(entries);
     for (a, t) in aliases {
@@ -125,6 +128,81 @@ fn lt() -> NativeFn {
 fn lte() -> NativeFn {
     binop("lte", |a, b| Ok(a <= b), |a, b| Ok(a <= b))
 }
+
+fn min() -> NativeFn {
+    binop(
+        "min",
+        |a, b| Ok(a.min(b)),
+        |a, b| {
+            if a.is_nan() || b.is_nan() {
+                Err("comparison with NaN")
+            } else {
+                Ok(a.min(b))
+            }
+        },
+    )
+}
+
+fn max() -> NativeFn {
+    binop(
+        "max",
+        |a, b| Ok(a.max(b)),
+        |a, b| {
+            if a.is_nan() || b.is_nan() {
+                Err("comparison with NaN")
+            } else {
+                Ok(a.max(b))
+            }
+        },
+    )
+}
+
+fn clamp() -> NativeFn {
+    NativeFn::pure("clamp".into(), 3, |args| {
+        if let (Some(val), Some(low), Some(high)) = (
+            i64::from_value(&args[0]),
+            i64::from_value(&args[1]),
+            i64::from_value(&args[2]),
+        ) {
+            if low > high {
+                return Err(RuntimeError::ArithmeticError {
+                    name: "clamp".into(),
+                    reason: "low limit greater than high limit".into(),
+                });
+            }
+            let res = val.clamp(low, high);
+            return Ok(Rc::new(res.into()));
+        }
+
+        if let (Some(val), Some(low), Some(high)) = (
+            f64::from_value(&args[0]),
+            f64::from_value(&args[1]),
+            f64::from_value(&args[2]),
+        ) {
+            if val.is_nan() || low.is_nan() || high.is_nan() {
+                return Err(RuntimeError::ArithmeticError {
+                    name: "clamp".into(),
+                    reason: "comparison with NaN".into(),
+                });
+            }
+            if low > high {
+                return Err(RuntimeError::ArithmeticError {
+                    name: "clamp".into(),
+                    reason: "low limit greater than high limit".into(),
+                });
+            }
+            let res = val.clamp(low, high);
+            return Ok(Rc::new(res.into()));
+        }
+
+        Err(RuntimeError::TypeMismatch {
+            name: "clamp".into(),
+            expected: "int*int*int or float*float*float".into(),
+            got: "other".into(),
+        })
+    })
+}
+
 
 /// Attempts `op` for the numeric type `N`. Returns `Ok(None)` if the first
 /// argument isn't an `N` (so the caller can try the other type), `Err` if the
@@ -271,5 +349,42 @@ mod tests {
                 RuntimeError::ArithmeticError { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn min_and_max() {
+        // Ints
+        assert_eq!(*run_ok("(min 10 20)"), Value::Int(10));
+        assert_eq!(*run_ok("(min 20 10)"), Value::Int(10));
+        assert_eq!(*run_ok("(max 10 20)"), Value::Int(20));
+        assert_eq!(*run_ok("(max 20 10)"), Value::Int(20));
+
+        // Floats
+        assert_eq!(*run_ok("(min 1.5 2.5)"), Value::Float(1.5.into()));
+        assert_eq!(*run_ok("(max 1.5 2.5)"), Value::Float(2.5.into()));
+
+        // Mismatched types should error
+        assert!(run("(min 10 2.5)").is_err());
+        assert!(run("(max 1.5 10)").is_err());
+    }
+
+    #[test]
+    fn clamp_op() {
+        // Ints
+        assert_eq!(*run_ok("(clamp 5 1 10)"), Value::Int(5));
+        assert_eq!(*run_ok("(clamp 0 1 10)"), Value::Int(1));
+        assert_eq!(*run_ok("(clamp 15 1 10)"), Value::Int(10));
+
+        // Floats
+        assert_eq!(*run_ok("(clamp 5.5 1.5 10.5)"), Value::Float(5.5.into()));
+        assert_eq!(*run_ok("(clamp 0.5 1.5 10.5)"), Value::Float(1.5.into()));
+        assert_eq!(*run_ok("(clamp 15.5 1.5 10.5)"), Value::Float(10.5.into()));
+
+        // Low limit > high limit should error
+        assert!(run("(clamp 5 10 1)").is_err());
+        assert!(run("(clamp 5.5 10.5 1.5)").is_err());
+
+        // Mismatched types should error
+        assert!(run("(clamp 5 1.5 10)").is_err());
     }
 }

@@ -468,6 +468,9 @@ All builtins are bound in the initial env. Names and arities below; see
 | `>=`, `gte` | 2     | Greater or equal.                                          |
 | `<`, `lt`   | 2     | Less than.                                                 |
 | `<=`, `lte` | 2     | Less or equal.                                             |
+| `min`       | 2     | Minimum of two numbers (`int×int` or `float×float`).       |
+| `max`       | 2     | Maximum of two numbers.                                    |
+| `clamp`     | 3     | Clamps a number to a `[low, high]` range.                  |
 
 ### 11.2 Equality (`eq`)
 
