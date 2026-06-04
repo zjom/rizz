@@ -348,10 +348,10 @@ through every other binding pointing at it. Closures that capture a ref
 capture the cell — not a snapshot of its contents — so mutations made after
 the closure was defined are visible inside the body.
 
-| Name    | Arity | Description                                                                     |
-| ------- | ----- | ------------------------------------------------------------------------------- |
-| `ref`   | 1     | `(ref v)`: allocates a new ref initialized to `v`.                              |
-| `deref` | 1     | `(deref r)`: returns the current contents of the cell. Errors on non-ref.       |
+| Name    | Arity | Description                                                                        |
+| ------- | ----- | ---------------------------------------------------------------------------------- |
+| `ref`   | 1     | `(ref v)`: allocates a new ref initialized to `v`.                                 |
+| `deref` | 1     | `(deref r)`: returns the current contents of the cell. Errors on non-ref.          |
 | `set!`  | 2     | `(set! r v)`: stores `v` in the cell and returns the new value. Errors on non-ref. |
 
 `set!` stores its argument verbatim. If `v` is itself a ref, the cell now
@@ -366,13 +366,13 @@ error if the first argument is not a ref, or if its cell does not hold the
 expected inner type. They do not work on bare collections — for non-mutating
 updates use the unsuffixed forms (`push`, `put`, `del`, `cons`).
 
-| Name    | Arity | Cell type | Description                          |
-| ------- | ----- | --------- | ------------------------------------ |
-| `push!` | 2     | array     | Appends an element.                  |
-| `put!`  | 3     | map       | Inserts `(k → v)`.                   |
-| `del!`  | 2     | map       | Removes a key; no-op if absent.      |
-| `car!`  | 2     | cons      | Replaces the head; tail preserved.   |
-| `cdr!`  | 2     | cons      | Replaces the tail; head preserved.   |
+| Name    | Arity | Cell type | Description                        |
+| ------- | ----- | --------- | ---------------------------------- |
+| `push!` | 2     | array     | Appends an element.                |
+| `put!`  | 3     | map       | Inserts `(k → v)`.                 |
+| `del!`  | 2     | map       | Removes a key; no-op if absent.    |
+| `car!`  | 2     | cons      | Replaces the head; tail preserved. |
+| `cdr!`  | 2     | cons      | Replaces the tail; head preserved. |
 
 ### 8.3 Semantics and footguns
 
@@ -448,11 +448,13 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 11.2 Equality (`eq`)
 
-| Name | Arity | Description                     |
-| ---- | ----- | ------------------------------- |
-| `=`  | 2     | Structural equality.            |
-| `!=` | 2     | Structural inequality.          |
-| `!`  | 1     | Boolean negation of truthiness. |
+| Name         | Arity | Description                     |
+| ------------ | ----- | ------------------------------- |
+| `=`, `eq`    | 2     | Structural equality.            |
+| `!=`, `neq`  | 2     | Structural inequality.          |
+| `!`, `not`   | 1     | Boolean negation of truthiness. |
+| `&&`, `and`  | 2     |                                 |
+| `\|\|`, `or` | 2     |                                 |
 
 ### 11.3 Polymorphic collections (`collections`)
 
@@ -473,22 +475,24 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 11.4 Arrays (`array`)
 
-| Name    | Arity | Description                                   |
-| ------- | ----- | --------------------------------------------- |
-| `push`  | 2     | Append an element.                            |
-| `push!` | 2     | In-place append on a ref-of-array (see §8.2). |
-| `range` | 2     | Array of ints in `[start, end)`.              |
+| Name         | Arity | Description                                                  |
+| ------------ | ----- | ------------------------------------------------------------ |
+| `push`       | 2     | Append an element.                                           |
+| `push!`      | 2     | In-place append on a ref-of-array (see §8.2).                |
+| `range`      | 2     | Array of ints in `[start, end)`.                             |
+| `array-of`   | 1     | Constructs an array with a single value.                     |
+| `array-from` | 1     | Constructs an array from `xs`. Traverses if `xs` is iterable |
 
 ### 11.5 Maps (`map`)
 
-| Name     | Arity | Description                                       |
-| -------- | ----- | ------------------------------------------------- |
-| `put`    | 3     | New map with `(k → v)` inserted.                  |
-| `put!`   | 3     | In-place insert on a ref-of-map (see §8.2).       |
-| `del`    | 2     | New map with key removed (no-op if absent).       |
-| `del!`   | 2     | In-place remove on a ref-of-map (see §8.2).       |
-| `keys`   | 1     | Array of keys (unspecified order).                |
-| `values` | 1     | Array of values (unspecified order).              |
+| Name     | Arity | Description                                 |
+| -------- | ----- | ------------------------------------------- |
+| `put`    | 3     | New map with `(k → v)` inserted.            |
+| `put!`   | 3     | In-place insert on a ref-of-map (see §8.2). |
+| `del`    | 2     | New map with key removed (no-op if absent). |
+| `del!`   | 2     | In-place remove on a ref-of-map (see §8.2). |
+| `keys`   | 1     | Array of keys (unspecified order).          |
+| `values` | 1     | Array of values (unspecified order).        |
 
 ### 11.6 Strings (`str`)
 
@@ -517,11 +521,11 @@ All builtins are bound in the initial env. Names and arities below; see
 
 See §8 for full semantics.
 
-| Name    | Arity | Description                                  |
-| ------- | ----- | -------------------------------------------- |
-| `ref`   | 1     | Allocate a new ref initialized to a value.   |
-| `deref` | 1     | Read the cell's current contents.            |
-| `set!`  | 2     | Replace the cell's contents; returns new.    |
+| Name    | Arity | Description                                |
+| ------- | ----- | ------------------------------------------ |
+| `ref`   | 1     | Allocate a new ref initialized to a value. |
+| `deref` | 1     | Read the cell's current contents.          |
+| `set!`  | 2     | Replace the cell's contents; returns new.  |
 
 ---
 
