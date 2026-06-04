@@ -248,7 +248,7 @@ ident.
 (if COND THEN ELSE)
 ```
 
-Evaluates `COND`. If [truthy](#31-truthiness) evaluates `THEN`; otherwise
+Evaluates `COND`. If truthy evaluates `THEN`; otherwise
 evaluates `ELSE`. The untaken branch is never evaluated.
 
 Errors: arity ≠ 3.
@@ -526,7 +526,7 @@ All builtins are bound in the initial env. Names and arities below; see
 | `str-lower`   | 1     | Lowercase.                                                               |
 | `str-trim`    | 1     | Strip surrounding whitespace.                                            |
 | `str-split`   | 2     | Split into an array; empty separator → per-char.                         |
-| `str-join`    | 2     | Join an array with a separator (elements via `to-str`).                  |
+| `str-join`    | 2     | Join an array/list with a separator (elements via `to-str`).             |
 | `str-replace` | 3     | Replace all occurrences of a substring.                                  |
 | `str->int`    | 1     | Parse a decimal integer (`()` on failure).                               |
 
