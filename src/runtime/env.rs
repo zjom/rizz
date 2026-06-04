@@ -18,6 +18,7 @@ impl Env {
         })
     }
 
+    /// Construct a new hash map by inserting a key/value mapping into a map.
     pub fn update(self, k: Rc<str>, v: Rc<Value>) -> Self {
         Self(self.0.update(k, v))
     }
