@@ -121,10 +121,7 @@ fn variadic_rest_is_empty_at_minimum_arity() {
 #[test]
 fn variadic_bare_ident_params_binds_all_args() {
     // A bare ident in the params position is shorthand for (. args).
-    assert_eq!(
-        *run("((fn f args args) 10 20 30)"),
-        int_list(&[10, 20, 30])
-    );
+    assert_eq!(*run("((fn f args args) 10 20 30)"), int_list(&[10, 20, 30]));
 }
 
 #[test]
@@ -671,4 +668,3 @@ fn min_max_clamp_e2e() {
     assert_eq!(*run("(max 5 10)"), Value::Int(10));
     assert_eq!(*run("(clamp 7 1 5)"), Value::Int(5));
 }
-

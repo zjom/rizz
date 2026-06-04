@@ -268,11 +268,9 @@ where
     I: IntoIterator<Item = Rc<Value>>,
     I::IntoIter: DoubleEndedIterator,
 {
-    items
-        .into_iter()
-        .rfold(Rc::new(Value::Unit), |tail, head| {
-            Rc::new(Value::Cons { head, tail })
-        })
+    items.into_iter().rfold(Rc::new(Value::Unit), |tail, head| {
+        Rc::new(Value::Cons { head, tail })
+    })
 }
 
 /// `(fn name (params...) body)`: builds a [`Closure`] capturing `env`, binds it

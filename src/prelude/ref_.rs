@@ -7,11 +7,7 @@ use crate::{
 };
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![
-        ("ref", _ref()),
-        ("deref", deref()),
-        ("set!", set()),
-    ])
+    Env::of_builtins(vec![("ref", _ref()), ("deref", deref()), ("set!", set())])
 }
 
 fn _ref() -> NativeFn {
