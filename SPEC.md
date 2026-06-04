@@ -481,20 +481,21 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 11.3 Polymorphic collections (`collections`)
 
-| Name        | Arity | Works on                                | Description                                                        |
-| ----------- | ----- | --------------------------------------- | ------------------------------------------------------------------ |
-| `len`       | 1     | str/array/map/list                      | Length (str by char).                                              |
-| `get`       | 2     | str/array/map/list                      | Index or key lookup; miss → `()`.                                  |
-| `concat`    | 2     | str+str / arr+arr / map+map / list+list | Join; right map wins on key collisions.                            |
-| `slice`     | 3     | str/array/list                          | Half-open `[start, end)`, clamped.                                 |
-| `reverse`   | 1     | str/array/list                          | Reversed copy.                                                     |
-| `first`     | 1     | str/array/list                          | Head, or `()` if empty.                                            |
-| `last`      | 1     | str/array/list                          | Tail element, or `()` if empty.                                    |
-| `rest`      | 1     | str/array/list                          | All but the first.                                                 |
-| `contains?` | 2     | str/array/map/list                      | Substring / element / key test.                                    |
-| `fmap`      | 2     | str/array/map/list                      | Map a function. For maps, `f` takes `(k v)` and returns `[k' v']`. |
-| `filter`    | 2     | str/array/map/list                      | Keep where predicate is truthy. For maps, `pred` takes `(k v)`.    |
-| `reduce`    | 3     | str/array/map/list                      | Left fold from `init`. For maps, `f` takes `(acc k v)`.            |
+| Name        | Arity | Works on                                | Description                                                                                         |
+| ----------- | ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `len`       | 1     | str/array/map/list                      | Length (str by char).                                                                               |
+| `get`       | 2     | str/array/map/list                      | Index or key lookup; miss → `()`.                                                                   |
+| `concat`    | 2     | str+str / arr+arr / map+map / list+list | Join; right map wins on key collisions.                                                             |
+| `slice`     | 3     | str/array/list                          | Half-open `[start, end)`, clamped.                                                                  |
+| `reverse`   | 1     | str/array/list                          | Reversed copy.                                                                                      |
+| `first`     | 1     | str/array/list                          | Head, or `()` if empty.                                                                             |
+| `last`      | 1     | str/array/list                          | Tail element, or `()` if empty.                                                                     |
+| `rest`      | 1     | str/array/list                          | All but the first.                                                                                  |
+| `contains?` | 2     | str/array/map/list                      | Substring / element / key test.                                                                     |
+| `fmap`      | 2     | str/array/map/list                      | Map a function. For maps, `f` takes `(k v)` and returns `[k' v']`.                                  |
+| `fmapi`     | 2     | str/array/map/list                      | Map a function with index. `f` takes `(i, x)`. For maps, `f` takes `(i k v)` and returns `[k' v']`. |
+| `filter`    | 2     | str/array/map/list                      | Keep where predicate is truthy. For maps, `pred` takes `(k v)`.                                     |
+| `reduce`    | 3     | str/array/map/list                      | Left fold from `init`. For maps, `f` takes `(acc k v)`.                                             |
 
 ### 11.4 Arrays (`array`)
 

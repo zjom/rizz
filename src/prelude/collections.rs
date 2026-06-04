@@ -1,7 +1,7 @@
 //! Polymorphic collection builtins that dispatch on the runtime type of their
 //! collection argument: `len`, `get`, `concat`, `slice`, `contains?`,
 //! `reverse`, `first`, `rest`, `last`, and the higher-order transforms `fmap`,
-//! `filter`, `reduce`. Supported collection shapes are strings, arrays, maps,
+//! `fmapi`, `filter`, `reduce`. Supported collection shapes are strings, arrays, maps,
 //! and cons lists (with `()` treated as the empty list). The higher-order fns
 //! are *impure* so they receive the `Env` needed to invoke user closures via
 //! [`crate::runtime::apply`].
