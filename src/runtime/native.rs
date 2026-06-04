@@ -27,11 +27,12 @@ pub enum NativeFn {
 }
 
 impl NativeFn {
+    /// construct a function that does care about the [`Env`]
+    /// set `nargs` to 0 for a variadic function.
     pub fn pure<F>(name: Rc<str>, nargs: usize, f: F) -> NativeFn
     where
         F: Fn(&[Rc<Value>]) -> Result<Rc<Value>, RuntimeError> + 'static,
     {
-        assert!(nargs > 0);
         NativeFn::Pure {
             f: Rc::new(f),
             nargs,
@@ -39,6 +40,8 @@ impl NativeFn {
         }
     }
 
+    /// construct a function that does may or may not care about the [`Env`]
+    /// set `nargs` to 0 for a variadic function.
     pub fn impure<F>(name: Rc<str>, nargs: usize, f: F) -> NativeFn
     where
         F: Fn(&[Rc<Value>], &Env) -> Result<(Rc<Value>, Env), RuntimeError> + 'static,
@@ -107,6 +110,9 @@ impl NativeFn {
 }
 
 fn validate_args(name: &Rc<str>, args: &[Rc<Value>], nargs: usize) -> Result<(), RuntimeError> {
+    if nargs == 0 {
+        return Ok(());
+    }
     if args.len() != nargs {
         return Err(RuntimeError::ArityMismatch {
             name: name.clone(),
