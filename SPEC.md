@@ -525,6 +525,7 @@ See §8 for full semantics.
 | ------- | ----- | ------------------------------------------ |
 | `ref`   | 1     | Allocate a new ref initialized to a value. |
 | `deref` | 1     | Read the cell's current contents.          |
+| `let!`  | 1     | Equivalent to `(let foo (ref v))`          |
 | `set!`  | 2     | Replace the cell's contents; returns new.  |
 
 ---
