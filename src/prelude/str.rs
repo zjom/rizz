@@ -84,6 +84,10 @@ fn str_join() -> NativeFn {
                 let parts: Vec<String> = xs.iter().map(|x| x.display()).collect();
                 Ok(Rc::new(Value::Str(parts.join(sep.as_ref()).into())))
             }
+            Value::Cons { .. } => {
+                let parts: Vec<_> = Value::iter(&args[0]).map(|v| v.display()).collect();
+                Ok(Rc::new(Value::Str(parts.join(sep.as_ref()).into())))
+            }
             other => Err(RuntimeError::type_mismatch("str-join", "array", other)),
         }
     })

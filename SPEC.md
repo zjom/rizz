@@ -559,7 +559,7 @@ Variadic function via dotted rest:
 
 ```
 (fn log (level . args)
-  (str-join (array-from (fmap to-str (cons level args))) " "))
+    (str-join (fmap to-str (cons level args)) " "))
 (log "info" "x =" 42)   ;; => "info x = 42"
 ```
 
@@ -569,7 +569,6 @@ Fully variadic via bare-ident params:
 (fn sum xs (reduce + 0 xs))
 (sum 1 2 3 4)           ;; => 10
 ```
-
 
 Recursive factorial:
 
