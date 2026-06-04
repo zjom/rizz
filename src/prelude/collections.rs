@@ -32,6 +32,7 @@ pub fn env() -> Env {
         ("last", last()),
         ("contains?", contains()),
         ("fmap", fmap()),
+        ("fmapi", fmapi()),
         ("filter", filter()),
         ("reduce", reduce()),
     ])
@@ -344,6 +345,75 @@ fn fmap() -> NativeFn {
             }
             other => Err(RuntimeError::type_mismatch(
                 "fmap",
+                "array/map/str/list",
+                other,
+            )),
+        }
+    })
+}
+
+fn fmapi() -> NativeFn {
+    NativeFn::impure("fmapi".into(), 2, |args, env| {
+        let as_int = |i: i32| -> Rc<Value> { Rc::new((i as i64).into()) };
+        let f = &args[0];
+        match &*args[1] {
+            Value::Str(s) => {
+                let res = s.chars().zip(0..).try_fold(
+                    String::with_capacity(s.len()),
+                    |mut acc, (c, i)| -> Result<_, RuntimeError> {
+                        let x = apply(f, &[as_int(i), Rc::new(c.to_string().into())], env)?;
+                        let s = x.as_str().ok_or_else(|| {
+                            RuntimeError::type_mismatch("fmapi", "lambda to return str", &x)
+                        })?;
+
+                        acc.push_str(s.as_ref());
+                        Ok(acc)
+                    },
+                )?;
+                Ok((Rc::new(res.into()), env.clone()))
+            }
+            Value::Array(xs) => {
+                let mut out = Vector::new();
+                for (x, i) in xs.iter().zip(0..) {
+                    out.push_back(apply(f, &[as_int(i), x.clone()], env)?);
+                }
+                Ok((Rc::new(Value::Array(out)), env.clone()))
+            }
+            Value::Map(m) => {
+                let m = m
+                    .iter()
+                    .zip(0..)
+                    .try_fold(HashMap::new(), |acc, ((k, v), i)| {
+                        let pair = apply(f, &[(as_int(i)), k.clone(), v.clone()], env)?;
+                        match &*pair {
+                            Value::Array(xs) => {
+                                if xs.len() != 2 {
+                                    return Err(RuntimeError::TypeMismatch {
+                                        name: "fmapi".into(),
+                                        expected: "lambda to return array of length 2".into(),
+                                        got: format!("array of length {}", xs.len()).into(),
+                                    });
+                                }
+                                Ok(acc.update(xs[0].clone(), xs[1].clone()))
+                            }
+                            other => Err(RuntimeError::type_mismatch(
+                                "fmapi",
+                                "lambda to return array of length 2",
+                                other,
+                            )),
+                        }
+                    })?;
+                Ok((Rc::new(Value::Map(m)), env.clone()))
+            }
+            v if is_list(v) => {
+                let mut out: Vec<Rc<Value>> = Vec::new();
+                for (x, i) in Value::iter(&args[1]).zip(0..) {
+                    out.push(apply(f, &[as_int(i), x.clone()], env)?);
+                }
+                Ok((Rc::new(cons_list(out)), env.clone()))
+            }
+            other => Err(RuntimeError::type_mismatch(
+                "fmapi",
                 "array/map/str/list",
                 other,
             )),
