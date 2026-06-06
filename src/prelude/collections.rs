@@ -36,6 +36,7 @@ pub fn env() -> Env {
         ("fmap", fmap()),
         ("fmapi", fmapi()),
         ("filter", filter()),
+        ("find", find()),
         ("reduce", reduce()),
         ("zip", zip()),
     ])
@@ -564,6 +565,30 @@ fn any() -> NativeFn {
             }
         }
         Ok((Rc::new(false.into()), env.clone()))
+    })
+}
+
+fn find() -> NativeFn {
+    let name: Rc<str> = "find".into();
+    NativeFn::impure(name.clone(), 2, move |args, env| {
+        let f = &args[0];
+        if !matches!(
+            &*args[1],
+            Value::Str(_) | Value::Array(_) | Value::Cons { .. }
+        ) {
+            return Err(RuntimeError::type_mismatch(
+                "find",
+                "str/list/array",
+                &args[1],
+            ));
+        }
+        let it = to_iter(&name, &args[1]).unwrap_or(Box::new(vec![args[1].clone()].into_iter()));
+        for (i, x) in (0..).zip(it) {
+            if apply(f, &[x], env)?.is_truthy() {
+                return Ok((Rc::new(i.into()), env.clone()));
+            }
+        }
+        Ok((Rc::new(Value::Unit), env.clone()))
     })
 }
 

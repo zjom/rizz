@@ -496,6 +496,7 @@ All builtins are bound in the initial env. Names and arities below; see
 | `slice`     | 3     | str/array/list                          | Half-open `[start, end)`, clamped.                                                                  |
 | `reverse`   | 1     | str/array/list                          | Reversed copy.                                                                                      |
 | `first`     | 1     | str/array/list                          | Head, or `()` if empty.                                                                             |
+| `find`      | 2     | str/array/list                          | Applies predicate `p` to each element. Returns idx of element that `p` returns true for else unit   |
 | `last`      | 1     | str/array/list                          | Tail element, or `()` if empty.                                                                     |
 | `rest`      | 1     | str/array/list                          | All but the first.                                                                                  |
 | `contains?` | 2     | str/array/map/list                      | Substring / element / key test.                                                                     |
