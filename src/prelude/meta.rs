@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use std::rc::Rc;
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![("typeof", typeof_())])
+    Env::of_builtins(vec![("typeof", typeof_()), ("open", open())])
 }
 
 fn typeof_() -> NativeFn {
