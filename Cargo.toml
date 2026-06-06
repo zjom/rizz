@@ -1,6 +1,6 @@
 [package]
 name = "rizz"
-version = "0.3.4"
+version = "0.3.5"
 authors = ["zjom"]
 edition = "2024"
 license = "Unlicense"
