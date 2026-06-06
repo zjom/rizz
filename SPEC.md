@@ -476,13 +476,13 @@ All builtins are bound in the initial env. Names and arities below; see
 
 ### 11.2 Equality (`eq`)
 
-| Name         | Arity | Description                        |
-| ------------ | ----- | ---------------------------------- |
-| `=`, `eq`    | 2     | Structural equality.               |
-| `!=`, `neq`  | 2     | Structural inequality.             |
-| `!`, `not`   | 1     | Boolean negation of truthiness.    |
-| `&&`, `and`  | 2     | Truthy if both truthy else falsy   |
-| `\|\|`, `or` | 2     | Truthy if either truthy else falsy |
+| Name        | Arity | Description                        |
+| ----------- | ----- | ---------------------------------- |
+| `=`, `eq`   | 2     | Structural equality.               |
+| `!=`, `neq` | 2     | Structural inequality.             |
+| `!`, `not`  | 1     | Boolean negation of truthiness.    |
+| `and`       | 2     | Truthy if both truthy else falsy.  |
+| `or`        | 2     | Truthy if either truthy else falsy |
 
 ### 11.3 Polymorphic collections (`collections`)
 

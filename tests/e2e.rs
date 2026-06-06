@@ -60,6 +60,22 @@ fn nested_if_selects_correct_branch() {
     assert_eq!(*run("(if (> 1 2) 999 (if (< 5 3) 200 42))"), Value::Int(42));
 }
 
+#[test]
+fn and_is_lazy() {
+    assert_eq!(
+        *run("(let x 0) (and (= (typeof x) 'map) (get x 1))"),
+        Value::Int(0)
+    );
+}
+
+#[test]
+fn or_is_lazy() {
+    assert_eq!(
+        *run("(let x 0) (or (!= (typeof x) 'map) (get x 1))"),
+        Value::Int(1)
+    );
+}
+
 // ----- functions, application, recursion -----
 
 #[test]

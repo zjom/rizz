@@ -25,10 +25,6 @@ pub fn env() -> Env {
     alias!("!="=>"neq");
     b!("not", not);
     alias!("!"=>"not");
-    b!("and", and);
-    alias!("&&"=> "and");
-    b!("or", or);
-    alias!("||"=>"or");
 
     let mut env = Env::of_builtins(entries);
     for (a, t) in aliases {
@@ -64,18 +60,5 @@ fn neq() -> NativeFn {
 fn not() -> NativeFn {
     NativeFn::pure("not".into(), 1, |args| {
         Ok(Rc::new((!args[0].is_truthy()).into()))
-    })
-}
-
-/// `(and a b)`
-fn and() -> NativeFn {
-    NativeFn::pure("and".into(), 2, |args| {
-        Ok(Rc::new((args[0].is_truthy() && args[1].is_truthy()).into()))
-    })
-}
-
-fn or() -> NativeFn {
-    NativeFn::pure("or".into(), 2, |args| {
-        Ok(Rc::new((args[0].is_truthy() || args[1].is_truthy()).into()))
     })
 }

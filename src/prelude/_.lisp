@@ -21,3 +21,14 @@
             (do (set! __last (do ,@body))
                 (__while-iter))
             (deref __last))))))
+
+(defmacro or (a b)
+    `(if ,a
+       1
+       (if ,b 1 0)))
+
+
+(defmacro and (a b)
+    `(if ,a
+      (if ,b 1 0)
+      0))
