@@ -77,9 +77,27 @@ impl Value {
         Iter::new(value.clone())
     }
 
+    /// The variant's name, for use in error messages and the `typeof` builtin.
+    pub fn type_name(v: &Value) -> &'static str {
+        match v {
+            Self::Str(_) => "str",
+            Self::Int(_) => "int",
+            Self::Float(_) => "float",
+            Self::Ident(_) => "ident",
+            Self::Unit => "()",
+            Self::Cons { .. } => "cons",
+            Self::NativeFn(_) => "native",
+            Self::Closure(_) => "closure",
+            Self::Macro(_) => "macro",
+            Self::Array(_) => "array",
+            Self::Map(_) => "map",
+            Self::Ref(_) => "ref",
+        }
+    }
+
     /// The variant's name, for use in error messages.
     // TODO: recurse into collection types and show full type
-    pub fn type_name(v: &Value) -> &'static str {
+    pub fn type_name_full(v: &Value) -> &'static str {
         match v {
             Self::Str(_) => "str",
             Self::Int(_) => "int",

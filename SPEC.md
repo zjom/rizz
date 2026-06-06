@@ -559,6 +559,12 @@ See §8 for full semantics.
 | `let!`  | 1     | Equivalent to `(let foo (ref v))`          |
 | `set!`  | 2     | Replace the cell's contents; returns new.  |
 
+### 11.9 Reflection (`meta`)
+
+| Name     | Arity | Description                     |
+| -------- | ----- | ------------------------------- |
+| `typeof` | 1     | Ident of the type of the value. |
+
 ---
 
 ## 12. Examples

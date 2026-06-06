@@ -668,3 +668,24 @@ fn min_max_clamp_e2e() {
     assert_eq!(*run("(max 5 10)"), Value::Int(10));
     assert_eq!(*run("(clamp 7 1 5)"), Value::Int(5));
 }
+
+#[test]
+fn typeof_returns_correct_type() {
+    assert_eq!(*run("(typeof 5)"), Value::Ident("int".into()));
+    assert_eq!(*run("(typeof 5.)"), Value::Ident("float".into()));
+}
+
+#[test]
+fn typeof_returns_quoted() {
+    assert_eq!(
+        *run(r#"
+    (let x 5)
+    (let y (typeof x))
+    (if (= y 'int)
+        1
+    (if (= y 'float)
+        2))
+"#),
+        Value::Int(1)
+    );
+}
