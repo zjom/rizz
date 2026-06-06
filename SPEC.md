@@ -565,6 +565,87 @@ See §8 for full semantics.
 | -------- | ----- | ------------------------------- |
 | `typeof` | 1     | Ident of the type of the value. |
 
+### 11.10 Control flow (prelude macros)
+
+Defined in `src/prelude/_.lisp` via `defmacro`, so they behave like special
+forms but are ordinary (shadowable) bindings rather than reserved identifiers.
+
+#### `cond` — multi-way conditional
+
+```
+(cond (TEST BODY)... )
+(cond (TEST BODY)... (else BODY))
+```
+
+Walks the clauses left to right. Each clause is a two-element list `(TEST
+BODY)`; the first clause whose `TEST` evaluates truthy has its `BODY`
+evaluated and returned. A literal `else` in test position always matches.
+Later clauses are not evaluated once a match is found. With no clauses, or
+when no clause matches and no `else` is present, the result is `()`.
+
+```
+(cond ((= 1 2) 10)
+      ((= 2 2) 20)
+      (else    99))   ;; => 20
+(cond)                ;; => ()
+```
+
+#### `for` — iterate a sequence
+
+```
+(for VAR SEQ BODY...)
+```
+
+Evaluates `SEQ`, then for each element binds it to `VAR` and evaluates the
+body forms in order. Returns the value of the body on the last iteration, or
+`()` if `SEQ` is empty. Accepts anything `reduce` accepts (str / array / map
+/ list). `for` is expressed in terms of `reduce`, so it does not provide an
+accumulator — use a [`ref`](#81-refs) when one is needed.
+
+```
+(let! sum 0)
+(for x [1 2 3 4] (set! sum (+ sum x)))
+(deref sum)         ;; => 10
+```
+
+#### `loop` — repeat N times
+
+```
+(loop N BODY...)
+```
+
+Evaluates `N`, then evaluates the body that many times in sequence. Returns
+the value of the body on the final iteration, or `()` if `N` ≤ 0. The loop
+index is not exposed as a binding; use [`for`](#for--iterate-a-sequence)
+over `(range 0 n)` if the index is needed.
+
+```
+(let! c 0)
+(loop 7 (set! c (+ c 1)))
+(deref c)           ;; => 7
+```
+
+#### `while` — repeat while truthy
+
+```
+(while COND BODY...)
+```
+
+Re-evaluates `COND` before each iteration. When `COND` is truthy, evaluates
+the body forms in order and loops; when `COND` is falsy, returns the value
+of the body from the most recent iteration (or `()` if the body never ran).
+Implemented via a recursive helper, so a `while` that runs N times consumes
+N host stack frames — see §13.
+
+```
+(let! i 0)
+(let! sum 0)
+(while (< i 5)
+  (set! sum (+ sum i))
+  (set! i (+ i 1)))
+(deref sum)         ;; => 10
+```
+
 ---
 
 ## 12. Examples

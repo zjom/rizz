@@ -6,3 +6,18 @@
           `(if ,(car (car clauses))
                ,(car (cdr (car clauses)))
                (cond ,@(cdr clauses))))))
+
+(defmacro for (var seq . body)
+  `(reduce (fn __for-fn (__acc ,var) (do ,@body)) () ,seq))
+
+(defmacro loop (n . body)
+  `(reduce (fn __loop-fn (__acc __i) (do ,@body)) () (range 0 ,n)))
+
+(defmacro while (cond . body)
+  `(do
+     (let! __last ())
+     ((fn __while-iter ()
+        (if ,cond
+            (do (set! __last (do ,@body))
+                (__while-iter))
+            (deref __last))))))

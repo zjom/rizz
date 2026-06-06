@@ -689,3 +689,114 @@ fn typeof_returns_quoted() {
         Value::Int(1)
     );
 }
+
+// ----- lisp prelude macros: cond / for / loop / while -----
+
+#[test]
+fn cond_first_truthy_clause_wins() {
+    let src = "(cond ((= 1 2) 10) ((= 2 2) 20) ((= 3 3) 30))";
+    assert_eq!(*run(src), Value::Int(20));
+}
+
+#[test]
+fn cond_else_branch_taken_when_no_match() {
+    assert_eq!(*run("(cond ((= 1 2) 10) (else 99))"), Value::Int(99));
+}
+
+#[test]
+fn cond_no_match_no_else_returns_unit() {
+    assert_eq!(*run("(cond ((= 1 2) 10) ((= 3 4) 20))"), Value::Unit);
+}
+
+#[test]
+fn cond_empty_returns_unit() {
+    assert_eq!(*run("(cond)"), Value::Unit);
+}
+
+#[test]
+fn cond_does_not_evaluate_later_branches() {
+    // If `(/ 1 0)` were evaluated we'd get a runtime error. The first clause
+    // matches, so the second clause's body is never reached.
+    assert_eq!(*run("(cond ((= 1 1) 42) (else (/ 1 0)))"), Value::Int(42));
+}
+
+#[test]
+fn for_returns_last_body_value() {
+    assert_eq!(*run("(for x [10 20 30] x)"), Value::Int(30));
+}
+
+#[test]
+fn for_over_empty_seq_returns_unit() {
+    assert_eq!(*run("(for x [] x)"), Value::Unit);
+}
+
+#[test]
+fn for_iterates_via_ref_accumulator() {
+    let src = "
+        (let! sum 0)
+        (for x [1 2 3 4] (set! sum (+ sum x)))
+        (deref sum)";
+    assert_eq!(*run(src), Value::Int(10));
+}
+
+#[test]
+fn for_iterates_over_list() {
+    let src = "
+        (let! sum 0)
+        (for x '(5 10 15) (set! sum (+ sum x)))
+        (deref sum)";
+    assert_eq!(*run(src), Value::Int(30));
+}
+
+#[test]
+fn for_binds_loop_var_in_body() {
+    let src = "
+        (let! last 0)
+        (for x [7 8 9] (set! last x))
+        (deref last)";
+    assert_eq!(*run(src), Value::Int(9));
+}
+
+#[test]
+fn loop_returns_last_body_value() {
+    assert_eq!(*run("(loop 5 (+ 1 1))"), Value::Int(2));
+}
+
+#[test]
+fn loop_zero_iterations_returns_unit() {
+    assert_eq!(*run("(loop 0 99)"), Value::Unit);
+}
+
+#[test]
+fn loop_runs_n_times() {
+    let src = "
+        (let! c 0)
+        (loop 7 (set! c (+ c 1)))
+        (deref c)";
+    assert_eq!(*run(src), Value::Int(7));
+}
+
+#[test]
+fn while_runs_until_cond_falsy() {
+    let src = "
+        (let! i 0)
+        (let! sum 0)
+        (while (< i 5)
+          (set! sum (+ sum i))
+          (set! i (+ i 1)))
+        (deref sum)";
+    assert_eq!(*run(src), Value::Int(10));
+}
+
+#[test]
+fn while_returns_last_body_value() {
+    let src = "
+        (let! i 0)
+        (while (< i 3) (set! i (+ i 1)))";
+    assert_eq!(*run(src), Value::Int(3));
+}
+
+#[test]
+fn while_returns_unit_when_cond_initially_false() {
+    assert_eq!(*run("(while (= 1 2) 99)"), Value::Unit);
+}
