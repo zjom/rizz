@@ -387,11 +387,12 @@ Each `!`-suffixed op takes a ref whose cell holds a specific collection kind,
 mutates it, and returns the post-mutation value that the cell now holds. They
 error if the first argument is not a ref, or if its cell does not hold the
 expected inner type. They do not work on bare collections — for non-mutating
-updates use the unsuffixed forms (`push`, `put`, `del`, `cons`).
+updates use the unsuffixed forms (`push`, `pop`, `put`, `del`, `cons`).
 
 | Name    | Arity | Cell type | Description                        |
 | ------- | ----- | --------- | ---------------------------------- |
 | `push!` | 2     | array     | Appends an element.                |
+| `pop!`  | 1     | array     | Removes the last element.          |
 | `put!`  | 3     | map       | Inserts `(k → v)`.                 |
 | `del!`  | 2     | map       | Removes a key; no-op if absent.    |
 | `car!`  | 2     | cons      | Replaces the head; tail preserved. |
@@ -510,6 +511,8 @@ All builtins are bound in the initial env. Names and arities below; see
 | ------------ | ----- | ------------------------------------------------------------ |
 | `push`       | 2     | Append an element.                                           |
 | `push!`      | 2     | In-place append on a ref-of-array (see §8.2).                |
+| `pop`        | 1     | Remove the last element; empty array stays empty.            |
+| `pop!`       | 1     | In-place remove-last on a ref-of-array (see §8.2).           |
 | `range`      | 2     | Array of ints in `[start, end)`.                             |
 | `array-of`   | 1     | Constructs an array with a single value.                     |
 | `array-from` | 1     | Constructs an array from `xs`. Traverses if `xs` is iterable |

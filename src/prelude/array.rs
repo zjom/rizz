@@ -11,6 +11,8 @@ pub fn env() -> Env {
     Env::of_builtins(vec![
         ("push", push()),
         ("push!", push_bang()),
+        ("pop", pop()),
+        ("pop!", pop_bang()),
         ("range", range()),
         ("array-of", of()),
         ("array-from", from()),
@@ -85,6 +87,40 @@ fn push_bang() -> NativeFn {
             Ok(Rc::new(new))
         }
         other => Err(RuntimeError::type_mismatch("push!", "ref", other)),
+    })
+}
+
+/// `(pop arr)`: a new array with the last element removed. Returns an empty
+/// array unchanged.
+fn pop() -> NativeFn {
+    NativeFn::pure("pop".into(), 1, |args| match &*args[0] {
+        Value::Array(xs) => {
+            let mut out = xs.clone();
+            out.pop_back();
+            Ok(Rc::new(Value::Array(out)))
+        }
+        other => Err(RuntimeError::type_mismatch("pop", "array", other)),
+    })
+}
+
+/// `(pop! ref)`: removes the last element from the array held in `ref` and
+/// returns the new array. Errors if `ref` is not a ref, or its cell does not
+/// hold an array.
+fn pop_bang() -> NativeFn {
+    NativeFn::pure("pop!".into(), 1, |args| match &*args[0] {
+        Value::Ref(cell) => {
+            let new = match &*cell.borrow() {
+                Value::Array(xs) => {
+                    let mut out = xs.clone();
+                    out.pop_back();
+                    Value::Array(out)
+                }
+                other => return Err(RuntimeError::type_mismatch("pop!", "ref<array>", other)),
+            };
+            *cell.borrow_mut() = new.clone();
+            Ok(Rc::new(new))
+        }
+        other => Err(RuntimeError::type_mismatch("pop!", "ref", other)),
     })
 }
 
