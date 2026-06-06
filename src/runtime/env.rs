@@ -32,6 +32,13 @@ impl Env {
     pub fn union(self, other: Self) -> Self {
         Self(self.0.union(other.0))
     }
+
+    pub fn filter<P>(self, p: P) -> Self
+    where
+        P: FnMut(&(Rc<str>, Rc<Value>)) -> bool,
+    {
+        Env(self.0.into_iter().filter(p).collect())
+    }
 }
 
 impl Default for Env {
