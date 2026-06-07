@@ -1,4 +1,4 @@
-//! Reflection builtins: `typeof`, `show`, `id`.
+//! Reflection builtins: `typeof`, `show`, `id`, `empty-of`.
 //!
 //! - `typeof` returns the type name of a value as an ident, matching
 //!   [`Value::type_name`].
@@ -8,6 +8,9 @@
 //!   form so end users can do `(show 'fn)` to look up syntax.
 //! - `id` is the identity function — handy as a no-op argument to
 //!   higher-order operations like `compose`.
+//! - `empty-of` returns an "empty" value of the same variant as its
+//!   argument (0 for ints, "" for strings, [] for arrays, etc.), peeling
+//!   through refs.
 
 use crate::{
     Env,
@@ -15,13 +18,19 @@ use crate::{
         KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_DOC, KW_EVAL, KW_IF, KW_OPEN,
         KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
     },
-    runtime::{NativeFn, Value},
+    runtime::{Closure, NativeFn, Value},
 };
+use im::{HashMap, Vector};
 use std::rc::Rc;
 
-/// All reflection builtins: `typeof`, `show`, `id`.
+/// All reflection builtins: `typeof`, `show`, `id`, `empty-of`.
 pub fn env() -> Env {
-    Env::of_builtins(vec![("typeof", typeof_()), ("show", show()), ("id", id())])
+    Env::of_builtins(vec![
+        ("typeof", typeof_()),
+        ("show", show()),
+        ("id", id()),
+        ("empty-of", empty_of()),
+    ])
 }
 
 /// `(typeof v)`: the variant name of `v` as an ident (e.g. `'int`, `'cons`).
@@ -73,6 +82,54 @@ fn show() -> NativeFn {
          available. Refs are peeled so (show (deref r)) and (show r) behave the same."
             .into(),
     )
+}
+
+/// `(empty-of v)`: returns an "empty" value of the same variant as `v` —
+/// `0` for ints, `0.0` for floats, `""` for strings, the empty ident for
+/// idents, `()` for cons/unit, an empty array/map for arrays/maps, and a
+/// nullary `() -> ()` callable for closures/macros/native fns. Refs are
+/// peeled: the result mirrors the inner value's variant and is not
+/// re-wrapped in a ref.
+fn empty_of() -> NativeFn {
+    NativeFn::pure("empty-of".into(), 1, |args| {
+        Ok(Rc::new(empty_of_aux(&args[0])))
+    })
+    .with_doc(
+        "(empty-of v): returns an empty value of the same variant as v \
+         (0 for ints, 0.0 for floats, \"\" for strings, the empty ident for idents, \
+         () for cons/unit, [] for arrays, {} for maps, and a nullary () -> () callable \
+         for closures/macros/native fns). Refs are peeled — the result mirrors the \
+         inner value's variant and is not re-wrapped in a ref."
+            .into(),
+    )
+}
+
+fn empty_of_aux(value: &Value) -> Value {
+    let unit_closure = Rc::new(Closure {
+        name: "".into(),
+        params: vec![],
+        rest: None,
+        body: Rc::new(Value::Unit),
+        env: Env::new(),
+        doc: None,
+    });
+    match value {
+        Value::Str(_) => "".into(),
+        Value::Int(_) => 0.into(),
+        Value::Float(_) => 0f64.into(),
+        Value::Ident(_) => Value::Ident("".into()),
+        Value::Cons { .. } | Value::Unit => Value::Unit,
+        Value::NativeFn(_) => Value::NativeFn(Rc::new(unit())),
+        Value::Closure(_) => Value::Closure(unit_closure.clone()),
+        Value::Macro(_) => Value::Macro(unit_closure.clone()),
+        Value::Array(_) => Value::Array(Vector::new()),
+        Value::Map(_) => Value::Map(HashMap::new()),
+        Value::Ref(refc) => empty_of_aux(&refc.borrow().clone()),
+    }
+}
+
+fn unit() -> NativeFn {
+    NativeFn::pure("".into(), 0, |_| Ok(Rc::new(Value::Unit)))
 }
 
 fn doc_of(v: &Value) -> Option<Rc<str>> {

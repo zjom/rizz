@@ -655,11 +655,30 @@ See §8 for full semantics.
 
 ### 11.9 Reflection (`meta`)
 
-| Name     | Arity | Description                                                                     |
-| -------- | ----- | ------------------------------------------------------------------------------- |
-| `typeof` | 1     | Ident of the type of the value.                                                 |
-| `show`   | 1     | Doc string attached to a closure/macro/native fn (or `()` if none). See §11.10. |
-| `id`     | 1     | Identity of the value. i.e., returns itself                                     |
+| Name       | Arity | Description                                                                     |
+| ---------- | ----- | ------------------------------------------------------------------------------- |
+| `typeof`   | 1     | Ident of the type of the value.                                                 |
+| `show`     | 1     | Doc string attached to a closure/macro/native fn (or `()` if none). See §11.10. |
+| `id`       | 1     | Identity of the value. i.e., returns itself                                     |
+| `empty-of` | 1     | An "empty" value of the same variant as the argument. See below.                |
+
+`(empty-of v)` returns a value of the same variant as `v` in its "empty"
+or zero state:
+
+| Variant of `v`                  | Result                            |
+| ------------------------------- | --------------------------------- |
+| `int`                           | `0`                               |
+| `float`                         | `0.0`                             |
+| `str`                           | `""`                              |
+| `ident`                         | the empty ident                   |
+| `cons`, `unit`                  | `()`                              |
+| `array`                         | `[]`                              |
+| `map`                           | `{}`                              |
+| `closure`, `macro`, `native-fn` | a nullary callable returning `()` |
+| `ref`                           | `(empty-of (deref v))` — peeled   |
+
+Refs are peeled, not preserved: `(empty-of (ref 7))` is `0`, not a fresh
+ref holding `0`.
 
 ### 11.10 Documentation (`show`)
 
