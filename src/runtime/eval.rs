@@ -281,21 +281,76 @@ where
 /// An optional `(doc "...")` form may sit between the params and the body
 /// (`(fn NAME PARAMS (doc "...") BODY)`); the doc is attached to the closure
 /// and retrievable via the `show` builtin.
+///
+/// `NAME` is optional: `(fn PARAMS BODY)` and `(fn PARAMS (doc ...) BODY)` build
+/// an anonymous closure that is not bound into the surrounding env. Anonymous
+/// closures cannot self-reference by name, so they cannot recurse.
 fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, params_form, doc, body) = split_callable_form(KW_DEFUN, &items, env)?;
+    let (name, params_form, doc, body) = split_fn_form(&items, env)?;
     let (params, rest) = parse_param_list(KW_DEFUN, &params_form)?;
 
     let closure = Rc::new(Value::Closure(Rc::new(Closure {
-        name: name.clone(),
+        name: name.clone().unwrap_or_else(|| "".into()),
         params,
         rest,
         body,
         env: env.clone(),
         doc,
     })));
-    let env = env.clone().update(name, closure.clone());
+    let env = match name {
+        Some(n) => env.clone().update(n, closure.clone()),
+        None => env.clone(),
+    };
     Ok((closure, env))
+}
+
+/// Splits the tail of a `fn` form into `(name, params, doc, body)`. Accepts:
+/// - `(PARAMS BODY)` — anonymous.
+/// - `(PARAMS (doc ...) BODY)` — anonymous with doc.
+/// - `(NAME PARAMS BODY)` — named.
+/// - `(NAME PARAMS (doc ...) BODY)` — named with doc.
+///
+/// The 3-element shape disambiguates on whether the middle item is a `(doc ...)`
+/// form: if yes, it's the anonymous-with-doc shape; otherwise it's the named
+/// shape. This means a 3-element call with a non-ident first slot still falls
+/// into the named path and surfaces a "name must be ident" error.
+fn split_fn_form(
+    items: &[Rc<Value>],
+    env: &Env,
+) -> Result<(Option<Rc<str>>, Rc<Value>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
+    match items.len() {
+        2 => Ok((None, items[0].clone(), None, items[1].clone())),
+        3 if is_doc_form(&items[1]) => {
+            let doc = parse_doc_form(KW_DEFUN, &items[1], env)?;
+            Ok((None, items[0].clone(), Some(doc), items[2].clone()))
+        }
+        3 => {
+            let name = expect_name(&items[0])?;
+            Ok((Some(name), items[1].clone(), None, items[2].clone()))
+        }
+        4 if is_doc_form(&items[2]) => {
+            let name = expect_name(&items[0])?;
+            let doc = parse_doc_form(KW_DEFUN, &items[2], env)?;
+            Ok((Some(name), items[1].clone(), Some(doc), items[3].clone()))
+        }
+        _ => Err(RuntimeError::ArityMismatch {
+            name: KW_DEFUN.into(),
+            expected: 3,
+            got: items.len(),
+        }),
+    }
+}
+
+fn expect_name(form: &Rc<Value>) -> Result<Rc<str>, RuntimeError> {
+    match &**form {
+        Value::Ident(name) => Ok(name.clone()),
+        other => Err(RuntimeError::TypeMismatch {
+            name: KW_DEFUN.into(),
+            expected: "ident".into(),
+            got: Value::type_name(other).into(),
+        }),
+    }
 }
 
 /// Splits the tail of a `fn` / `defmacro` form into `(name, params, doc, body)`.
@@ -1226,17 +1281,76 @@ mod tests {
 
     #[test]
     fn defun_arity_error() {
-        // (fn f (x)) is missing a body.
-        let form = list(vec![ident(KW_DEFUN), ident("f"), list(vec![ident("x")])]);
+        // (fn) is missing params and body — below even the anonymous min.
+        let form = list(vec![ident(KW_DEFUN)]);
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
                 expected: 3,
-                got: 2,
+                got: 0,
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn defun_anonymous_returns_closure_without_binding() {
+        // (fn (x) x): no NAME slot — produces a closure but does not extend env.
+        let form = list(vec![
+            ident(KW_DEFUN),
+            list(vec![ident("x")]),
+            ident("x"),
+        ]);
+        let (v, env) = eval_ok(form, &Env::new());
+        assert!(matches!(
+            &*v,
+            Value::Closure(c) if c.params.len() == 1 && &*c.params[0] == "x" && c.name.is_empty()
+        ));
+        assert!(env.get(&Rc::from("")).is_none());
+    }
+
+    #[test]
+    fn defun_anonymous_callable_inline() {
+        // ((fn (x) x) 7) -> 7
+        let lambda = list(vec![
+            ident(KW_DEFUN),
+            list(vec![ident("x")]),
+            ident("x"),
+        ]);
+        let form = list(vec![lambda, int(7)]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(*v, Value::Int(7));
+    }
+
+    #[test]
+    fn defun_anonymous_with_doc() {
+        // (fn (x) (doc "id") x) -> doc attaches to the closure.
+        let form = list(vec![
+            ident(KW_DEFUN),
+            list(vec![ident("x")]),
+            list(vec![ident(KW_DOC), string("id")]),
+            ident("x"),
+        ]);
+        let (v, _) = eval_ok(form, &Env::new());
+        match &*v {
+            Value::Closure(c) => {
+                assert!(c.name.is_empty());
+                assert_eq!(c.doc.as_deref(), Some("id"));
+            }
+            other => panic!("expected closure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn defun_anonymous_with_variadic_rest() {
+        // (fn xs xs) — bare ident params: fully variadic. Calling with (1 2 3)
+        // bundles args into a list. Anonymous, so xs is the params name, not
+        // the function name.
+        let lambda = list(vec![ident(KW_DEFUN), ident("xs"), ident("xs")]);
+        let form = list(vec![lambda, int(1), int(2), int(3)]);
+        let (v, _) = eval_ok(form, &Env::new());
+        assert_eq!(v, list(vec![int(1), int(2), int(3)]));
     }
 
     // ----- if special form -----

@@ -232,12 +232,21 @@ ident; a malformed `doc` form.
 (fn NAME (PARAMS... . REST) BODY)   ;; variadic via dotted tail
 (fn NAME REST BODY)                 ;; variadic via bare ident — all args bundled
 (fn NAME PARAMS (doc STR+) BODY)    ;; optional doc slot
+(fn PARAMS BODY)                    ;; anonymous — no env binding
+(fn PARAMS (doc STR+) BODY)         ;; anonymous with doc slot
 ```
 
-Creates a closure capturing the current env (lexical scope), binds it under
-`NAME`, and returns the closure. The closure's own name is bound inside the
-body, which is what enables recursion. `PARAMS` is a list of identifiers (use
+Creates a closure capturing the current env (lexical scope) and returns the
+closure. When `NAME` is given, the closure is also bound under `NAME` in the
+surrounding env and bound under its own name inside the body — that
+self-binding is what enables recursion. `PARAMS` is a list of identifiers (use
 `()` for zero parameters).
+
+The 3-element shape is disambiguated by whether the middle item is a
+`(doc ...)` form: `(fn xs (doc "hi") body)` is anonymous-with-doc, while
+`(fn xs (a b) body)` is named (`xs` is the name, `(a b)` the params). An
+anonymous closure is not introduced into the surrounding env and cannot
+self-reference by name, so it cannot recurse — use a named `fn` for that.
 
 An optional `(doc "..." "..." ...)` form may sit between `PARAMS` and `BODY`.
 The strings are joined with `\n` and stored on the closure; the doc is
@@ -253,8 +262,9 @@ positional count is an `ArityMismatch`.
 
 The body is a single form; for multi-step bodies wrap with `do`.
 
-Errors: arity ≠ 3; `NAME` not an ident; any param (positional or rest) not an
-ident.
+Errors: arity outside `2..=4` (or a 3-element form whose first slot is not an
+ident when the middle slot is not a `(doc ...)` form); any param (positional or
+rest) not an ident.
 
 ### 5.3 `if` — conditional
 

@@ -84,6 +84,32 @@ fn inline_function_application() {
 }
 
 #[test]
+fn anonymous_fn_inline_call() {
+    // (fn PARAMS BODY) with no NAME slot — produces a closure callable in place.
+    assert_eq!(*run("((fn (x) (* x x)) 6)"), Value::Int(36));
+}
+
+#[test]
+fn anonymous_fn_does_not_bind_in_env() {
+    // The anonymous closure must not leak any binding; referencing `x` after
+    // would error with UnknownIdent. Sequence its definition then a use of its
+    // value to check no name was introduced for the closure itself.
+    assert_eq!(
+        *run("(let f (fn (x) (+ x 1))) (f 4)"),
+        Value::Int(5)
+    );
+}
+
+#[test]
+fn anonymous_fn_with_variadic_rest() {
+    // Bare-ident params: `xs` is the params name (fully variadic), not a fn name.
+    assert_eq!(
+        *run("((fn xs xs) 1 2 3)"),
+        int_list(&[1, 2, 3])
+    );
+}
+
+#[test]
 fn recursive_factorial() {
     assert_eq!(
         *run("((fn fact (n) (if (< n 1) 1 (* n (fact (- n 1))))) 5)"),
