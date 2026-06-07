@@ -21,6 +21,7 @@ use crate::parser::Sexp;
 use crate::runtime::Value;
 use std::{io::Read, rc::Rc};
 
+pub mod consts;
 pub mod parser;
 pub use parser::{ParseError, Parser};
 pub mod prelude;

@@ -6,22 +6,15 @@
 //! later forms. When a list's head is one of the keywords below it is handled
 //! as a special form; otherwise the list is a function application.
 
-use crate::runtime::{Closure, Env, RuntimeError, Value};
+use crate::{
+    consts::{
+        KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_EVAL, KW_IF, KW_QUASIQUOTE,
+        KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+    },
+    runtime::{Closure, Env, RuntimeError, Value},
+};
 use im::{HashMap, Vector};
 use std::{cell::RefCell, rc::Rc};
-
-// Identifiers that, in head position, are special forms rather than calls.
-const KW_DEFVAR: &str = "let";
-const KW_DEFVAR_REF: &str = "let!";
-const KW_DEFUN: &str = "fn";
-const KW_DEFMACRO: &str = "defmacro";
-const KW_QUOTE: &str = "quote";
-const KW_QUASIQUOTE: &str = "quasi";
-const KW_UNQUOTE: &str = "unquote";
-const KW_UNQUOTE_SPLICE: &str = "unquote-splice";
-const KW_IF: &str = "if";
-const KW_DO: &str = "do";
-const KW_EVAL: &str = "eval";
 
 /// Evaluates `form` in environment `ctx`, returning the value and the resulting
 /// environment.
