@@ -645,10 +645,11 @@ See §8 for full semantics.
 
 ### 11.9 Reflection (`meta`)
 
-| Name     | Arity | Description                                                                       |
-| -------- | ----- | --------------------------------------------------------------------------------- |
-| `typeof` | 1     | Ident of the type of the value.                                                   |
-| `show`   | 1     | Doc string attached to a closure/macro/native fn (or `()` if none). See §11.10.   |
+| Name     | Arity | Description                                                                     |
+| -------- | ----- | ------------------------------------------------------------------------------- |
+| `typeof` | 1     | Ident of the type of the value.                                                 |
+| `show`   | 1     | Doc string attached to a closure/macro/native fn (or `()` if none). See §11.10. |
+| `id`     | 1     | Identity of the value. i.e., returns itself                                     |
 
 ### 11.10 Documentation (`show`)
 

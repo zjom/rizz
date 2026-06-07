@@ -5,7 +5,7 @@ use crate::{
 use std::rc::Rc;
 
 pub fn env() -> Env {
-    Env::of_builtins(vec![("typeof", typeof_()), ("show", show())])
+    Env::of_builtins(vec![("typeof", typeof_()), ("show", show()), ("id", id())])
 }
 
 fn typeof_() -> NativeFn {
@@ -17,6 +17,11 @@ fn typeof_() -> NativeFn {
          'array, 'map, 'ref, 'cons, 'closure, 'macro, 'native-fn, 'ident, 'unit)."
             .into(),
     )
+}
+
+fn id() -> NativeFn {
+    NativeFn::pure("id".into(), 1, |args| Ok(args[0].clone()))
+        .with_doc("(id v): identity function for `v`. ie returns itself".into())
 }
 
 /// `(show v)`: returns the doc string attached to a closure, macro, or native
