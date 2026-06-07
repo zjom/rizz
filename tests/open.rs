@@ -19,12 +19,8 @@ impl TempDir {
     fn new(tag: &str) -> Self {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "rizz-open-{}-{}-{}",
-            std::process::id(),
-            n,
-            tag
-        ));
+        let path =
+            std::env::temp_dir().join(format!("rizz-open-{}-{}-{}", std::process::id(), n, tag));
         fs::create_dir_all(&path).expect("create temp dir");
         Self(path)
     }
