@@ -30,9 +30,8 @@ pub fn env() -> Env {
         .union(ref_::env())
         .union(meta::env());
 
-    let (_, env) =
-        crate::parse_and_run_with_env(Cursor::new(include_bytes!("./_.lisp")), &builtins)
-            .expect("prelude shouldn't fail");
+    let (_, env) = crate::parse_and_run_with_env(Cursor::new(include_bytes!("./_.rz")), &builtins)
+        .expect("prelude shouldn't fail");
     env
 }
 
