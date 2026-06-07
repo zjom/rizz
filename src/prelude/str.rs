@@ -1,10 +1,20 @@
-//! String builtins. Names use a `str-` prefix; `str-of` stringifies any value.
+//! String builtins.
+//!
+//! Names share a `str-` prefix except for `to-str` (and its alias `str-of`),
+//! which stringifies any value. Strings are immutable `Rc<str>` under the
+//! hood, so every transform returns a new string.
+//!
+//! Length, indexing, slicing, and the higher-order transforms are
+//! polymorphic and live in [`crate::prelude::collections`] — they treat a
+//! string as a sequence of one-char strings.
 
 use im::Vector;
 use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
+/// All string builtins bound to their canonical names (plus the
+/// `str-of` alias of `to-str`).
 pub fn env() -> Env {
     let mut env = Env::of_builtins(vec![
         ("to-str", to_str()),

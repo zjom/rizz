@@ -1,9 +1,14 @@
-//! The equality builtin.
+//! Equality and boolean-negation builtins: `= eq`, `!= neq`, `! not`.
+//!
+//! Equality is structural for data and identity for callables (see
+//! [`Value`](crate::runtime::Value)'s `PartialEq`). Booleans encode as
+//! ints — `1` is true, `0` is false — and follow the truthiness rule from
+//! [`Value::is_truthy`](crate::runtime::Value::is_truthy).
 
 use crate::runtime::{Env, NativeFn};
 use std::rc::Rc;
 
-/// The `=` builtin, which compares two values structurally.
+/// All equality builtins together with their `=` / `!=` / `!` aliases.
 pub fn env() -> Env {
     let mut entries: Vec<(&str, NativeFn)> = Vec::new();
     let mut aliases: Vec<(&str, &str)> = Vec::new();
@@ -34,7 +39,8 @@ pub fn env() -> Env {
     env
 }
 
-/// `ctx` extended with this module's builtins.
+/// Merges this module's builtins into `ctx`. On a name collision the
+/// equality builtins win.
 pub fn install(ctx: Env) -> Env {
     env().union(ctx)
 }

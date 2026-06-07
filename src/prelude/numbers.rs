@@ -1,10 +1,16 @@
 //! Arithmetic and comparison builtins.
 //!
-//! Every operator here is binary and works on two ints or two floats (never a
-//! mix). They share the generic `binop` machinery, which dispatches on the
-//! argument type and turns Rust-level faults (overflow, divide-by-zero, NaN)
-//! into [`RuntimeError::ArithmeticError`]. Comparisons return `1` for true
-//! and `0` for false.
+//! Every operator here is binary and works on two ints or two floats (never
+//! a mix — there is no implicit numeric coercion). They share the generic
+//! `binop` machinery, which dispatches on the argument type and turns
+//! Rust-level faults (overflow, divide-by-zero, NaN) into
+//! [`RuntimeError::ArithmeticError`]. Comparisons return `1` for true and
+//! `0` for false.
+//!
+//! Refs are transparently dereferenced for numeric ops, so e.g.
+//! `(+ (ref 5) 1)` evaluates to `6` without an explicit `deref`. See
+//! [`Numeric`] for how new numeric types could be
+//! plugged in.
 
 use crate::runtime::Numeric;
 use std::rc::Rc;

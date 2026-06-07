@@ -1,17 +1,23 @@
-//! Polymorphic collection builtins that dispatch on the runtime type of their
-//! collection argument: `len`, `get`, `concat`, `slice`, `contains?`,
-//! `reverse`, `first`, `rest`, `last`, `zip` and the higher-order transforms `fmap`,
-//! `fmapi`, `filter`, `reduce`. Supported collection shapes are strings, arrays, maps,
-//! and cons lists (with `()` treated as the empty list). The higher-order fns
-//! are *impure* so they receive the `Env` needed to invoke user closures via
-//! [`crate::runtime::apply`].
+//! Polymorphic collection builtins that dispatch on the runtime type of
+//! their collection argument: `len`, `get`, `concat`, `slice`, `contains?`,
+//! `reverse`, `first`, `rest`, `last`, `find`, `all`, `any`, `zip`, and the
+//! higher-order transforms `fmap`, `fmapi`, `filter`, `reduce`.
 //!
-//! Caveat: the evaluator re-evaluates whatever value a native fn returns, so for
-//! a returned array each element is evaluated a second time. Self-evaluating
-//! elements (ints, floats, strings, units, and arrays/maps of those) are
-//! unaffected. An `fmap`/`filter` callback that returns a non-self-evaluating
-//! value — a closure or an unquoted identifier — would thus be re-evaluated by
-//! the caller and misbehave; current callbacks return data, so this isn't hit.
+//! Supported collection shapes are strings, arrays, maps, and cons lists,
+//! with `()` treated as the empty list. The exact callback shape varies by
+//! collection — see each builtin's doc string for the per-shape signature
+//! (notably: map callbacks see `(k v)` instead of `x`, and `fmap` over a
+//! map returns a fresh `[k' v']`).
+//!
+//! Higher-order builtins are constructed via [`NativeFn::with_env`] so they
+//! can dispatch user-supplied callables through [`crate::runtime::apply`].
+//!
+//! Caveat: the evaluator re-evaluates whatever value a native fn returns,
+//! so for a returned array each element is evaluated a second time.
+//! Self-evaluating elements (ints, floats, strings, units, and arrays/maps
+//! of those) are unaffected. A callback that returns a non-self-evaluating
+//! value — a closure or a bare identifier — would be re-evaluated by the
+//! caller and misbehave; current callbacks return data, so this isn't hit.
 
 use crate::prelude::cons::{cons_list, is_list};
 use crate::runtime::apply;
@@ -20,6 +26,7 @@ use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
+/// All polymorphic collection builtins bound to their canonical names.
 pub fn env() -> Env {
     Env::of_builtins(vec![
         ("all", all()),

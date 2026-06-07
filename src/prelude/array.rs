@@ -1,12 +1,19 @@
-//! Array construction builtins: `push` and `range`. The higher-order
-//! transforms (`fmap`, `filter`, `reduce`) are polymorphic over all collections
-//! and live in [`crate::prelude::collections`].
+//! Array builtins: construction (`push`, `pop`, `range`, `array-of`,
+//! `array-from`) and the in-place variants `push!` / `pop!`.
+//!
+//! Arrays are persistent ([`im::Vector`]); the unsuffixed ops return a new
+//! array sharing structure with the input, the `!` variants mutate an
+//! array held in a [`Value::Ref`].
+//!
+//! The polymorphic transforms (`fmap`, `filter`, `reduce`, `len`, `get`, …)
+//! work on arrays too — they live in [`crate::prelude::collections`].
 
 use im::{Vector, vector};
 use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
+/// All array builtins bound to their canonical names.
 pub fn env() -> Env {
     Env::of_builtins(vec![
         ("push", push()),

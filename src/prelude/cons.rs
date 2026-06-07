@@ -1,7 +1,9 @@
-//! Cons-cell primitives: `cons`, `car`, `cdr`. A cons list is a chain of
-//! `Cons { head, tail }` values terminated by `()` (unit). To produce a
-//! literal list use `(quote (a b c))`; to build one programmatically chain
-//! `cons` calls or splice from another list.
+//! Cons-cell primitives: `cons`, `car`, `cdr`, plus the in-place variants
+//! `car!` / `cdr!`.
+//!
+//! A cons list is a chain of `Cons { head, tail }` values terminated by `()`
+//! (unit). To produce a literal list use `(quote (a b c))`; to build one
+//! programmatically chain `cons` calls or splice from another list.
 //!
 //! Polymorphic list operations (`len`, `get`, `first`, `fmap`, …) live in
 //! [`crate::prelude::collections`] and treat `Unit` as the empty list.
@@ -10,6 +12,7 @@ use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn, RuntimeError, Value};
 
+/// All cons builtins bound to their canonical names.
 pub fn env() -> Env {
     Env::of_builtins(vec![
         ("cons", cons()),

@@ -1,3 +1,11 @@
+//! Map builtins: `put`, `del`, `keys`, `values`, and the in-place variants
+//! `put!`, `del!`. Maps are persistent ([`im::HashMap`]) and keyed by any
+//! [`Value`]; the unsuffixed ops return a new map sharing structure with the
+//! input, the `!` variants mutate a map held in a [`Value::Ref`].
+//!
+//! The polymorphic readers (`len`, `get`, `contains?`, `fmap`, …) work on
+//! maps too — they live in [`crate::prelude::collections`].
+
 use im::{HashMap, Vector};
 
 use crate::runtime::{RuntimeError, Value};
@@ -5,6 +13,7 @@ use std::rc::Rc;
 
 use crate::runtime::{Env, NativeFn};
 
+/// All map builtins bound to their canonical names.
 pub fn env() -> Env {
     Env::of_builtins(vec![
         ("put", put()),
@@ -16,6 +25,7 @@ pub fn env() -> Env {
     ])
 }
 
+/// `(put m k v)`: returns a new map with `k` bound to `v`; `m` is unchanged.
 fn put() -> NativeFn {
     NativeFn::pure("put".into(), 3, |args| match &*args[0] {
         Value::Map(m) => {

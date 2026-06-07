@@ -1,3 +1,14 @@
+//! Reflection builtins: `typeof`, `show`, `id`.
+//!
+//! - `typeof` returns the type name of a value as an ident, matching
+//!   [`Value::type_name`].
+//! - `show` retrieves documentation attached at definition time (via the
+//!   `(doc "...")` slot on `let`/`let!`/`fn`/`defmacro`). For an ident
+//!   naming a special form, it returns the built-in description of that
+//!   form so end users can do `(show 'fn)` to look up syntax.
+//! - `id` is the identity function — handy as a no-op argument to
+//!   higher-order operations like `compose`.
+
 use crate::{
     Env,
     consts::{
@@ -8,10 +19,12 @@ use crate::{
 };
 use std::rc::Rc;
 
+/// All reflection builtins: `typeof`, `show`, `id`.
 pub fn env() -> Env {
     Env::of_builtins(vec![("typeof", typeof_()), ("show", show()), ("id", id())])
 }
 
+/// `(typeof v)`: the variant name of `v` as an ident (e.g. `'int`, `'cons`).
 fn typeof_() -> NativeFn {
     NativeFn::pure("typeof".into(), 1, |args| {
         Ok(Rc::new(Value::Ident(Value::type_name(&args[0]).into())))
@@ -23,6 +36,7 @@ fn typeof_() -> NativeFn {
     )
 }
 
+/// `(id v)`: identity function — returns `v` unchanged.
 fn id() -> NativeFn {
     NativeFn::pure("id".into(), 1, |args| Ok(args[0].clone()))
         .with_doc("(id v): identity function for `v`. ie returns itself".into())

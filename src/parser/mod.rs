@@ -26,34 +26,58 @@ use std::{
 use std::rc::Rc;
 
 /// A leaf token: a string literal, integer, float, or identifier.
+///
+/// Identifiers are interned across the parse — equal names share one
+/// `Rc<str>` allocation — so comparing or hashing them is `Rc`-fast.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Atomic {
+    /// A UTF-8 string literal with `\"`, `\\`, `\n`, `\r`, `\t` escapes.
     Str(Rc<str>),
+    /// A 64-bit signed integer. Overflow at parse time is an error.
     Int(i64),
+    /// A 64-bit IEEE-754 float. `1.` parses as `1.0`.
     Float(OrderedFloat<f64>),
+    /// An identifier — anything that isn't a delimiter, comment, number,
+    /// or string. Punctuation like `+`, `<=`, `set!` are valid identifiers.
     Ident(Rc<str>),
 }
 
-/// A parsed s-expression. Lists are cons chains of `Exp { head, tail }` ending
-/// in `Unit`, which also stands for the empty list `()` (nil).
+/// A parsed s-expression. Lists are cons chains of `Exp { head, tail }`
+/// ending in `Unit`, which also stands for the empty list `()` (nil).
+///
+/// `Sexp` is the parser's output type and the input the runtime lowers
+/// into [`crate::runtime::Value`] (via the `From<Sexp> for Value` impl)
+/// before evaluating. Use it directly when you want tooling that only
+/// needs the AST — formatters, linters, source rewriters.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Sexp {
+    /// The empty list / nil sentinel.
     Unit,
+    /// An atom: int, float, string, or identifier.
     Atom(Atomic),
+    /// A cons cell `(head . tail)`. Proper lists terminate in `Unit`;
+    /// improper (dotted) lists end in some other `Sexp`.
     Exp { head: Rc<Sexp>, tail: Rc<Sexp> },
+    /// An array `[...]` or map `{...}` literal.
     Collection(Collection),
 }
 
+/// A bracketed collection literal.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Collection {
+    /// `[a b c]` — a persistent vector of forms.
     Array(Vector<Rc<Sexp>>),
+    /// `{k: v, ...}` — a persistent map keyed by any `Sexp`.
     Map(HashMap<Rc<Sexp>, Rc<Sexp>>),
 }
 
 /// A streaming recursive-descent parser over any [`Read`] source.
 ///
-/// `list_depth` tracks open parentheses so an EOF can be reported as a missing
-/// close brace; `idents` interns identifier names across the parse.
+/// Reads one buffer at a time, so the source can be a file, a network
+/// stream, or anything else implementing [`Read`] — there's no need to
+/// slurp the entire input into memory first. Identifier names are
+/// interned via a private `HashSet`, so repeated names share one
+/// `Rc<str>` for the lifetime of the parse.
 pub struct Parser<R: Read> {
     reader: BufReader<R>,
     pos: Position,
@@ -68,7 +92,8 @@ impl<R> Parser<R>
 where
     R: Read,
 {
-    /// Creates a parser that reads from `r`.
+    /// A new parser that reads from `r`. The source is buffered
+    /// internally, so passing an unbuffered `Read` is fine.
     pub fn new(r: R) -> Self {
         Self {
             reader: BufReader::new(r),
@@ -78,11 +103,23 @@ where
         }
     }
 
-    /// Parses one or more top-level forms — each is an atom, list, collection,
-    /// or reader-macro form. Whitespace and `;;` line comments between forms
-    /// are skipped. Empty input (or comment-only input) is an error; otherwise
-    /// every form up to EOF is returned in source order so the caller can
-    /// evaluate them as an implicitly sequenced program.
+    /// Parse every top-level form to EOF.
+    ///
+    /// Each form is an atom, list, collection (`[...]` / `{...}`), or
+    /// reader-macro form (`'X`, `` `X ``, `,X`, `,@X`). Whitespace and `;;`
+    /// line comments between forms are skipped. Empty (or comment-only)
+    /// input is a [`ParseError::IOError`]; otherwise the returned `Vec` is
+    /// non-empty and in source order, ready for the runtime to evaluate as
+    /// an implicitly sequenced program.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rizz::Parser;
+    ///
+    /// let forms = Parser::new(b"(let x 1) (+ x 2)".as_ref()).parse().unwrap();
+    /// assert_eq!(forms.len(), 2);
+    /// ```
     pub fn parse(&mut self) -> Result<Vec<Sexp>, ParseError> {
         let mut forms = Vec::new();
         self.skip_trivia()?;
@@ -101,13 +138,17 @@ where
         }
     }
 
-    /// The set of identifier names interned so far. Repeated identifiers in the
-    /// source share a single `Rc<str>` drawn from this set.
+    /// The set of identifier names interned so far. Repeated identifiers
+    /// in the source share a single `Rc<str>` drawn from this set —
+    /// useful for tools that want to enumerate all the names used in a
+    /// program after a parse.
     pub fn idents(&self) -> &HashSet<Rc<str>> {
         &self.idents
     }
 
     /// Current parser position — points at the next byte to be consumed.
+    /// Useful for error reporting beyond what [`ParseError`] already
+    /// carries (e.g. printing a caret in the source).
     pub fn position(&self) -> Position {
         self.at()
     }
@@ -125,9 +166,7 @@ where
     fn parse_list_tail(&mut self) -> Result<Sexp, ParseError> {
         self.skip_trivia()?;
         if self.peek_one()? == b')' {
-            self.read_byte()?; // consume ')'
-            // Return the nil sentinel. Since parse() returns Sexp (not Rc<Sexp>),
-            // we unwrap the Unit variant directly.
+            self.read_byte()?;
             return Ok(Sexp::Unit);
         }
 
@@ -135,7 +174,7 @@ where
         self.skip_trivia()?;
 
         if self.peek_dotted_marker()? {
-            self.read_byte()?; // consume '.'
+            self.read_byte()?;
             self.skip_trivia()?;
             let tail = self.parse_expr()?;
             self.skip_trivia()?;
@@ -156,7 +195,6 @@ where
             });
         }
 
-        // Tail is either another list element (implicit cons) or `)` (nil terminator).
         let tail = if self.peek_one()? == b')' {
             self.read_byte()?;
             Sexp::Unit
@@ -183,7 +221,7 @@ where
         self.skip_trivia()?;
         let sexp = match self.peek_one()? {
             b'(' => {
-                self.read_byte()?; // consume '('
+                self.read_byte()?;
                 self.parse_list_tail()?
             }
             b'[' | b'{' => {

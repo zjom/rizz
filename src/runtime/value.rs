@@ -19,48 +19,94 @@ use crate::{
 // Core types
 // ---------------------------------------------------------------------------
 
-/// A runtime value. Most variants are data (and double as the AST the runtime
-/// walks); `NativeFn` and `Closure` are the two kinds of callable.
+/// A runtime value. Most variants are data (and double as the AST the
+/// runtime walks); `NativeFn`, `Closure`, and `Macro` are callable.
 ///
-/// Lists are `Cons` chains terminated by `Unit`, mirroring [`crate::parser::Sexp`].
-/// `Array` and `Map` mirror [`crate::parser::Collection`]. Floats are wrapped in
-/// [`OrderedFloat`] so that `Value` can be `Hash + Eq` and thus serve as a `Map`
-/// key.
+/// Lists are `Cons` chains terminated by `Unit`, mirroring
+/// [`crate::parser::Sexp`]. `Array` and `Map` mirror
+/// [`crate::parser::Collection`]. Floats are wrapped in [`OrderedFloat`] so
+/// `Value` can be `Hash + Eq` and thus serve as a `Map` key. `Ref` is the
+/// only mutable variant — every other variant is logically immutable, with
+/// builtins returning new values (collections share structure under the
+/// hood via `im`).
+///
+/// `Value` derives `Clone` but the underlying allocations are `Rc`-backed,
+/// so cloning is cheap; copy `Value` freely.
+///
+/// # Constructing values from Rust
+///
+/// Many `From` impls are provided so host code can hand off Rust values
+/// directly:
+///
+/// ```
+/// use rizz::runtime::Value;
+///
+/// let _: Value = 42i64.into();          // Value::Int
+/// let _: Value = 3.14f64.into();        // Value::Float
+/// let _: Value = "hi".into();           // Value::Str
+/// let _: Value = true.into();           // Value::Int(1) — booleans encode as ints
+/// let _: Value = vec![1i64, 2].into();  // Value::Array
+/// let _: Value = ().into();             // Value::Unit
+/// let _: Value = Option::<i64>::None.into(); // Value::Unit
+/// ```
 #[derive(Clone)]
 pub enum Value {
+    /// A UTF-8 string.
     Str(Rc<str>),
+    /// A 64-bit signed integer.
     Int(i64),
+    /// A 64-bit IEEE-754 float; ordered for hashing/equality (all NaNs
+    /// compare equal).
     Float(OrderedFloat<f64>),
+    /// An identifier — typically produced by `(quote x)`. Bare idents in
+    /// source resolve via the env and don't appear as runtime values.
     Ident(Rc<str>),
+    /// The unit value, also the empty list `()` (nil). Falsy.
     Unit,
+    /// A cons cell `(head . tail)`. Lists are cons chains terminated by
+    /// `Unit`; dotted (improper) lists end in some other value.
     Cons {
         head: Rc<Value>,
         tail: Rc<Value>,
     },
+    /// A Rust-implemented function. See [`NativeFn`] for the four flavors.
     NativeFn(Rc<NativeFn>),
+    /// A user-defined function captured at its definition site.
     Closure(Rc<Closure>),
-    /// A user-defined macro. Structurally a [`Closure`], but at a call site its
-    /// arguments are passed unevaluated; the body produces a form that is then
-    /// evaluated in the caller's environment.
+    /// A user-defined macro. Structurally a [`Closure`], but at a call
+    /// site its arguments are passed **unevaluated**; the body produces a
+    /// form that is then evaluated in the caller's environment.
     Macro(Rc<Closure>),
+    /// A persistent vector. Cheap to clone and update.
     Array(Vector<Rc<Value>>),
+    /// A persistent hash map keyed by any [`Value`].
     Map(HashMap<Rc<Value>, Rc<Value>>),
+    /// A mutable cell — the only path to in-place mutation in rizz.
+    /// Multiple bindings of the same ref share its cell.
     Ref(Rc<RefCell<Value>>),
 }
 
-/// A user-defined function: its `name`, parameter names, body form, and the
-/// `env` captured where it was defined (lexical scope). The name lets the body
-/// refer to itself, which is what enables recursion.
+/// A user-defined function. Backs both [`Value::Closure`] and
+/// [`Value::Macro`] — the difference is in how the call site treats the
+/// arguments (evaluated for closures, raw for macros).
 ///
-/// `rest` is `Some(name)` for variadic functions declared with a dotted-tail
-/// param list `(a b . rest)` (or a bare-ident param list `args`, which is
-/// shorthand for "zero positional params, rest is everything"). At a call site
-/// the trailing arguments past `params.len()` are bundled into a cons list and
-/// bound under that name. For fixed-arity functions `rest` is `None`.
+/// # Fields
 ///
-/// `doc` is the optional documentation string attached at definition time via
-/// the `(doc ...)` form (see [`crate::runtime::eval`]). It is surfaced by the
-/// `show` builtin.
+/// - `name` — the function's own identifier. Bound inside the body so the
+///   function can recurse; empty for anonymous closures.
+/// - `params` — positional parameter names.
+/// - `rest` — `Some(name)` for variadic functions declared with a
+///   dotted-tail param list `(a b . rest)` (or a bare-ident param list,
+///   which is shorthand for "zero positional params, rest is everything").
+///   At a call site the trailing arguments past `params.len()` are bundled
+///   into a cons list and bound under that name. `None` for fixed arity.
+/// - `body` — a single form. Multi-step bodies use `do`.
+/// - `env` — the lexical env captured at definition. Closures capture by
+///   snapshot, not by reference, so later rebindings in the outer env
+///   don't affect what the body sees (refs are the explicit escape hatch
+///   for shared mutable state).
+/// - `doc` — optional documentation attached via the `(doc ...)` slot at
+///   definition. Surfaced by the `show` builtin.
 #[derive(Clone, PartialEq)]
 pub struct Closure {
     pub name: Rc<str>,
@@ -100,8 +146,9 @@ impl Value {
         }
     }
 
-    /// The variant's name, for use in error messages.
-    // TODO: recurse into collection types and show full type
+    /// Like [`type_name`](Self::type_name), but reserved for future
+    /// recursion into collection element types. Currently identical to
+    /// [`type_name`](Self::type_name).
     pub fn type_name_full(v: &Value) -> &'static str {
         match v {
             Self::Str(_) => "str",
@@ -119,7 +166,16 @@ impl Value {
         }
     }
 
-    // --- Constructors ---
+    /// Build a cons list out of `xs`, terminated by `Unit`. Each element
+    /// is converted into a [`Value`] via its `Into` impl, so any sequence
+    /// of types that convert into `Value` can be turned into a list:
+    ///
+    /// ```
+    /// use rizz::runtime::Value;
+    /// let v = Value::cons_of(vec![1i64, 2, 3]);
+    /// // structurally equivalent to (quote (1 2 3))
+    /// # assert!(matches!(v, Value::Cons { .. }));
+    /// ```
     pub fn cons_of<T>(xs: impl IntoIterator<Item = T, IntoIter: DoubleEndedIterator>) -> Value
     where
         T: Into<Value> + Clone,
@@ -130,10 +186,10 @@ impl Value {
         })
     }
 
-    // --- Type predicates ---
-
-    /// Whether the value counts as true in a condition. Everything is truthy
-    /// except `Unit`, zero numbers, and empty strings/identifiers.
+    /// Whether the value counts as true in a condition. Everything is
+    /// truthy except: `Unit`, `Int(0)`, `Float(0.0)`, the empty string,
+    /// the empty identifier, `[]`, `{}`, and any [`Ref`](Self::Ref)
+    /// whose current contents are falsy.
     pub fn is_truthy(&self) -> bool {
         match self {
             Self::Str(s) => !s.is_empty(),
@@ -151,6 +207,9 @@ impl Value {
         }
     }
 
+    /// Whether the value can appear in head position of a call.
+    /// True for [`NativeFn`](Self::NativeFn), [`Closure`](Self::Closure),
+    /// and any [`Ref`](Self::Ref) whose cell ultimately holds one of those.
     pub fn is_callable(&self) -> bool {
         match self {
             Value::NativeFn(_) | Value::Closure(_) => true,
@@ -159,6 +218,7 @@ impl Value {
         }
     }
 
+    /// Whether the value is `Unit` (or a ref ultimately holding `Unit`).
     pub fn is_unit(&self) -> bool {
         match self {
             Value::Unit => true,
@@ -167,6 +227,7 @@ impl Value {
         }
     }
 
+    /// Whether the value is `Int` or `Float` (or a ref ultimately holding one).
     pub fn is_numeric(&self) -> bool {
         match self {
             Value::Float(_) | Value::Int(_) => true,
@@ -175,8 +236,8 @@ impl Value {
         }
     }
 
-    // --- Accessors ---
-
+    /// `Some(n)` for `Int(n)` or a ref-chain ending in one; `None` otherwise.
+    /// The `as_*` family follows this same "peel refs, match variant" shape.
     pub fn as_int(&self) -> Option<i64> {
         match self {
             Value::Int(n) => Some(*n),
@@ -185,6 +246,7 @@ impl Value {
         }
     }
 
+    /// `Some(f)` for `Float(f)` or a ref-chain ending in one.
     pub fn as_float(&self) -> Option<f64> {
         match self {
             Value::Float(n) => Some(n.0),
@@ -193,6 +255,9 @@ impl Value {
         }
     }
 
+    /// `Some(s)` for `Str(s)` or a ref-chain ending in one. Use
+    /// [`as_str_or_ident`](Self::as_str_or_ident) when an ident should
+    /// also be accepted (e.g. `(open ident)`).
     pub fn as_str(&self) -> Option<Rc<str>> {
         match self {
             Value::Str(s) => Some(s.clone()),
@@ -201,6 +266,8 @@ impl Value {
         }
     }
 
+    /// `Some(s)` for `Str(s)` or `Ident(s)` (or a ref-chain ending in
+    /// either).
     pub fn as_str_or_ident(&self) -> Option<Rc<str>> {
         match self {
             Value::Str(s) | Value::Ident(s) => Some(s.clone()),
@@ -209,6 +276,7 @@ impl Value {
         }
     }
 
+    /// `Some(xs)` for `Array(xs)` or a ref-chain ending in one.
     pub fn as_array(&self) -> Option<Vector<Rc<Value>>> {
         match self {
             Value::Array(xs) => Some(xs.clone()),
@@ -217,6 +285,7 @@ impl Value {
         }
     }
 
+    /// `Some(m)` for `Map(m)` or a ref-chain ending in one.
     pub fn as_map(&self) -> Option<HashMap<Rc<Value>, Rc<Value>>> {
         match self {
             Value::Map(xs) => Some(xs.clone()),
