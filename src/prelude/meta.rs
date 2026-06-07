@@ -36,7 +36,7 @@ fn id() -> NativeFn {
 /// doc is returned. Returns `()` when no doc is available. Refs are peeled so
 /// `(show (deref r))` and `(show r)` behave the same.
 fn show() -> NativeFn {
-    NativeFn::impure("show".into(), 1, |args, env| {
+    NativeFn::with_env("show".into(), 1, |args, env| {
         let v = args[0].clone();
         let doc = match &*v {
             Value::Ident(name) => special_form_doc(name)
@@ -48,7 +48,7 @@ fn show() -> NativeFn {
             Some(s) => Rc::new(Value::Str(s)),
             None => Rc::new(Value::Unit),
         };
-        Ok((out, env.clone()))
+        Ok(out)
     })
     .with_doc(
         "(show v): returns the doc string attached to a closure, macro, or native fn at \

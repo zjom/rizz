@@ -60,10 +60,12 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
             let callable = deref_callable(callable);
             match &*callable {
                 Value::NativeFn(native) => {
-                    // Bindings introduced while evaluating arguments thread
-                    // between sibling args but must not leak past the call.
-                    let (v, _) = native.call(tail, &ctx)?;
-                    Ok((v, ctx))
+                    // For Pure/WithEnv/Macro, `call` returns the caller's ctx
+                    // unchanged — bindings introduced while evaluating
+                    // arguments thread between siblings but must not leak past
+                    // the call. The Impure arm returns an env extended by `f`,
+                    // which we propagate.
+                    native.call(tail, &ctx)
                 }
                 Value::Closure(closure) => {
                     let (args, _) = eval_and_collect(tail, &ctx)?;

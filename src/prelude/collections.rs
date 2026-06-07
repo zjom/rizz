@@ -330,7 +330,7 @@ fn rest() -> NativeFn {
 }
 
 fn fmap() -> NativeFn {
-    NativeFn::impure("fmap".into(), 2, |args, env| {
+    NativeFn::with_env("fmap".into(), 2, |args, env| {
         let f = &args[0];
         match &*args[1] {
             Value::Str(s) => {
@@ -346,14 +346,14 @@ fn fmap() -> NativeFn {
                         Ok(acc)
                     },
                 )?;
-                Ok((Rc::new(res.into()), env.clone()))
+                Ok(Rc::new(res.into()))
             }
             Value::Array(xs) => {
                 let mut out = Vector::new();
                 for x in xs.iter() {
                     out.push_back(apply(f, std::slice::from_ref(x), env)?);
                 }
-                Ok((Rc::new(Value::Array(out)), env.clone()))
+                Ok(Rc::new(Value::Array(out)))
             }
             Value::Map(m) => {
                 let m = m.iter().try_fold(HashMap::new(), |acc, (k, v)| {
@@ -376,14 +376,14 @@ fn fmap() -> NativeFn {
                         )),
                     }
                 })?;
-                Ok((Rc::new(Value::Map(m)), env.clone()))
+                Ok(Rc::new(Value::Map(m)))
             }
             v if is_list(v) => {
                 let mut out: Vec<Rc<Value>> = Vec::new();
                 for x in Value::iter(&args[1]) {
                     out.push(apply(f, std::slice::from_ref(&x), env)?);
                 }
-                Ok((Rc::new(cons_list(out)), env.clone()))
+                Ok(Rc::new(cons_list(out)))
             }
             other => Err(RuntimeError::type_mismatch(
                 "fmap",
@@ -401,7 +401,7 @@ fn fmap() -> NativeFn {
 }
 
 fn fmapi() -> NativeFn {
-    NativeFn::impure("fmapi".into(), 2, |args, env| {
+    NativeFn::with_env("fmapi".into(), 2, |args, env| {
         let as_int = |i: i32| -> Rc<Value> { Rc::new((i as i64).into()) };
         let f = &args[0];
         match &*args[1] {
@@ -418,14 +418,14 @@ fn fmapi() -> NativeFn {
                         Ok(acc)
                     },
                 )?;
-                Ok((Rc::new(res.into()), env.clone()))
+                Ok(Rc::new(res.into()))
             }
             Value::Array(xs) => {
                 let mut out = Vector::new();
                 for (x, i) in xs.iter().zip(0..) {
                     out.push_back(apply(f, &[as_int(i), x.clone()], env)?);
                 }
-                Ok((Rc::new(Value::Array(out)), env.clone()))
+                Ok(Rc::new(Value::Array(out)))
             }
             Value::Map(m) => {
                 let m = m
@@ -451,14 +451,14 @@ fn fmapi() -> NativeFn {
                             )),
                         }
                     })?;
-                Ok((Rc::new(Value::Map(m)), env.clone()))
+                Ok(Rc::new(Value::Map(m)))
             }
             v if is_list(v) => {
                 let mut out: Vec<Rc<Value>> = Vec::new();
                 for (x, i) in Value::iter(&args[1]).zip(0..) {
                     out.push(apply(f, &[as_int(i), x.clone()], env)?);
                 }
-                Ok((Rc::new(cons_list(out)), env.clone()))
+                Ok(Rc::new(cons_list(out)))
             }
             other => Err(RuntimeError::type_mismatch(
                 "fmapi",
@@ -480,7 +480,7 @@ fn fmapi() -> NativeFn {
 /// predicate is called per char (as a 1-char str); for an array per element;
 /// for a map per entry, with the key and value passed as two args.
 fn filter() -> NativeFn {
-    NativeFn::impure("filter".into(), 2, |args, env| {
+    NativeFn::with_env("filter".into(), 2, |args, env| {
         let pred = &args[0];
         let out = match &*args[1] {
             Value::Str(s) => {
@@ -528,7 +528,7 @@ fn filter() -> NativeFn {
                 ));
             }
         };
-        Ok((Rc::new(out), env.clone()))
+        Ok(Rc::new(out))
     })
     .with_doc(
         "(filter pred coll): keeps the parts of a collection for which pred returns a truthy \
@@ -543,7 +543,7 @@ fn filter() -> NativeFn {
 /// becomes `(f acc char)` per char (as a 1-char str); for an array `(f acc
 /// elem)` per element; for a map `(f acc k v)` per entry.
 fn reduce() -> NativeFn {
-    NativeFn::impure("reduce".into(), 3, |args, env| {
+    NativeFn::with_env("reduce".into(), 3, |args, env| {
         let f = &args[0];
         let mut acc = args[1].clone();
         match &*args[2] {
@@ -576,7 +576,7 @@ fn reduce() -> NativeFn {
                 ));
             }
         }
-        Ok((acc, env.clone()))
+        Ok(acc)
     })
     .with_doc(
         "(reduce f init coll): left fold. acc starts at init. For a string acc becomes \
@@ -611,15 +611,15 @@ fn zip() -> NativeFn {
 
 fn all() -> NativeFn {
     let name: Rc<str> = "all".into();
-    NativeFn::impure(name.clone(), 2, move |args, env| {
+    NativeFn::with_env(name.clone(), 2, move |args, env| {
         let f = &args[0];
         let it = to_iter(&name, &args[1]).unwrap_or(Box::new(vec![args[1].clone()].into_iter()));
         for x in it {
             if !apply(f, &[x], env)?.is_truthy() {
-                return Ok((Rc::new(false.into()), env.clone()));
+                return Ok(Rc::new(false.into()));
             }
         }
-        Ok((Rc::new(true.into()), env.clone()))
+        Ok(Rc::new(true.into()))
     })
     .with_doc(
         "(all pred coll): returns 1 if pred returns truthy for every element of coll, \
@@ -630,15 +630,15 @@ fn all() -> NativeFn {
 
 fn any() -> NativeFn {
     let name: Rc<str> = "any".into();
-    NativeFn::impure(name.clone(), 2, move |args, env| {
+    NativeFn::with_env(name.clone(), 2, move |args, env| {
         let f = &args[0];
         let it = to_iter(&name, &args[1]).unwrap_or(Box::new(vec![args[1].clone()].into_iter()));
         for x in it {
             if apply(f, &[x], env)?.is_truthy() {
-                return Ok((Rc::new(true.into()), env.clone()));
+                return Ok(Rc::new(true.into()));
             }
         }
-        Ok((Rc::new(false.into()), env.clone()))
+        Ok(Rc::new(false.into()))
     })
     .with_doc(
         "(any pred coll): returns 1 if pred returns truthy for any element of coll, \
@@ -649,7 +649,7 @@ fn any() -> NativeFn {
 
 fn find() -> NativeFn {
     let name: Rc<str> = "find".into();
-    NativeFn::impure(name.clone(), 2, move |args, env| {
+    NativeFn::with_env(name.clone(), 2, move |args, env| {
         let f = &args[0];
         if !matches!(
             &*args[1],
@@ -664,10 +664,10 @@ fn find() -> NativeFn {
         let it = to_iter(&name, &args[1]).unwrap_or(Box::new(vec![args[1].clone()].into_iter()));
         for (i, x) in (0..).zip(it) {
             if apply(f, &[x], env)?.is_truthy() {
-                return Ok((Rc::new(i.into()), env.clone()));
+                return Ok(Rc::new(i.into()));
             }
         }
-        Ok((Rc::new(Value::Unit), env.clone()))
+        Ok(Rc::new(Value::Unit))
     })
     .with_doc(
         "(find pred coll): returns the index of the first element of coll for which pred \
