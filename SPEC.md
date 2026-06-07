@@ -210,12 +210,20 @@ through to env lookup).
 
 ```
 (let NAME VALUE)
+(let NAME (doc STR+) VALUE)
 ```
 
 Evaluates `VALUE`, binds it to `NAME` in the surrounding env, returns the
 bound value.
 
-Errors: arity ≠ 2; `NAME` not an ident.
+An optional `(doc "...")` form between `NAME` and `VALUE` documents the
+binding. When `VALUE` evaluates to a callable (closure, macro, native fn) the
+doc is attached to it and surfaced by [`show`](#1110-documentation-show). When
+`VALUE` is not callable the doc is silently dropped — non-callable values have
+no doc slot.
+
+Errors: arity ≠ 2 (or 3 when the middle form is `(doc ...)`); `NAME` not an
+ident; a malformed `doc` form.
 
 ### 5.2 `fn` — define a function
 
@@ -223,12 +231,17 @@ Errors: arity ≠ 2; `NAME` not an ident.
 (fn NAME (PARAMS...) BODY)
 (fn NAME (PARAMS... . REST) BODY)   ;; variadic via dotted tail
 (fn NAME REST BODY)                 ;; variadic via bare ident — all args bundled
+(fn NAME PARAMS (doc STR+) BODY)    ;; optional doc slot
 ```
 
 Creates a closure capturing the current env (lexical scope), binds it under
 `NAME`, and returns the closure. The closure's own name is bound inside the
 body, which is what enables recursion. `PARAMS` is a list of identifiers (use
 `()` for zero parameters).
+
+An optional `(doc "..." "..." ...)` form may sit between `PARAMS` and `BODY`.
+The strings are joined with `\n` and stored on the closure; the doc is
+retrievable via [`show`](#1110-documentation-show).
 
 A dotted-tail param list `(a b . rest)` makes the function **variadic**: `a`
 and `b` are required positional parameters, and any further arguments at the
@@ -632,11 +645,65 @@ See §8 for full semantics.
 
 ### 11.9 Reflection (`meta`)
 
-| Name     | Arity | Description                     |
-| -------- | ----- | ------------------------------- |
-| `typeof` | 1     | Ident of the type of the value. |
+| Name     | Arity | Description                                                                       |
+| -------- | ----- | --------------------------------------------------------------------------------- |
+| `typeof` | 1     | Ident of the type of the value.                                                   |
+| `show`   | 1     | Doc string attached to a closure/macro/native fn (or `()` if none). See §11.10.   |
 
-### 11.10 Control flow (prelude macros)
+### 11.10 Documentation (`show`)
+
+Bindings introduced by `let`, `let!`, `fn`, and `defmacro` may carry an
+optional documentation slot via the `(doc STR+)` form:
+
+```
+(let NAME (doc STR+) VALUE)
+(let! NAME (doc STR+) VALUE)
+(fn NAME PARAMS (doc STR+) BODY)
+(defmacro NAME PARAMS (doc STR+) BODY)
+```
+
+The `doc` form takes one or more string arguments and joins them with `\n` to
+form the stored documentation. The doc lives on the value itself: closures
+and macros gain it on their underlying `Closure`; native fns gain it on the
+`NativeFn`. For `let`/`let!`, if the bound value is not a callable (e.g. an
+int, a string, a collection), the doc is silently dropped — non-callable
+values have no doc slot.
+
+`show` returns the doc string attached to its argument, or `()` if none is
+present. Refs are peeled, so `(show r)` and `(show (deref r))` are equivalent
+when `r` holds a callable.
+
+```
+(fn inc (n)
+  (doc "increments a number by 1"
+       "params: `n` int"
+       "returns: int")
+  (+ n 1))
+
+(show inc)
+;; => "increments a number by 1\nparams: `n` int\nreturns: int"
+
+(inc 4) ;; => 5 — the doc form does not interfere with normal evaluation
+
+(let plain 42)
+(show plain) ;; => () — non-callables have no doc
+
+(fn bare (n) (+ n 1))
+(show bare) ;; => () — no doc was attached
+```
+
+Errors: a `doc` form with zero strings raises `ArityMismatch`; a non-string
+argument raises `TypeMismatch`.
+
+#### Reserved name
+
+`doc` is reserved as the head of a `(doc ...)` slot inside binding forms; it
+is not a special form on its own and does not appear in the §10 reserved
+identifier list. Outside the doc slot of a binding form, a `(doc ...)` list
+evaluates as a normal function application — which will fail with
+`UnknownIdent("doc")` unless the user has bound `doc` to a callable.
+
+### 11.11 Control flow (prelude macros)
 
 Defined in `src/prelude/_.lisp` via `defmacro`, so they behave like special
 forms but are ordinary (shadowable) bindings rather than reserved identifiers.

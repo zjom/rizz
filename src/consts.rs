@@ -14,3 +14,4 @@ pub const KW_IF: &str = "if";
 pub const KW_DO: &str = "do";
 pub const KW_EVAL: &str = "eval";
 pub const KW_OPEN: &str = "open";
+pub const KW_DOC: &str = "doc";

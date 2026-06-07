@@ -816,3 +816,115 @@ fn while_returns_last_body_value() {
 fn while_returns_unit_when_cond_initially_false() {
     assert_eq!(*run("(while (= 1 2) 99)"), Value::Unit);
 }
+
+// ----- doc / show -----
+
+#[test]
+fn show_on_undocumented_fn_is_unit() {
+    let src = r#"
+        (fn inc (n) (+ n 1))
+        (show inc)"#;
+    assert_eq!(*run(src), Value::Unit);
+}
+
+#[test]
+fn fn_doc_is_retrievable_via_show() {
+    let src = r#"
+        (fn inc (n)
+          (doc "increments a number by 1")
+          (+ n 1))
+        (show inc)"#;
+    assert_eq!(*run(src), Value::Str("increments a number by 1".into()));
+}
+
+#[test]
+fn fn_doc_strings_are_newline_joined() {
+    let src = r#"
+        (fn inc (n)
+          (doc "line one" "line two" "line three")
+          (+ n 1))
+        (show inc)"#;
+    assert_eq!(*run(src), Value::Str("line one\nline two\nline three".into()));
+}
+
+#[test]
+fn documented_fn_still_callable() {
+    let src = r#"
+        (fn inc (n) (doc "+1") (+ n 1))
+        (inc 4)"#;
+    assert_eq!(*run(src), Value::Int(5));
+}
+
+#[test]
+fn defmacro_doc_is_retrievable() {
+    let src = r#"
+        (defmacro when (c . body)
+          (doc "if-without-else")
+          `(if ,c (do ,@body) ()))
+        (show when)"#;
+    assert_eq!(*run(src), Value::Str("if-without-else".into()));
+}
+
+#[test]
+fn documented_macro_still_expands() {
+    let src = r#"
+        (defmacro when (c . body)
+          (doc "if-without-else")
+          `(if ,c (do ,@body) ()))
+        (when 1 42)"#;
+    assert_eq!(*run(src), Value::Int(42));
+}
+
+#[test]
+fn let_doc_on_callable_is_attached() {
+    // `let` doc applies when the bound value is a callable.
+    let src = r#"
+        (let inc (fn _inner (n) (+ n 1)))
+        (let documented (doc "wrapped inc") inc)
+        (show documented)"#;
+    assert_eq!(*run(src), Value::Str("wrapped inc".into()));
+}
+
+#[test]
+fn let_doc_on_non_callable_is_dropped() {
+    // Non-callable values have no doc slot; the doc is silently discarded.
+    let src = r#"
+        (let pi (doc "approx of pi") 3.14)
+        (show pi)"#;
+    assert_eq!(*run(src), Value::Unit);
+}
+
+#[test]
+fn let_ref_doc_on_callable_is_attached() {
+    // For let!, the doc attaches to the underlying value before it is wrapped
+    // in a ref; show peels the ref.
+    let src = r#"
+        (let! inc (doc "bumps n") (fn _inner (n) (+ n 1)))
+        (show inc)"#;
+    assert_eq!(*run(src), Value::Str("bumps n".into()));
+}
+
+#[test]
+fn show_on_builtin_without_doc_is_unit() {
+    assert_eq!(*run("(show +)"), Value::Unit);
+}
+
+#[test]
+fn doc_form_with_non_string_arg_errors() {
+    let src = r#"(fn inc (n) (doc 42) (+ n 1))"#;
+    assert!(rizz::parse_and_run(src.as_bytes()).is_err());
+}
+
+#[test]
+fn doc_form_with_no_strings_errors() {
+    let src = r#"(fn inc (n) (doc) (+ n 1))"#;
+    assert!(rizz::parse_and_run(src.as_bytes()).is_err());
+}
+
+#[test]
+fn extra_arg_in_let_still_arity_error() {
+    // Adding the doc slot must not regress the existing arity diagnostic for
+    // accidental extra args.
+    let src = r#"(let x 1 2)"#;
+    assert!(rizz::parse_and_run(src.as_bytes()).is_err());
+}

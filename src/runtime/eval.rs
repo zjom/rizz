@@ -8,8 +8,8 @@
 
 use crate::{
     consts::{
-        FILE_EXTENSION, KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_EVAL, KW_IF,
-        KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+        FILE_EXTENSION, KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_DOC, KW_EVAL,
+        KW_IF, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
     },
     runtime::{Closure, Env, RuntimeError, Value},
 };
@@ -277,34 +277,125 @@ where
 ///   any remaining arguments are bundled into a cons list bound to `rest`.
 /// - bare ident `args`: shorthand for `(. args)` — every argument is bundled
 ///   into the rest list, no positional params.
+///
+/// An optional `(doc "...")` form may sit between the params and the body
+/// (`(fn NAME PARAMS (doc "...") BODY)`); the doc is attached to the closure
+/// and retrievable via the `show` builtin.
 fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    if items.len() != 3 {
-        return Err(RuntimeError::ArityMismatch {
-            name: KW_DEFUN.into(),
-            expected: 3,
-            got: items.len(),
-        });
-    }
-    let Value::Ident(name) = &*items[0] else {
-        return Err(RuntimeError::TypeMismatch {
-            name: KW_DEFUN.into(),
-            expected: "ident".into(),
-            got: Value::type_name(&items[0]).into(),
-        });
-    };
-
-    let (params, rest) = parse_param_list(KW_DEFUN, &items[1])?;
+    let (name, params_form, doc, body) = split_callable_form(KW_DEFUN, &items)?;
+    let (params, rest) = parse_param_list(KW_DEFUN, &params_form)?;
 
     let closure = Rc::new(Value::Closure(Rc::new(Closure {
         name: name.clone(),
         params,
         rest,
-        body: items[2].clone(),
+        body,
         env: env.clone(),
+        doc,
     })));
-    let env = env.clone().update(name.clone(), closure.clone());
+    let env = env.clone().update(name, closure.clone());
     Ok((closure, env))
+}
+
+/// Splits the tail of a `fn` / `defmacro` form into `(name, params, doc, body)`.
+/// Accepts either the 3-element shape `(NAME PARAMS BODY)` or the 4-element
+/// shape `(NAME PARAMS (doc ...) BODY)` — the 4-element shape is only chosen
+/// when the third item is a `doc` form; otherwise it's an arity error so that
+/// `(fn f () x extra)` still surfaces a "too many args" message.
+fn split_callable_form(
+    form: &'static str,
+    items: &[Rc<Value>],
+) -> Result<(Rc<str>, Rc<Value>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
+    let (name_form, params_form, doc, body) = match items.len() {
+        3 => (&items[0], &items[1], None, items[2].clone()),
+        4 if is_doc_form(&items[2]) => {
+            let doc = parse_doc_form(form, &items[2])?;
+            (&items[0], &items[1], Some(doc), items[3].clone())
+        }
+        _ => {
+            return Err(RuntimeError::ArityMismatch {
+                name: form.into(),
+                expected: 3,
+                got: items.len(),
+            });
+        }
+    };
+    let Value::Ident(name) = &**name_form else {
+        return Err(RuntimeError::TypeMismatch {
+            name: form.into(),
+            expected: "ident".into(),
+            got: Value::type_name(name_form).into(),
+        });
+    };
+    Ok((name.clone(), params_form.clone(), doc, body))
+}
+
+/// Whether `v` is a `(doc ...)` list — used to decide whether an extra slot in
+/// a binding form is a doc form or an arity error.
+fn is_doc_form(v: &Rc<Value>) -> bool {
+    matches!(&**v, Value::Cons { head, .. } if matches!(&**head, Value::Ident(s) if s.as_ref() == KW_DOC))
+}
+
+/// Reads a `(doc "..." "..." ...)` form. The string arguments are joined with
+/// `\n` to produce the stored doc. Errors if the form isn't a `doc` list or
+/// any argument isn't a string.
+fn parse_doc_form(form: &'static str, value: &Rc<Value>) -> Result<Rc<str>, RuntimeError> {
+    let Value::Cons { head, tail } = &**value else {
+        return Err(RuntimeError::TypeMismatch {
+            name: form.into(),
+            expected: "(doc ...) or body".into(),
+            got: Value::type_name(value).into(),
+        });
+    };
+    let head_is_doc = matches!(&**head, Value::Ident(s) if s.as_ref() == KW_DOC);
+    if !head_is_doc {
+        return Err(RuntimeError::TypeMismatch {
+            name: form.into(),
+            expected: "(doc ...)".into(),
+            got: "list".into(),
+        });
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for arg in Value::iter(tail) {
+        let Value::Str(s) = &*arg else {
+            return Err(RuntimeError::TypeMismatch {
+                name: KW_DOC.into(),
+                expected: "str".into(),
+                got: Value::type_name(&arg).into(),
+            });
+        };
+        parts.push(s.to_string());
+    }
+    if parts.is_empty() {
+        return Err(RuntimeError::ArityMismatch {
+            name: KW_DOC.into(),
+            expected: 1,
+            got: 0,
+        });
+    }
+    Ok(parts.join("\n").into())
+}
+
+/// Applies `doc` to `value` if it carries a doc slot. Closures and macros are
+/// rebuilt with the doc field set; native fns are wrapped via [`NativeFn::with_doc`].
+/// Other value kinds silently drop the doc — see [`eval_defvar`].
+fn attach_doc(value: Rc<Value>, doc: Option<Rc<str>>) -> Rc<Value> {
+    let Some(doc) = doc else { return value };
+    match &*value {
+        Value::Closure(c) => {
+            let mut new = (**c).clone();
+            new.doc = Some(doc);
+            Rc::new(Value::Closure(Rc::new(new)))
+        }
+        Value::Macro(c) => {
+            let mut new = (**c).clone();
+            new.doc = Some(doc);
+            Rc::new(Value::Macro(Rc::new(new)))
+        }
+        Value::NativeFn(n) => Rc::new(Value::NativeFn(Rc::new((**n).clone().with_doc(doc)))),
+        _ => value,
+    }
 }
 
 /// Walks the param-list form for `fn`/`defmacro`. Accepts a cons chain of
@@ -351,58 +442,72 @@ fn parse_param_list(
 /// along with the extended environment. At a call site, a macro receives its
 /// arguments **unevaluated** and its body's result is then evaluated in the
 /// caller's env (see the `Value::Macro` arm of [`eval`]).
+///
+/// An optional `(doc "...")` form may sit between the params and the body
+/// (`(defmacro NAME PARAMS (doc "...") BODY)`); see [`eval_defun`].
 fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    if items.len() != 3 {
-        return Err(RuntimeError::ArityMismatch {
-            name: KW_DEFMACRO.into(),
-            expected: 3,
-            got: items.len(),
-        });
-    }
-    let Value::Ident(name) = &*items[0] else {
-        return Err(RuntimeError::TypeMismatch {
-            name: KW_DEFMACRO.into(),
-            expected: "ident".into(),
-            got: Value::type_name(&items[0]).into(),
-        });
-    };
-
-    let (params, rest) = parse_param_list(KW_DEFMACRO, &items[1])?;
+    let (name, params_form, doc, body) = split_callable_form(KW_DEFMACRO, &items)?;
+    let (params, rest) = parse_param_list(KW_DEFMACRO, &params_form)?;
 
     let mac = Rc::new(Value::Macro(Rc::new(Closure {
         name: name.clone(),
         params,
         rest,
-        body: items[2].clone(),
+        body,
         env: env.clone(),
+        doc,
     })));
-    let env = env.clone().update(name.clone(), mac.clone());
+    let env = env.clone().update(name, mac.clone());
     Ok((mac, env))
 }
 
 /// `(let name value)`: evaluates `value`, binds it to `name`, and returns the
 /// value with the extended environment.
+///
+/// An optional `(doc "...")` form may sit between the name and the value
+/// (`(let NAME (doc "...") VALUE)`). If the resulting value is a callable
+/// (closure, macro, or native fn) the doc is attached to it; otherwise the
+/// doc is silently dropped — non-callable values have no doc slot.
 fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    if items.len() != 2 {
-        return Err(RuntimeError::ArityMismatch {
-            name: KW_DEFVAR.into(),
-            expected: 2,
-            got: items.len(),
-        });
-    }
-    let Value::Ident(name) = &*items[0] else {
+    let (name, doc, value_form) = split_var_form(KW_DEFVAR, &items)?;
+    let (val, env) = eval(value_form, env)?;
+    let val = attach_doc(val, doc);
+    let env = env.update(name, val.clone());
+    Ok((val, env))
+}
+
+/// Splits the tail of a `let` / `let!` form into `(name, doc, value)`. Accepts
+/// either `(NAME VALUE)` or `(NAME (doc ...) VALUE)` — the 3-element shape is
+/// only chosen when the middle item is a `doc` form so that `(let x 1 2)` still
+/// surfaces as an arity error rather than "expected doc form".
+fn split_var_form(
+    form: &'static str,
+    items: &[Rc<Value>],
+) -> Result<(Rc<str>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
+    let (name_form, doc, value_form) = match items.len() {
+        2 => (&items[0], None, items[1].clone()),
+        3 if is_doc_form(&items[1]) => {
+            let doc = parse_doc_form(form, &items[1])?;
+            (&items[0], Some(doc), items[2].clone())
+        }
+        _ => {
+            return Err(RuntimeError::ArityMismatch {
+                name: form.into(),
+                expected: 2,
+                got: items.len(),
+            });
+        }
+    };
+    let Value::Ident(name) = &**name_form else {
         return Err(RuntimeError::TypeMismatch {
-            name: KW_DEFVAR.into(),
+            name: form.into(),
             expected: "ident".into(),
-            got: Value::type_name(&items[0]).into(),
+            got: Value::type_name(name_form).into(),
         });
     };
-
-    let (val, env) = eval(items[1].clone(), env)?;
-    let env = env.update(name.clone(), val.clone());
-    Ok((val, env))
+    Ok((name.clone(), doc, value_form))
 }
 
 /// `(open path)`: loads and evaluates the file at `path` (extension `.rz` is
@@ -451,28 +556,19 @@ fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
     Ok((v, env))
 }
 
-/// `(let! name value)`: evaluates `value`, wraps it in ref, binds it to `name`, and returns the
-/// value with the extended environment.
+/// `(let! name value)`: evaluates `value`, wraps it in a ref, binds it to
+/// `name`, and returns the value with the extended environment.
+///
+/// An optional `(doc "...")` slot is accepted in the same position as for
+/// [`let`](eval_defvar); if the underlying value is callable the doc is
+/// attached to it before the ref is built (so `(show (deref name))` works).
 fn eval_defvar_ref(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    if items.len() != 2 {
-        return Err(RuntimeError::ArityMismatch {
-            name: KW_DEFVAR_REF.into(),
-            expected: 2,
-            got: items.len(),
-        });
-    }
-    let Value::Ident(name) = &*items[0] else {
-        return Err(RuntimeError::TypeMismatch {
-            name: KW_DEFVAR_REF.into(),
-            expected: "ident".into(),
-            got: Value::type_name(&items[0]).into(),
-        });
-    };
-
-    let (val, env) = eval(items[1].clone(), env)?;
+    let (name, doc, value_form) = split_var_form(KW_DEFVAR_REF, &items)?;
+    let (val, env) = eval(value_form, env)?;
+    let val = attach_doc(val, doc);
     let env = env.update(
-        name.clone(),
+        name,
         Value::Ref(Rc::new(RefCell::new(val.as_ref().clone()))).into(),
     );
     Ok((val, env))
@@ -849,6 +945,7 @@ mod tests {
             rest: None,
             body: ident("x"),
             env: Env::new(),
+            doc: None,
         })));
         let env = Env::new().update("id".into(), id);
         let form = list(vec![ident("id"), int(5)]);
@@ -905,6 +1002,7 @@ mod tests {
             rest: None,
             body: int(7),
             env: Env::new(),
+            doc: None,
         })));
         let (v, _) = eval_ok(clo.clone(), &Env::new());
         assert!(matches!(&*v, Value::Closure(_)));
@@ -919,6 +1017,7 @@ mod tests {
             rest: None,
             body: ident("x"),
             env: Env::new(),
+            doc: None,
         })));
         let (v, _) = eval_ok(clo.clone(), &Env::new());
         assert_eq!(v, clo);
@@ -934,6 +1033,7 @@ mod tests {
             rest: None,
             body: ident("x"),
             env: Env::new(),
+            doc: None,
         })));
         let env = Env::new().update("id".into(), id.clone());
         let form = list(vec![ident("let"), ident("f"), ident("id")]);
@@ -951,6 +1051,7 @@ mod tests {
             rest: None,
             body,
             env,
+            doc: None,
         })
     }
 
@@ -1433,6 +1534,7 @@ mod tests {
             rest: None,
             body: Rc::new(Value::Ident("x".into())),
             env: Env::new(),
+            doc: None,
         })));
         let v = apply(&clo, &[Rc::new(Value::Int(7))], &Env::new()).unwrap();
         assert_eq!(*v, Value::Int(7));

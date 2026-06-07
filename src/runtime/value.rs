@@ -57,6 +57,10 @@ pub enum Value {
 /// shorthand for "zero positional params, rest is everything"). At a call site
 /// the trailing arguments past `params.len()` are bundled into a cons list and
 /// bound under that name. For fixed-arity functions `rest` is `None`.
+///
+/// `doc` is the optional documentation string attached at definition time via
+/// the `(doc ...)` form (see [`crate::runtime::eval`]). It is surfaced by the
+/// `show` builtin.
 #[derive(Clone, PartialEq)]
 pub struct Closure {
     pub name: Rc<str>,
@@ -64,6 +68,7 @@ pub struct Closure {
     pub rest: Option<Rc<str>>,
     pub body: Rc<Value>,
     pub env: Env,
+    pub doc: Option<Rc<str>>,
 }
 
 // ---------------------------------------------------------------------------
