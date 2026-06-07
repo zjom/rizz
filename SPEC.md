@@ -304,6 +304,56 @@ unquotes always splice into the nearest enclosing list.
 
 Errors: arity ≠ 1 for `quasi`, `unquote`, and `unquote-splice`.
 
+### 5.7 `open` — load and merge a module
+
+```
+(open PATH)
+```
+
+Loads the rizz source file at `PATH`, evaluates its top-level forms in a fresh
+prelude env, and **merges the loaded module's bindings into the caller's env**.
+Returns the value of the loaded module's last form. `PATH` may be a string or
+a bare identifier (a symbol that spells a valid filename); other types raise a
+`TypeMismatch`.
+
+Path resolution:
+
+- If `PATH` has no extension, `.rz` is appended.
+- A relative `PATH` is resolved against the caller's source-file directory
+  (the env's anchor — set by the entry-point driver and re-anchored on every
+  `open` to the opened file's directory). With no anchor, the process CWD is
+  used.
+- An absolute `PATH` is used verbatim.
+
+Binding leakage:
+
+- Top-level `let`/`fn` bindings introduced by the loaded module become visible
+  in the caller's env, **except** those whose names start with `_` — a `_`
+  prefix is the convention for module-private items and is filtered on merge.
+- On a name collision the caller's existing binding wins (the loaded module
+  does not overwrite). The caller's `base_dir` anchor is also preserved.
+- `open` is a special form rather than a native function precisely because
+  function calls cannot leak bindings into their caller (§4.3); module
+  loading is the one operation that must.
+
+Nested `open` resolves relative to the file doing the opening, not the
+top-level caller — each loaded module evaluates with its own directory as the
+anchor, so a module can `(open "sibling")` portably.
+
+```
+;; mod.rz
+(let answer 42)
+(let _secret 7)
+(fn dbl (x) (* x 2))
+
+;; caller.rz
+(open "mod")     ;; => 84 (last form of mod.rz... if it had one)
+(dbl answer)     ;; => 84 — `answer` and `dbl` leaked; `_secret` did not
+```
+
+Errors: arity ≠ 1; `PATH` not a string/ident; I/O failure opening the file
+(surfaced as `IOError`); any parse or runtime error from the loaded module.
+
 ---
 
 ## 6. Functions
@@ -444,7 +494,7 @@ These names are dispatched as special forms when in head position:
 
 ```
 let   let!  fn   if   do   quote   quasi   unquote   unquote-splice    eval
-defmacro
+defmacro   open
 ```
 
 The reader-macro prefixes `'`, `` ` ``, `,`, `,@` expand to `(quote ...)`,
@@ -716,5 +766,8 @@ A counter via a captured ref:
 ## 13. Non-goals (current implementation)
 
 - No tail-call optimization; deep recursion can exhaust the host stack.
-- No module system, no I/O outside the prelude, no exception form.
+- No I/O outside the prelude and `open`
+- The module system is `open`-only: there is no namespacing
+  or selective import — all non-`_` bindings are merged flat into the caller.
+- No exception form.
 - No nested quasiquote depth tracking.
