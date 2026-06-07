@@ -32,3 +32,10 @@
     `(if ,a
       (if ,b 1 0)
       0))
+
+(defmacro compose fns
+  (if (= fns ())
+      `id
+      (if (= (cdr fns) ())
+          (car fns)
+          `(fn __c (__x) (,(car fns) ((compose ,@(cdr fns)) __x))))))
