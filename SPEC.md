@@ -560,9 +560,9 @@ All builtins are bound in the initial env. Names and arities below; see
 | ----------- | ----- | ---------------------------------- |
 | `=`, `eq`   | 2     | Structural equality.               |
 | `!=`, `neq` | 2     | Structural inequality.             |
-| `!`, `not`  | 1     | Boolean negation of truthiness.    |
-| `and`       | 2     | Truthy if both truthy else falsy.  |
-| `or`        | 2     | Truthy if either truthy else falsy |
+| `!`, `not`  | 1     | Boolean negation of truthiness.                                        |
+| `and`       | 2     | Lua-style: returns `b` if `a` is truthy, else `a`. Lazy in `b`.        |
+| `or`        | 2     | Lua-style: returns `a` if `a` is truthy, else `b`. Lazy in `b`.        |
 
 ### 11.3 Polymorphic collections (`collections`)
 
@@ -744,6 +744,21 @@ when no clause matches and no `else` is present, the result is `()`.
 (cond)                ;; => ()
 ```
 
+#### `unless` — inverted conditional
+
+```
+(unless COND BODY...)
+```
+
+Evaluates the body forms in order when `COND` is falsy and returns the value
+of the last form. When `COND` is truthy the body is not evaluated and the
+result is `()`. Equivalent to `(if COND () (do BODY...))`.
+
+```
+(unless (= 1 2) 'ok)   ;; => ok
+(unless (= 1 1) 'ok)   ;; => ()
+```
+
 #### `for` — iterate a sequence
 
 ```
@@ -798,6 +813,48 @@ N host stack frames — see §13.
   (set! sum (+ sum i))
   (set! i (+ i 1)))
 (deref sum)         ;; => 10
+```
+
+#### `and`, `or` — short-circuit logic
+
+```
+(and A B)
+(or A B)
+```
+
+Lua-style value semantics: `or` returns `A` if `A` is truthy, otherwise `B`;
+`and` returns `B` if `A` is truthy, otherwise `A`. In both, `A` is evaluated
+exactly once and `B` is only evaluated when needed (lazy). Truthiness is the
+standard test from §3.1.
+
+```
+(or 5 9)        ;; => 5
+(or 0 9)        ;; => 9
+(or () 42)      ;; => 42
+(and 1 2)       ;; => 2
+(and 0 9)       ;; => 0
+(and () (/ 1 0)) ;; => () — RHS never evaluated
+```
+
+#### `compose`, `pipe` — function composition
+
+```
+(compose F G H ...)
+(pipe F G H ...)
+```
+
+Both return a unary function built from the given functions. `compose` applies
+right-to-left: `(compose F G H)` is equivalent to `(fn _ (x) (F (G (H x))))`.
+`pipe` applies left-to-right: `(pipe F G H)` is equivalent to
+`(fn _ (x) (H (G (F x))))`. With no arguments either form returns `id`; with
+a single argument it returns that function unchanged.
+
+```
+(let inc    (fn _ (x) (+ x 1)))
+(let double (fn _ (x) (* x 2)))
+
+((compose inc double) 3) ;; => 7   — double then inc: (3*2)+1
+((pipe    inc double) 3) ;; => 8   — inc then double: (3+1)*2
 ```
 
 ---

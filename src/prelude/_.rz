@@ -16,6 +16,15 @@
                ,(car (cdr (car clauses)))
                (cond ,@(cdr clauses))))))
 
+(defmacro unless (cond . body)
+  (doc "(unless COND BODY...)"
+       "Evaluates BODY when COND is falsy, returning the value of the last form."
+       "Returns () when COND is truthy."
+       ""
+       "Example:"
+       "  (unless (= x 0) (println x))")
+  `(if ,cond () (do ,@body)))
+
 (defmacro for (var seq . body)
   (doc "(for VAR SEQ BODY...)"
        "Iterates over SEQ binding each element to VAR and evaluating BODY."
@@ -53,37 +62,49 @@
 
 (defmacro or (a b)
     (doc "(or A B)"
-         "Returns 1 if either A or B is truthy, else 0. Both arguments are evaluated."
+         "Returns A if A is truthy, else B. B is only evaluated when A is falsy."
          ""
          "Example:"
-         "  (or 0 1)  ;; => 1"
-         "  (or 0 0)  ;; => 0")
-    `(if ,a
-       1
-       (if ,b 1 0)))
+         "  (or 0 1)   ;; => 1"
+         "  (or 0 ()) ;; => ()"
+         "  (or 5 9)   ;; => 5")
+    `((fn __or (__a) (if __a __a ,b)) ,a))
 
 
 (defmacro and (a b)
     (doc "(and A B)"
-         "Returns 1 if both A and B are truthy, else 0. Both arguments are evaluated."
+         "Returns B if A is truthy, else A. B is only evaluated when A is truthy."
          ""
          "Example:"
-         "  (and 1 1)  ;; => 1"
-         "  (and 1 0)  ;; => 0")
-    `(if ,a
-      (if ,b 1 0)
-      0))
+         "  (and 1 2)  ;; => 2"
+         "  (and 0 9)  ;; => 0"
+         "  (and () 9) ;; => ()")
+    `((fn __and (__a) (if __a ,b __a)) ,a))
 
 (defmacro compose fns
   (doc "(compose F G H ...)"
-       "Returns a function equivalent to (fn (x) (F (G (H x))))."
+       "Returns a function equivalent to (fn _ (x) (F (G (H x))))."
        "With no args returns id; with one arg returns that function unchanged."
        ""
        "Example:"
-       "  (let inc-then-double (compose (fn (x) (* x 2)) (fn (x) (+ x 1))))"
+       "  (let inc-then-double (compose (fn _ (x) (* x 2)) (fn _ (x) (+ x 1))))"
        "  (inc-then-double 3)  ;; => 8")
   (if (= fns ())
       `id
       (if (= (cdr fns) ())
           (car fns)
           `(fn __c (__x) (,(car fns) ((compose ,@(cdr fns)) __x))))))
+
+(defmacro pipe fns
+  (doc "(pipe F G H ...)"
+       "Returns a function equivalent to (fn _ (x) (H(G(F(x)))))."
+       "With no args returns id; with one arg returns that function unchanged."
+       ""
+       "Example:"
+       "  (let inc-then-double (pipe (fn _ (x) (+ x 1)) (fn _ (x) (* x 2))))"
+       "  (inc-then-double 3)  ;; => 8")
+  (if (= fns ())
+      `id
+      (if (= (cdr fns) ())
+          (car fns)
+          `(fn __p (__x) ((pipe ,@(cdr fns)) (,(car fns) __x))))))

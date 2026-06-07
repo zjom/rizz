@@ -1020,3 +1020,112 @@ fn doc_accepts_mix_of_strings() {
         "doc string was {s:?}"
     );
 }
+
+// ----- or / and: Lua-style value semantics -----
+
+#[test]
+fn or_returns_first_truthy_value() {
+    assert_eq!(*run("(or 5 9)"), Value::Int(5));
+    assert_eq!(*run("(or 1 2)"), Value::Int(1));
+}
+
+#[test]
+fn or_returns_second_when_first_is_falsy() {
+    assert_eq!(*run("(or 0 9)"), Value::Int(9));
+    assert_eq!(*run("(or () 42)"), Value::Int(42));
+    assert_eq!(*run("(or \"\" 7)"), Value::Int(7));
+}
+
+#[test]
+fn or_returns_second_value_even_when_falsy() {
+    assert_eq!(*run("(or 0 ())"), Value::Unit);
+    assert_eq!(*run("(or 0 0)"), Value::Int(0));
+}
+
+#[test]
+fn or_evaluates_first_arg_only_once() {
+    // If `a` were evaluated twice the counter would bump to 2.
+    let src = "
+        (let! c 0)
+        (or (do (set! c (+ (deref c) 1)) (deref c)) 99)
+        (deref c)";
+    assert_eq!(*run(src), Value::Int(1));
+}
+
+#[test]
+fn and_returns_second_when_first_is_truthy() {
+    assert_eq!(*run("(and 1 2)"), Value::Int(2));
+    assert_eq!(*run("(and 5 \"hi\")"), Value::Str("hi".into()));
+}
+
+#[test]
+fn and_returns_first_when_falsy() {
+    assert_eq!(*run("(and 0 9)"), Value::Int(0));
+    assert_eq!(*run("(and () 9)"), Value::Unit);
+}
+
+#[test]
+fn and_evaluates_first_arg_only_once() {
+    let src = "
+        (let! c 0)
+        (and (do (set! c (+ (deref c) 1)) (deref c)) 99)
+        (deref c)";
+    assert_eq!(*run(src), Value::Int(1));
+}
+
+// ----- pipe -----
+
+#[test]
+fn pipe_applies_left_to_right() {
+    // (pipe inc double) 3 => double(inc(3)) = 8
+    let src = "
+        (let f (pipe (fn _ (x) (+ x 1)) (fn _ (x) (* x 2))))
+        (f 3)";
+    assert_eq!(*run(src), Value::Int(8));
+}
+
+#[test]
+fn pipe_with_no_args_is_identity() {
+    let src = "
+        (let f (pipe))
+        (f 42)";
+    assert_eq!(*run(src), Value::Int(42));
+}
+
+#[test]
+fn pipe_with_single_fn_returns_that_fn() {
+    let src = "
+        (let f (pipe (fn _ (x) (* x x))))
+        (f 6)";
+    assert_eq!(*run(src), Value::Int(36));
+}
+
+#[test]
+fn pipe_threads_through_many_fns() {
+    // ((+1) -> (*2) -> (-3)) of 5 = ((5+1)*2)-3 = 9
+    let src = "
+        (let f (pipe (fn _ (x) (+ x 1))
+                     (fn _ (x) (* x 2))
+                     (fn _ (x) (- x 3))))
+        (f 5)";
+    assert_eq!(*run(src), Value::Int(9));
+}
+
+#[test]
+fn pipe_is_reverse_of_compose() {
+    // compose: F(G(x)); pipe: G(F(x)). With F=+1, G=*2 over x=3:
+    //   compose => (3*2)+1 = 7
+    //   pipe    => (3+1)*2 = 8
+    let src = "
+        (let f (compose (fn _ (x) (+ x 1)) (fn _ (x) (* x 2))))
+        (let g (pipe    (fn _ (x) (+ x 1)) (fn _ (x) (* x 2))))
+        [(f 3) (g 3)]";
+    let v = run(src);
+    match &*v {
+        Value::Array(xs) => {
+            assert_eq!(*xs[0], Value::Int(7));
+            assert_eq!(*xs[1], Value::Int(8));
+        }
+        other => panic!("expected array, got {other:?}"),
+    }
+}
