@@ -27,7 +27,9 @@ environment:
 (+ x 5)           ;; sees x; program value is 15
 ```
 
-The initial environment is the [prelude](#11-prelude-builtins).
+The initial environment is the `prelude` (when the
+program is driven by the default `Runtime::new()` entry point; embedding hosts
+can pin a different initial env — see §5.7).
 
 ---
 
@@ -83,8 +85,7 @@ list**: `(a b . c)` parses to `Cons(a, Cons(b, c))` rather than terminating in
 `Unit`. The dot is recognized only when surrounded by whitespace (or followed
 by `)`), so it does not interfere with floats (`1.5`) or identifiers that
 contain `.` (`foo.bar`). Exactly one form may follow the dot; it becomes the
-final tail. The primary use is variadic [`fn`](#52-fn--define-a-function)
-parameter lists.
+final tail. The primary use is variadic `fn` parameter lists.
 
 Note: a stray top-level `)` is an `UnexpectedCloseParen`; an unterminated list
 is reported as a missing `)`.
@@ -178,7 +179,7 @@ An `Ident` is looked up in the env. Unbound → `UnknownIdent`.
 ### 4.3 Lists (calls and special forms)
 
 A `Cons` is interpreted as `(head . tail)`. If `head` is one of the keyword
-identifiers below, the form is a [special form](#5-special-forms). Otherwise
+identifiers below, the form is a `special form`. Otherwise
 the form is a **function application**:
 
 1. Evaluate `head` to obtain a callable. If the result is a `Ref` (or chain
@@ -311,10 +312,10 @@ Errors: arity ≠ 1 for `quasi`, `unquote`, and `unquote-splice`.
 ```
 
 Loads the rizz source file at `PATH`, evaluates its top-level forms in a fresh
-prelude env, and **merges the loaded module's bindings into the caller's env**.
-Returns the value of the loaded module's last form. `PATH` may be a string or
-a bare identifier (a symbol that spells a valid filename); other types raise a
-`TypeMismatch`.
+**module env**, and **merges the loaded module's bindings into the caller's
+env**. Returns the value of the loaded module's last form. `PATH` may be a
+string or a bare identifier (a symbol that spells a valid filename); other
+types raise a `TypeMismatch`.
 
 Path resolution:
 
@@ -324,6 +325,21 @@ Path resolution:
   `open` to the opened file's directory). With no anchor, the process CWD is
   used.
 - An absolute `PATH` is used verbatim.
+
+Module env:
+
+- The loaded file evaluates against a fresh copy of the runtime's pinned
+  **base env** — a snapshot of the env the host installed at runtime
+  construction. With the default driver (`Runtime::new`) this is the
+  `prelude`, so `+`, `cond`, etc. are visible. Hosts
+  that embed rizz can pin a different base env to inject custom builtins into
+  every loaded module.
+- Top-level definitions made in the **caller** do not propagate into the
+  module — `open` always loads against a clean module-level scope, not the
+  caller's accumulated bindings.
+- If no base env is pinned (e.g. a host evaluating against a hand-built `Env`
+  without going through `Runtime`), the module env is empty: the loaded file
+  sees no prelude.
 
 Binding leakage:
 
@@ -338,7 +354,8 @@ Binding leakage:
 
 Nested `open` resolves relative to the file doing the opening, not the
 top-level caller — each loaded module evaluates with its own directory as the
-anchor, so a module can `(open "sibling")` portably.
+anchor (and with the same pinned base env), so a module can `(open "sibling")`
+portably.
 
 ```
 ;; mod.rz
@@ -654,7 +671,7 @@ Evaluates `SEQ`, then for each element binds it to `VAR` and evaluates the
 body forms in order. Returns the value of the body on the last iteration, or
 `()` if `SEQ` is empty. Accepts anything `reduce` accepts (str / array / map
 / list). `for` is expressed in terms of `reduce`, so it does not provide an
-accumulator — use a [`ref`](#81-refs) when one is needed.
+accumulator — use a `ref` when one is needed.
 
 ```
 (let! sum 0)
