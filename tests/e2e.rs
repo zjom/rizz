@@ -968,6 +968,45 @@ fn doc_accepts_variable_of_string_array() {
 }
 
 #[test]
+fn show_on_quoted_special_form_returns_builtin_doc() {
+    for kw in [
+        "fn",
+        "let",
+        "let!",
+        "defmacro",
+        "if",
+        "do",
+        "quote",
+        "quasi",
+        "unquote",
+        "unquote-splice",
+        "eval",
+        "open",
+        "doc",
+    ] {
+        let src = format!("(show '{kw})");
+        let v = run(&src);
+        match &*v {
+            Value::Str(s) => assert!(!s.is_empty(), "empty doc for {kw}"),
+            other => panic!("(show '{kw}) returned {other}, expected Str"),
+        }
+    }
+}
+
+#[test]
+fn show_on_quoted_native_fn_ident_returns_doc() {
+    // 'ref is just an ident; show should look it up and surface the native fn's doc.
+    let v = run("(show 'ref)");
+    assert!(matches!(&*v, Value::Str(_)), "got {v}");
+}
+
+#[test]
+fn show_on_unbound_quoted_ident_returns_unit() {
+    let v = run("(show 'totally-not-a-thing)");
+    assert_eq!(*v, Value::Unit);
+}
+
+#[test]
 fn doc_accepts_mix_of_strings() {
     let v = run(
         r#"(let a ["hi" "hello"]) (let b '("hi" "ok")) (fn inc (n) (doc "function" a b) (+ n 1)) (show inc)"#,
