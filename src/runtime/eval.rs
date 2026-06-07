@@ -283,7 +283,7 @@ where
 /// and retrievable via the `show` builtin.
 fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, params_form, doc, body) = split_callable_form(KW_DEFUN, &items)?;
+    let (name, params_form, doc, body) = split_callable_form(KW_DEFUN, &items, env)?;
     let (params, rest) = parse_param_list(KW_DEFUN, &params_form)?;
 
     let closure = Rc::new(Value::Closure(Rc::new(Closure {
@@ -306,11 +306,12 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeEr
 fn split_callable_form(
     form: &'static str,
     items: &[Rc<Value>],
+    env: &Env,
 ) -> Result<(Rc<str>, Rc<Value>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
     let (name_form, params_form, doc, body) = match items.len() {
         3 => (&items[0], &items[1], None, items[2].clone()),
         4 if is_doc_form(&items[2]) => {
-            let doc = parse_doc_form(form, &items[2])?;
+            let doc = parse_doc_form(form, &items[2], env)?;
             (&items[0], &items[1], Some(doc), items[3].clone())
         }
         _ => {
@@ -337,10 +338,16 @@ fn is_doc_form(v: &Rc<Value>) -> bool {
     matches!(&**v, Value::Cons { head, .. } if matches!(&**head, Value::Ident(s) if s.as_ref() == KW_DOC))
 }
 
-/// Reads a `(doc "..." "..." ...)` form. The string arguments are joined with
-/// `\n` to produce the stored doc. Errors if the form isn't a `doc` list or
-/// any argument isn't a string.
-fn parse_doc_form(form: &'static str, value: &Rc<Value>) -> Result<Rc<str>, RuntimeError> {
+/// Reads a `(doc ARG ARG ...)` form. Each argument is evaluated; the result
+/// must be a string or a collection (list/array) of strings, which is
+/// flattened. All collected strings are joined with `\n` to produce the
+/// stored doc. Errors if the form isn't a `doc` list, has no arguments, or
+/// any evaluated argument isn't a string or collection of strings.
+fn parse_doc_form(
+    form: &'static str,
+    value: &Rc<Value>,
+    env: &Env,
+) -> Result<Rc<str>, RuntimeError> {
     let Value::Cons { head, tail } = &**value else {
         return Err(RuntimeError::TypeMismatch {
             name: form.into(),
@@ -356,25 +363,47 @@ fn parse_doc_form(form: &'static str, value: &Rc<Value>) -> Result<Rc<str>, Runt
             got: "list".into(),
         });
     }
-    let mut parts: Vec<String> = Vec::new();
-    for arg in Value::iter(tail) {
-        let Value::Str(s) = &*arg else {
-            return Err(RuntimeError::TypeMismatch {
-                name: KW_DOC.into(),
-                expected: "str".into(),
-                got: Value::type_name(&arg).into(),
-            });
-        };
-        parts.push(s.to_string());
-    }
-    if parts.is_empty() {
+    let args: Vec<_> = Value::iter(tail).collect();
+    if args.is_empty() {
         return Err(RuntimeError::ArityMismatch {
             name: KW_DOC.into(),
             expected: 1,
             got: 0,
         });
     }
+    let mut parts: Vec<String> = Vec::new();
+    for arg in args {
+        let (val, _) = eval(arg, env)?;
+        collect_doc_strings(&val, &mut parts)?;
+    }
     Ok(parts.join("\n").into())
+}
+
+/// Recursively flattens a doc argument into `parts`. Accepts strings,
+/// arrays, and cons lists (including the empty list `Unit`). Any other
+/// value kind — or a collection containing a non-string — is a type error.
+fn collect_doc_strings(v: &Rc<Value>, parts: &mut Vec<String>) -> Result<(), RuntimeError> {
+    match &**v {
+        Value::Str(s) => parts.push(s.to_string()),
+        Value::Array(xs) => {
+            for x in xs {
+                collect_doc_strings(x, parts)?;
+            }
+        }
+        Value::Unit | Value::Cons { .. } => {
+            for item in Value::iter(v) {
+                collect_doc_strings(&item, parts)?;
+            }
+        }
+        _ => {
+            return Err(RuntimeError::TypeMismatch {
+                name: KW_DOC.into(),
+                expected: "str or collection of str".into(),
+                got: Value::type_name(v).into(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Applies `doc` to `value` if it carries a doc slot. Closures and macros are
@@ -447,7 +476,7 @@ fn parse_param_list(
 /// (`(defmacro NAME PARAMS (doc "...") BODY)`); see [`eval_defun`].
 fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, params_form, doc, body) = split_callable_form(KW_DEFMACRO, &items)?;
+    let (name, params_form, doc, body) = split_callable_form(KW_DEFMACRO, &items, env)?;
     let (params, rest) = parse_param_list(KW_DEFMACRO, &params_form)?;
 
     let mac = Rc::new(Value::Macro(Rc::new(Closure {
@@ -471,7 +500,7 @@ fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Runtim
 /// doc is silently dropped — non-callable values have no doc slot.
 fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, doc, value_form) = split_var_form(KW_DEFVAR, &items)?;
+    let (name, doc, value_form) = split_var_form(KW_DEFVAR, &items, env)?;
     let (val, env) = eval(value_form, env)?;
     let val = attach_doc(val, doc);
     let env = env.update(name, val.clone());
@@ -485,11 +514,12 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeE
 fn split_var_form(
     form: &'static str,
     items: &[Rc<Value>],
+    env: &Env,
 ) -> Result<(Rc<str>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
     let (name_form, doc, value_form) = match items.len() {
         2 => (&items[0], None, items[1].clone()),
         3 if is_doc_form(&items[1]) => {
-            let doc = parse_doc_form(form, &items[1])?;
+            let doc = parse_doc_form(form, &items[1], env)?;
             (&items[0], Some(doc), items[2].clone())
         }
         _ => {
@@ -564,7 +594,7 @@ fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
 /// attached to it before the ref is built (so `(show (deref name))` works).
 fn eval_defvar_ref(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, doc, value_form) = split_var_form(KW_DEFVAR_REF, &items)?;
+    let (name, doc, value_form) = split_var_form(KW_DEFVAR_REF, &items, env)?;
     let (val, env) = eval(value_form, env)?;
     let val = attach_doc(val, doc);
     let env = env.update(

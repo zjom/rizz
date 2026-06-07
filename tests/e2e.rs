@@ -936,3 +936,48 @@ fn extra_arg_in_let_still_arity_error() {
     let src = r#"(let x 1 2)"#;
     assert!(rizz::parse_and_run(src.as_bytes()).is_err());
 }
+
+#[test]
+fn doc_accepts_variable_of_string() {
+    let v = run(r#"(let x "hi") (fn inc (n) (doc x) (+ n 1)) (show inc)"#);
+    let s = match &*v {
+        Value::Str(s) => s.clone(),
+        other => panic!("expected str, got {other}"),
+    };
+    assert!(s.contains("hi"), "doc string was {s:?}");
+}
+
+#[test]
+fn doc_accepts_variable_of_string_list() {
+    let v = run(r#"(let x '("hi" "hello")) (fn inc (n) (doc x) (+ n 1)) (show inc)"#);
+    let s = match &*v {
+        Value::Str(s) => s.clone(),
+        other => panic!("expected str, got {other}"),
+    };
+    assert!(s.contains("hi\nhello"), "doc string was {s:?}");
+}
+
+#[test]
+fn doc_accepts_variable_of_string_array() {
+    let v = run(r#"(let x ["hi" "hello"]) (fn inc (n) (doc x) (+ n 1)) (show inc)"#);
+    let s = match &*v {
+        Value::Str(s) => s.clone(),
+        other => panic!("expected str, got {other}"),
+    };
+    assert!(s.contains("hi\nhello"), "doc string was {s:?}");
+}
+
+#[test]
+fn doc_accepts_mix_of_strings() {
+    let v = run(
+        r#"(let a ["hi" "hello"]) (let b '("hi" "ok")) (fn inc (n) (doc "function" a b) (+ n 1)) (show inc)"#,
+    );
+    let s = match &*v {
+        Value::Str(s) => s.clone(),
+        other => panic!("expected str, got {other}"),
+    };
+    assert!(
+        s.contains("function\nhi\nhello\nhi\nok"),
+        "doc string was {s:?}"
+    );
+}

@@ -653,21 +653,35 @@ See §8 for full semantics.
 ### 11.10 Documentation (`show`)
 
 Bindings introduced by `let`, `let!`, `fn`, and `defmacro` may carry an
-optional documentation slot via the `(doc STR+)` form:
+optional documentation slot via the `(doc ARG+)` form, where each `ARG`
+evaluates to a string or a collection of strings:
 
 ```
-(let NAME (doc STR+) VALUE)
-(let! NAME (doc STR+) VALUE)
-(fn NAME PARAMS (doc STR+) BODY)
-(defmacro NAME PARAMS (doc STR+) BODY)
+(let NAME (doc ARG+) VALUE)
+(let! NAME (doc ARG+) VALUE)
+(fn NAME PARAMS (doc ARG+) BODY)
+(defmacro NAME PARAMS (doc ARG+) BODY)
 ```
 
-The `doc` form takes one or more string arguments and joins them with `\n` to
-form the stored documentation. The doc lives on the value itself: closures
-and macros gain it on their underlying `Closure`; native fns gain it on the
-`NativeFn`. For `let`/`let!`, if the bound value is not a callable (e.g. an
-int, a string, a collection), the doc is silently dropped — non-callable
-values have no doc slot.
+The `doc` form takes one or more arguments. Each argument is evaluated in
+the surrounding environment and must produce either a string or a collection
+(array or cons list) of strings — collections are recursively flattened. All
+collected strings are joined with `\n` to form the stored documentation.
+This means doc text can be passed as a literal, pulled from a variable, or
+built up from a list/array of fragments:
+
+```
+(let header "increments a number by 1")
+(let lines ["params: `n` int" "returns: int"])
+(fn inc (n) (doc header lines) (+ n 1))
+(show inc)
+;; => "increments a number by 1\nparams: `n` int\nreturns: int"
+```
+
+The doc lives on the value itself: closures and macros gain it on their
+underlying `Closure`; native fns gain it on the `NativeFn`. For `let`/`let!`,
+if the bound value is not a callable (e.g. an int, a string, a collection),
+the doc is silently dropped — non-callable values have no doc slot.
 
 `show` returns the doc string attached to its argument, or `()` if none is
 present. Refs are peeled, so `(show r)` and `(show (deref r))` are equivalent
@@ -692,8 +706,9 @@ when `r` holds a callable.
 (show bare) ;; => () — no doc was attached
 ```
 
-Errors: a `doc` form with zero strings raises `ArityMismatch`; a non-string
-argument raises `TypeMismatch`.
+Errors: a `doc` form with zero arguments raises `ArityMismatch`; an argument
+that evaluates to anything other than a string or a collection of strings
+raises `TypeMismatch`.
 
 #### Reserved name
 
