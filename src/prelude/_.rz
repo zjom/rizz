@@ -1,4 +1,13 @@
 (defmacro cond clauses
+  (doc "(cond (TEST EXPR) ... (else EXPR))"
+       "Evaluates each TEST in order and returns the EXPR of the first truthy clause."
+       "An (else EXPR) clause at the tail matches unconditionally."
+       "Returns () if no clause matches."
+       ""
+       "Example:"
+       "  (cond ((< x 0) 'neg)"
+       "        ((= x 0) 'zero)"
+       "        (else    'pos))")
   (if (= clauses ())
       ()
       (if (= (car (car clauses)) 'else)
@@ -8,12 +17,32 @@
                (cond ,@(cdr clauses))))))
 
 (defmacro for (var seq . body)
+  (doc "(for VAR SEQ BODY...)"
+       "Iterates over SEQ binding each element to VAR and evaluating BODY."
+       "Returns () (the final reduce accumulator)."
+       ""
+       "Example:"
+       "  (for x [1 2 3] (println x))")
   `(reduce (fn __for-fn (__acc ,var) (do ,@body)) () ,seq))
 
 (defmacro loop (n . body)
+  (doc "(loop N BODY...)"
+       "Evaluates BODY N times, with __i bound to the current iteration index (0..N)."
+       "Returns ()."
+       ""
+       "Example:"
+       "  (loop 3 (println __i))  ;; prints 0 1 2")
   `(reduce (fn __loop-fn (__acc __i) (do ,@body)) () (range 0 ,n)))
 
 (defmacro while (cond . body)
+  (doc "(while COND BODY...)"
+       "Repeatedly evaluates BODY while COND is truthy."
+       "Returns the value of the last BODY evaluation, or () if COND is false on entry."
+       ""
+       "Example:"
+       "  (let! i 0)"
+       "  (while (< (deref i) 5)"
+       "    (set! i (+ (deref i) 1)))")
   `(do
      (let! __last ())
      ((fn __while-iter ()
@@ -23,17 +52,36 @@
             (deref __last))))))
 
 (defmacro or (a b)
+    (doc "(or A B)"
+         "Returns 1 if either A or B is truthy, else 0. Both arguments are evaluated."
+         ""
+         "Example:"
+         "  (or 0 1)  ;; => 1"
+         "  (or 0 0)  ;; => 0")
     `(if ,a
        1
        (if ,b 1 0)))
 
 
 (defmacro and (a b)
+    (doc "(and A B)"
+         "Returns 1 if both A and B are truthy, else 0. Both arguments are evaluated."
+         ""
+         "Example:"
+         "  (and 1 1)  ;; => 1"
+         "  (and 1 0)  ;; => 0")
     `(if ,a
       (if ,b 1 0)
       0))
 
 (defmacro compose fns
+  (doc "(compose F G H ...)"
+       "Returns a function equivalent to (fn (x) (F (G (H x))))."
+       "With no args returns id; with one arg returns that function unchanged."
+       ""
+       "Example:"
+       "  (let inc-then-double (compose (fn (x) (* x 2)) (fn (x) (+ x 1))))"
+       "  (inc-then-double 3)  ;; => 8")
   (if (= fns ())
       `id
       (if (= (cdr fns) ())
