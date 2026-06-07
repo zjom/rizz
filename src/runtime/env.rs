@@ -5,10 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::{
-    prelude,
-    runtime::{NativeFn, Value},
-};
+use crate::runtime::{NativeFn, Value};
 
 type Inner = HashMap<Rc<str>, Rc<Value>>;
 #[derive(Debug, Clone, PartialEq)]
@@ -17,7 +14,14 @@ pub struct Env {
     /// Directory used to anchor relative paths in I/O builtins like `open`.
     /// `None` falls back to the process CWD.
     base_dir: Option<Rc<Path>>,
-    base_env: Rc<Env>,
+    /// Env that `(open ...)` loads new files from. `None` falls back to a
+    /// fresh default prelude — keeping standalone `Env::new()` usage (notably
+    /// tests) free of the prelude bootstrap cycle. Hosts that want their
+    /// builtins visible to loaded modules should construct a [`Runtime`] (or
+    /// call `with_base_env` directly).
+    ///
+    /// [`Runtime`]: crate::runtime::Runtime
+    base_env: Option<Rc<Env>>,
 }
 
 impl Env {
@@ -25,7 +29,7 @@ impl Env {
         Self {
             bindings: Inner::new(),
             base_dir: None,
-            base_env: Rc::new(prelude::env()),
+            base_env: None,
         }
     }
 
@@ -77,8 +81,8 @@ impl Env {
         self
     }
 
-    pub fn with_base_env(mut self, env: Env) -> Self {
-        self.base_env = Rc::new(env);
+    pub fn with_base_env(mut self, env: Rc<Env>) -> Self {
+        self.base_env = Some(env);
         self
     }
 
@@ -86,8 +90,8 @@ impl Env {
         self.base_dir.as_deref()
     }
 
-    pub fn base_env(&self) -> &Env {
-        &self.base_env
+    pub fn base_env(&self) -> Option<&Rc<Env>> {
+        self.base_env.as_ref()
     }
 }
 

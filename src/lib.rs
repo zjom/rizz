@@ -26,16 +26,16 @@ pub mod parser;
 pub use parser::{ParseError, Parser};
 pub mod prelude;
 pub mod runtime;
-pub use runtime::{Env, RuntimeError};
+pub use runtime::{Env, Runtime, RuntimeError};
 
 /// Parses every top-level form from `r` and evaluates them in source order
-/// against a fresh environment seeded with the [`prelude`]. The forms are
+/// against a fresh [`Runtime`] (prelude + base env for `open`). The forms are
 /// implicitly sequenced: each one's resulting env feeds the next, so later
 /// forms see earlier `let`/`fn` bindings. Returns the value of the last form
 /// and the final environment.
 pub fn parse_and_run<R: Read>(r: R) -> Result<(Rc<Value>, Env), RizzError> {
     let forms = parser::Parser::new(r).parse()?;
-    Ok(eval_forms(forms, &prelude::env())?)
+    Ok(eval_forms(forms, Runtime::new().env())?)
 }
 
 /// Like [`parse_and_run`] but evaluates against the caller-supplied `env`

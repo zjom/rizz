@@ -438,7 +438,13 @@ fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
     }
     let child_base = path.parent().map(PathBuf::from);
     let f = std::fs::File::open(&path)?;
-    let child_env = ctx.base_env().clone().with_base_dir(child_base);
+    let child_env = match ctx.base_env() {
+        Some(base) => (**base)
+            .clone()
+            .with_base_dir(child_base)
+            .with_base_env(base.clone()),
+        None => Env::new().with_base_dir(child_base),
+    };
     let (v, loaded) =
         crate::parse_and_run_with_env(f, &child_env).map_err(|e| anyhow!(e.to_string()))?;
     let env = ctx.union(loaded.filter(|(k, _)| !k.starts_with('_')));

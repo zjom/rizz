@@ -9,7 +9,7 @@ use rustyline::{
     Hinter,
 };
 
-use crate::{Env, ParseError, Parser, RizzError, parse_and_run_with_env, prelude};
+use crate::{ParseError, Parser, RizzError, Runtime};
 
 #[derive(Completer, Helper, Highlighter, Hinter)]
 struct REPLHelper {}
@@ -46,14 +46,14 @@ impl Validator for REPLHelper {
 pub struct Repl {
     rl: Editor<REPLHelper, FileHistory>,
     cfg: ReplConfig,
-    env: crate::Env,
+    rt: Runtime,
 }
 
 impl Repl {
     pub fn new() -> anyhow::Result<Self> {
-        Self::with_config(ReplConfig::default(), prelude::env())
+        Self::with_config(ReplConfig::default(), Runtime::new())
     }
-    pub fn with_config(cfg: ReplConfig, env: Env) -> anyhow::Result<Self> {
+    pub fn with_config(cfg: ReplConfig, rt: Runtime) -> anyhow::Result<Self> {
         let rlcfg = rustyline::Config::builder()
             .edit_mode(cfg.edit_mode.into())
             .color_mode(cfg.color_mode.into())
@@ -68,7 +68,7 @@ impl Repl {
             Err(e) => return Err(e.into()),
         }
 
-        Ok(Self { cfg, rl, env })
+        Ok(Self { cfg, rl, rt })
     }
     pub fn run(&mut self) -> anyhow::Result<()> {
         println!("ff self — Ctrl-D to exit, blank line to submit/abort multi-line input");
@@ -130,8 +130,7 @@ impl Repl {
             }
 
             Command::Program { line } => {
-                let (v, env) = parse_and_run_with_env(Cursor::new(line), &self.env)?;
-                self.env = env;
+                let v = self.rt.eval(Cursor::new(line))?;
                 Ok(v.to_string())
             }
         }

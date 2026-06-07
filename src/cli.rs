@@ -1,4 +1,4 @@
-use crate::{ParseError, Parser};
+use crate::{ParseError, Parser, Runtime};
 use anyhow::{anyhow, bail};
 use clap::Parser as _;
 use std::io::IsTerminal;
@@ -46,25 +46,20 @@ impl Default for Commands {
 
 pub fn run() -> anyhow::Result<()> {
     let opts = Cli::parse();
-    let (sexp, base_dir) = match opts.file {
-        Some(path) => {
-            let base_dir = path.parent().map(PathBuf::from);
-            let f = fs::File::open(path).map_err(|e| ParseError::from_io_error(e, None))?;
-            (Parser::new(f).parse()?, base_dir)
-        }
-        None => {
-            if io::stdin().is_terminal() && opts.interactive {
-                return Repl::new()?.run();
-            } else {
-                bail!(
-                    "no file specified and no content piped to stdin and interactive mode not enabled."
-                );
-            }
+    let Some(path) = opts.file else {
+        if io::stdin().is_terminal() && opts.interactive {
+            return Repl::new()?.run();
+        } else {
+            bail!(
+                "no file specified and no content piped to stdin and interactive mode not enabled."
+            );
         }
     };
 
     match opts.command.unwrap_or_default() {
         Commands::Parse { pretty } => {
+            let f = fs::File::open(&path).map_err(|e| ParseError::from_io_error(e, None))?;
+            let sexp = Parser::new(f).parse()?;
             if pretty {
                 println!("{sexp:#?}")
             } else {
@@ -72,11 +67,10 @@ pub fn run() -> anyhow::Result<()> {
             }
         }
         Commands::Eval { repl: repl_cfg } => {
-            let prelude = crate::prelude::env().with_base_dir(base_dir);
-            let (out, env) =
-                crate::eval_forms(sexp, &prelude).map_err(|e| anyhow!(e.to_string()))?;
+            let mut rt = Runtime::new();
+            let out = rt.eval_file(&path).map_err(|e| anyhow!(e.to_string()))?;
             if opts.interactive {
-                Repl::with_config(repl_cfg, env)?.run()?;
+                Repl::with_config(repl_cfg, rt)?.run()?;
             } else {
                 println!("{out}");
             }

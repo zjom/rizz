@@ -13,10 +13,12 @@ mod env;
 mod error;
 mod eval;
 mod native;
+mod rt;
 mod value;
 
 pub use env::*;
 pub use error::*;
 pub use eval::*;
 pub use native::*;
+pub use rt::*;
 pub use value::*;
