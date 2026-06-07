@@ -8,13 +8,14 @@
 
 use crate::{
     consts::{
-        KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_EVAL, KW_IF, KW_QUASIQUOTE,
-        KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+        FILE_EXTENSION, KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_EVAL, KW_IF,
+        KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
     },
     runtime::{Closure, Env, RuntimeError, Value},
 };
+use anyhow::anyhow;
 use im::{HashMap, Vector};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 /// Evaluates `form` in environment `ctx`, returning the value and the resulting
 /// environment.
@@ -51,6 +52,7 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                     KW_IF => return eval_if(tail, ctx),
                     KW_DO => return eval_do(tail, ctx),
                     KW_EVAL => return eval(tail.clone(), ctx),
+                    KW_OPEN => return eval_open(tail, ctx),
                     _ => {}
                 }
             }
@@ -401,6 +403,46 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeE
     let (val, env) = eval(items[1].clone(), env)?;
     let env = env.update(name.clone(), val.clone());
     Ok((val, env))
+}
+
+/// `(open path)`: loads and evaluates the file at `path` (extension `.rz` is
+/// appended if absent). Relative paths are resolved against the current source
+/// file's directory (see [`Env::base_dir`]), falling back to the process CWD.
+/// The loaded module's top-level bindings are merged into the caller's env
+/// — minus any whose names start with `_` (a convention for private items) —
+/// and the value of the loaded module's last form is returned. `open` is a
+/// special form rather than a native fn because native calls cannot leak
+/// bindings into the caller; module loading is precisely the operation that
+/// must.
+fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let items: Vec<_> = Value::iter(tail).collect();
+    if items.len() != 1 {
+        return Err(RuntimeError::ArityMismatch {
+            name: KW_OPEN.into(),
+            expected: 1,
+            got: items.len(),
+        });
+    }
+    let (arg, ctx) = eval(items[0].clone(), ctx)?;
+    let mut path = arg
+        .as_str_or_ident()
+        .ok_or_else(|| RuntimeError::type_mismatch(KW_OPEN, "str", &arg))
+        .map(|s| PathBuf::from(s.as_ref()))?;
+    if path.extension().is_none() {
+        path.set_extension(FILE_EXTENSION);
+    }
+    if path.is_relative() {
+        if let Some(base) = ctx.base_dir() {
+            path = base.join(path);
+        }
+    }
+    let child_base = path.parent().map(PathBuf::from);
+    let f = std::fs::File::open(&path)?;
+    let child_env = crate::prelude::env().with_base_dir(child_base);
+    let (v, loaded) =
+        crate::parse_and_run_with_env(f, &child_env).map_err(|e| anyhow!(e.to_string()))?;
+    let env = ctx.union(loaded.filter(|(k, _)| !k.starts_with('_')));
+    Ok((v, env))
 }
 
 /// `(let! name value)`: evaluates `value`, wraps it in ref, binds it to `name`, and returns the

@@ -46,10 +46,11 @@ impl Default for Commands {
 
 pub fn run() -> anyhow::Result<()> {
     let opts = Cli::parse();
-    let sexp = match opts.file {
+    let (sexp, base_dir) = match opts.file {
         Some(path) => {
+            let base_dir = path.parent().map(PathBuf::from);
             let f = fs::File::open(path).map_err(|e| ParseError::from_io_error(e, None))?;
-            Parser::new(f).parse()?
+            (Parser::new(f).parse()?, base_dir)
         }
         None => {
             if io::stdin().is_terminal() && opts.interactive {
@@ -71,8 +72,9 @@ pub fn run() -> anyhow::Result<()> {
             }
         }
         Commands::Eval { repl: repl_cfg } => {
-            let (out, env) = crate::eval_forms(sexp, &crate::prelude::env())
-                .map_err(|e| anyhow!(e.to_string()))?;
+            let prelude = crate::prelude::env().with_base_dir(base_dir);
+            let (out, env) =
+                crate::eval_forms(sexp, &prelude).map_err(|e| anyhow!(e.to_string()))?;
             if opts.interactive {
                 Repl::with_config(repl_cfg, env)?.run()?;
             } else {

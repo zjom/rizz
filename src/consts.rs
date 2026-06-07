@@ -13,3 +13,4 @@ pub const KW_UNQUOTE_SPLICE: &str = "unquote-splice";
 pub const KW_IF: &str = "if";
 pub const KW_DO: &str = "do";
 pub const KW_EVAL: &str = "eval";
+pub const KW_OPEN: &str = "open";

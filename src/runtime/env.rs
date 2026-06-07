@@ -1,15 +1,27 @@
 use im::HashMap;
-use std::{fmt::Debug, rc::Rc};
+use std::{
+    fmt::Debug,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use crate::runtime::{NativeFn, Value};
 
 type Inner = HashMap<Rc<str>, Rc<Value>>;
 #[derive(Debug, Clone, PartialEq)]
-pub struct Env(Inner);
+pub struct Env {
+    bindings: Inner,
+    /// Directory used to anchor relative paths in I/O builtins like `open`.
+    /// `None` falls back to the process CWD.
+    base_dir: Option<Rc<Path>>,
+}
 
 impl Env {
     pub fn new() -> Self {
-        Self(Inner::new())
+        Self {
+            bindings: Inner::new(),
+            base_dir: None,
+        }
     }
 
     pub fn of_builtins(vals: Vec<(&str, NativeFn)>) -> Self {
@@ -20,24 +32,45 @@ impl Env {
 
     /// Construct a new hash map by inserting a key/value mapping into a map.
     pub fn update(self, k: Rc<str>, v: Rc<Value>) -> Self {
-        Self(self.0.update(k, v))
+        Self {
+            bindings: self.bindings.update(k, v),
+            base_dir: self.base_dir,
+        }
     }
 
     pub fn get(&self, k: &Rc<str>) -> Option<&Rc<Value>> {
-        self.0.get(k)
+        self.bindings.get(k)
     }
 
     /// Construct the union of two maps, keeping the values in the
-    /// current map when keys exist in both maps.
+    /// current map when keys exist in both maps. The current map's
+    /// `base_dir` is also preserved — `union` is used by `open` to merge a
+    /// loaded module's bindings into the caller's env, and the caller's
+    /// source-file context should outlive the call.
     pub fn union(self, other: Self) -> Self {
-        Self(self.0.union(other.0))
+        Self {
+            bindings: self.bindings.union(other.bindings),
+            base_dir: self.base_dir,
+        }
     }
 
     pub fn filter<P>(self, p: P) -> Self
     where
         P: FnMut(&(Rc<str>, Rc<Value>)) -> bool,
     {
-        Env(self.0.into_iter().filter(p).collect())
+        Self {
+            bindings: self.bindings.into_iter().filter(p).collect(),
+            base_dir: self.base_dir,
+        }
+    }
+
+    pub fn with_base_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.base_dir = dir.map(Rc::from);
+        self
+    }
+
+    pub fn base_dir(&self) -> Option<&Path> {
+        self.base_dir.as_deref()
     }
 }
 
