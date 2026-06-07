@@ -5,7 +5,10 @@ use std::{
     rc::Rc,
 };
 
-use crate::runtime::{NativeFn, Value};
+use crate::{
+    prelude,
+    runtime::{NativeFn, Value},
+};
 
 type Inner = HashMap<Rc<str>, Rc<Value>>;
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +17,7 @@ pub struct Env {
     /// Directory used to anchor relative paths in I/O builtins like `open`.
     /// `None` falls back to the process CWD.
     base_dir: Option<Rc<Path>>,
+    base_env: Rc<Env>,
 }
 
 impl Env {
@@ -21,6 +25,7 @@ impl Env {
         Self {
             bindings: Inner::new(),
             base_dir: None,
+            base_env: Rc::new(prelude::env()),
         }
     }
 
@@ -35,6 +40,7 @@ impl Env {
         Self {
             bindings: self.bindings.update(k, v),
             base_dir: self.base_dir,
+            base_env: self.base_env,
         }
     }
 
@@ -51,6 +57,7 @@ impl Env {
         Self {
             bindings: self.bindings.union(other.bindings),
             base_dir: self.base_dir,
+            base_env: self.base_env,
         }
     }
 
@@ -61,6 +68,7 @@ impl Env {
         Self {
             bindings: self.bindings.into_iter().filter(p).collect(),
             base_dir: self.base_dir,
+            base_env: self.base_env,
         }
     }
 
@@ -69,8 +77,17 @@ impl Env {
         self
     }
 
+    pub fn with_base_env(mut self, env: Env) -> Self {
+        self.base_env = Rc::new(env);
+        self
+    }
+
     pub fn base_dir(&self) -> Option<&Path> {
         self.base_dir.as_deref()
+    }
+
+    pub fn base_env(&self) -> &Env {
+        &self.base_env
     }
 }
 
