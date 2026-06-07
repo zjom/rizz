@@ -196,6 +196,14 @@ impl Value {
         }
     }
 
+    pub fn as_str_or_ident(&self) -> Option<Rc<str>> {
+        match self {
+            Value::Str(s) | Value::Ident(s) => Some(s.clone()),
+            Value::Ref(v) => v.borrow().as_str(),
+            _ => None,
+        }
+    }
+
     pub fn as_array(&self) -> Option<Vector<Rc<Value>>> {
         match self {
             Value::Array(xs) => Some(xs.clone()),
