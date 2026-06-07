@@ -99,23 +99,17 @@ impl NativeFn {
 
     pub fn call(&self, tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
         match self {
-            Self::Pure {
-                f, nargs, name, ..
-            } => {
+            Self::Pure { f, nargs, name, .. } => {
                 let (args, env) = runtime::eval_and_collect(tail, env)?;
                 validate_args(name, &args, *nargs)?;
                 f(&args).map(|v| (v, env.clone()))
             }
-            Self::Impure {
-                f, nargs, name, ..
-            } => {
+            Self::Impure { f, nargs, name, .. } => {
                 let (args, env) = runtime::eval_and_collect(tail, env)?;
                 validate_args(name, &args, *nargs)?;
                 f(&args, &env)
             }
-            Self::Macro {
-                f, nargs, name, ..
-            } => {
+            Self::Macro { f, nargs, name, .. } => {
                 let args: Vec<_> = Value::iter(tail).collect();
                 validate_args(name, &args, *nargs)?;
                 f(&args, env)
@@ -132,15 +126,11 @@ impl NativeFn {
     /// caller's — see [`crate::runtime::apply`].
     pub fn apply(&self, args: &[Rc<Value>], env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
         match self {
-            Self::Pure {
-                f, nargs, name, ..
-            } => {
+            Self::Pure { f, nargs, name, .. } => {
                 validate_args(name, args, *nargs)?;
                 f(args).map(|v| (v, env.clone()))
             }
-            Self::Impure {
-                f, nargs, name, ..
-            } => {
+            Self::Impure { f, nargs, name, .. } => {
                 validate_args(name, args, *nargs)?;
                 f(args, env)
             }

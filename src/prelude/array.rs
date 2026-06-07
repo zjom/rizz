@@ -62,7 +62,9 @@ fn of() -> NativeFn {
     NativeFn::pure("array-of".into(), 1, |args| {
         Ok(Rc::new(Value::Array(Vector::unit(args[0].clone()))))
     })
-    .with_doc("(array-of v): a single-element array [v]. Equivalent to writing [v] literally.".into())
+    .with_doc(
+        "(array-of v): a single-element array [v]. Equivalent to writing [v] literally.".into(),
+    )
 }
 
 /// `(push arr v)`: a new array with `v` appended at the end.

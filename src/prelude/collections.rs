@@ -60,10 +60,7 @@ fn len() -> NativeFn {
         };
         Ok(Rc::new(Value::Int(n)))
     })
-    .with_doc(
-        "(len coll): element count of a string (by char), array, map, or cons list."
-            .into(),
-    )
+    .with_doc("(len coll): element count of a string (by char), array, map, or cons list.".into())
 }
 
 /// `(slice coll start end)`: half-open `[start, end)` sub-sequence of a string
@@ -260,9 +257,7 @@ fn reverse() -> NativeFn {
             other,
         )),
     })
-    .with_doc(
-        "(reverse coll): a reversed string (by char), array, or cons list.".into(),
-    )
+    .with_doc("(reverse coll): a reversed string (by char), array, or cons list.".into())
 }
 
 /// `(first coll)`: first element of an array or cons list, or first char of a
