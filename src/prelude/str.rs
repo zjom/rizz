@@ -30,6 +30,11 @@ fn to_str() -> NativeFn {
     NativeFn::pure("to-str".into(), 1, |args| {
         Ok(Rc::new(Value::Str(args[0].display().into())))
     })
+    .with_doc(
+        "(to-str v) / (str-of v): stringifies any value. Strings are returned unquoted; \
+         all other values use their display form."
+            .into(),
+    )
 }
 
 /// Reads `args[0]` as a string, erroring otherwise.
@@ -44,6 +49,7 @@ fn str_upper() -> NativeFn {
         let s = arg_str("str-upper", &args[0])?;
         Ok(Rc::new(Value::Str(s.to_uppercase().into())))
     })
+    .with_doc("(str-upper s): an uppercased copy of s. Errors if s is not a string.".into())
 }
 
 /// `(str-lower s)`: lowercased copy.
@@ -52,6 +58,7 @@ fn str_lower() -> NativeFn {
         let s = arg_str("str-lower", &args[0])?;
         Ok(Rc::new(Value::Str(s.to_lowercase().into())))
     })
+    .with_doc("(str-lower s): a lowercased copy of s. Errors if s is not a string.".into())
 }
 
 /// `(str-trim s)`: leading/trailing whitespace removed.
@@ -60,6 +67,11 @@ fn str_trim() -> NativeFn {
         let s = arg_str("str-trim", &args[0])?;
         Ok(Rc::new(Value::Str(s.trim().into())))
     })
+    .with_doc(
+        "(str-trim s): a copy of s with leading and trailing whitespace removed. \
+         Errors if s is not a string."
+            .into(),
+    )
 }
 
 /// `(str-split s sep)`: splits `s` on `sep` into an array of strings. An empty
@@ -79,6 +91,11 @@ fn str_split() -> NativeFn {
         };
         Ok(Rc::new(Value::Array(parts)))
     })
+    .with_doc(
+        "(str-split s sep): splits s on sep into an array of strings. \
+         An empty sep splits into individual characters."
+            .into(),
+    )
 }
 
 /// `(str-join arr sep)`: joins an array's elements (each rendered via
@@ -98,6 +115,11 @@ fn str_join() -> NativeFn {
             other => Err(RuntimeError::type_mismatch("str-join", "array", other)),
         }
     })
+    .with_doc(
+        "(str-join xs sep): joins an array or list's elements into one string, with \
+         sep between each element. Non-string elements are stringified via to-str."
+            .into(),
+    )
 }
 
 /// `(str-replace s from to)`: replaces all non-overlapping occurrences.
@@ -108,6 +130,11 @@ fn str_replace() -> NativeFn {
         let to = arg_str("str-replace", &args[2])?;
         Ok(Rc::new(Value::Str(s.replace(&*from, &to).into())))
     })
+    .with_doc(
+        "(str-replace s from to): replaces all non-overlapping occurrences of \
+         `from` in s with `to`."
+            .into(),
+    )
 }
 
 /// `(str->int s)`: parses a decimal integer, or `()` on failure. Surrounding
@@ -120,6 +147,11 @@ fn str_to_int() -> NativeFn {
             Err(_) => Value::Unit,
         }))
     })
+    .with_doc(
+        "(str->int s): parses s as a decimal integer (surrounding whitespace ignored). \
+         Returns () if s does not parse."
+            .into(),
+    )
 }
 
 #[cfg(test)]

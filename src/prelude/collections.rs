@@ -60,6 +60,10 @@ fn len() -> NativeFn {
         };
         Ok(Rc::new(Value::Int(n)))
     })
+    .with_doc(
+        "(len coll): element count of a string (by char), array, map, or cons list."
+            .into(),
+    )
 }
 
 /// `(slice coll start end)`: half-open `[start, end)` sub-sequence of a string
@@ -97,6 +101,12 @@ fn slice() -> NativeFn {
             )),
         }
     })
+    .with_doc(
+        "(slice coll start end): half-open [start, end) sub-sequence of a string \
+         (by char), array, or cons list. Indices are clamped to [0, len]; \
+         start > end yields an empty result."
+            .into(),
+    )
 }
 
 /// Clamps `[start, end)` to valid indices in `[0, len]`, guaranteeing the
@@ -143,6 +153,11 @@ fn concat() -> NativeFn {
             )),
         }
     })
+    .with_doc(
+        "(concat a b): joins two strings, two arrays, two maps, or two cons lists. \
+         For maps, the second operand's entries win on key collisions."
+            .into(),
+    )
 }
 
 /// `(get coll k)`: map value at key `k`, array/list element at int index `k`,
@@ -186,6 +201,11 @@ fn get() -> NativeFn {
             other,
         )),
     })
+    .with_doc(
+        "(get coll k): map value at key k, array/list element at int index k, \
+         or the 1-char string at int index k. A miss or out-of-bounds index yields ()."
+            .into(),
+    )
 }
 
 /// `(contains? coll x)`: substring test for strings, element-equality test for
@@ -212,6 +232,11 @@ fn contains() -> NativeFn {
         };
         Ok(Rc::new(Value::from(result)))
     })
+    .with_doc(
+        "(contains? coll x): substring test for strings, element-equality test for \
+         arrays/lists, key-presence test for maps. Returns 1 or 0."
+            .into(),
+    )
 }
 
 /// `(reverse coll)`: reverses a string (by char), array, or cons list.
@@ -235,6 +260,9 @@ fn reverse() -> NativeFn {
             other,
         )),
     })
+    .with_doc(
+        "(reverse coll): a reversed string (by char), array, or cons list.".into(),
+    )
 }
 
 /// `(first coll)`: first element of an array or cons list, or first char of a
@@ -254,6 +282,11 @@ fn first() -> NativeFn {
             other,
         )),
     })
+    .with_doc(
+        "(first coll): first element of an array or cons list, or first char of a string \
+         (as a 1-char string). Returns () on an empty input."
+            .into(),
+    )
 }
 
 /// `(last coll)`: last element of an array or cons list, or last char of a
@@ -270,6 +303,11 @@ fn last() -> NativeFn {
             .unwrap_or_else(|| Rc::new(Value::Unit))),
         other => Err(RuntimeError::type_mismatch("last", "array/str/list", other)),
     })
+    .with_doc(
+        "(last coll): last element of an array or cons list, or last char of a string \
+         (as a 1-char string). Returns () on an empty input."
+            .into(),
+    )
 }
 
 /// `(rest coll)`: all but the first element of an array or cons list, or all
@@ -289,6 +327,11 @@ fn rest() -> NativeFn {
         Value::Unit => Ok(Rc::new(Value::Unit)),
         other => Err(RuntimeError::type_mismatch("rest", "array/str/list", other)),
     })
+    .with_doc(
+        "(rest coll): all but the first element of an array or cons list, or all but \
+         the first char of a string. An empty or single-element input yields an empty result."
+            .into(),
+    )
 }
 
 fn fmap() -> NativeFn {
@@ -354,6 +397,12 @@ fn fmap() -> NativeFn {
             )),
         }
     })
+    .with_doc(
+        "(fmap f coll): applies f to each element of coll and returns a collection of the \
+         same shape. For strings f is called per char (as a 1-char string) and must return \
+         a string. For maps f receives (k v) and must return a 2-element [k v] array."
+            .into(),
+    )
 }
 
 fn fmapi() -> NativeFn {
@@ -423,6 +472,12 @@ fn fmapi() -> NativeFn {
             )),
         }
     })
+    .with_doc(
+        "(fmapi f coll): like fmap, but passes the element's index as the first arg to f. \
+         For strings f is called as (f i char) and must return a string. For arrays/lists as \
+         (f i x). For maps as (f i k v), and f must return a 2-element [k v] array."
+            .into(),
+    )
 }
 
 /// `(filter pred coll)`: keeps the parts of a collection for which `pred`
@@ -480,6 +535,13 @@ fn filter() -> NativeFn {
         };
         Ok((Rc::new(out), env.clone()))
     })
+    .with_doc(
+        "(filter pred coll): keeps the parts of a collection for which pred returns a truthy \
+         value, preserving the collection's type. For a string pred is called per char \
+         (as a 1-char string); for an array per element; for a map per entry, with the key \
+         and value passed as two args."
+            .into(),
+    )
 }
 
 /// `(reduce f init coll)`: left fold — `acc` starts at `init`. For a str `acc`
@@ -521,6 +583,12 @@ fn reduce() -> NativeFn {
         }
         Ok((acc, env.clone()))
     })
+    .with_doc(
+        "(reduce f init coll): left fold. acc starts at init. For a string acc becomes \
+         (f acc char) per char (as a 1-char string); for an array (f acc elem) per element; \
+         for a map (f acc k v) per entry."
+            .into(),
+    )
 }
 
 /// `(zip a b)`: takes two collections and produces a cons list of 2-element arrays (pairs).
@@ -538,6 +606,12 @@ fn zip() -> NativeFn {
 
         Ok(Rc::new(cons_list(pairs)))
     })
+    .with_doc(
+        "(zip a b): pairs elements of two collections into a cons list of [x y] arrays. \
+         Stops at the shorter input. Strings iterate by char; maps yield [k v] entries; \
+         arrays and lists iterate element-wise."
+            .into(),
+    )
 }
 
 fn all() -> NativeFn {
@@ -552,6 +626,11 @@ fn all() -> NativeFn {
         }
         Ok((Rc::new(true.into()), env.clone()))
     })
+    .with_doc(
+        "(all pred coll): returns 1 if pred returns truthy for every element of coll, \
+         else 0. Short-circuits on the first falsy result. Returns 1 for an empty coll."
+            .into(),
+    )
 }
 
 fn any() -> NativeFn {
@@ -566,6 +645,11 @@ fn any() -> NativeFn {
         }
         Ok((Rc::new(false.into()), env.clone()))
     })
+    .with_doc(
+        "(any pred coll): returns 1 if pred returns truthy for any element of coll, \
+         else 0. Short-circuits on the first truthy result. Returns 0 for an empty coll."
+            .into(),
+    )
 }
 
 fn find() -> NativeFn {
@@ -590,6 +674,11 @@ fn find() -> NativeFn {
         }
         Ok((Rc::new(Value::Unit), env.clone()))
     })
+    .with_doc(
+        "(find pred coll): returns the index of the first element of coll for which pred \
+         returns truthy, or () if none. coll must be a string, array, or cons list."
+            .into(),
+    )
 }
 
 fn to_iter(

@@ -46,6 +46,12 @@ fn eq() -> NativeFn {
     NativeFn::pure("eq".into(), 2, |args| {
         Ok(Rc::new((args[0] == args[1]).into()))
     })
+    .with_doc(
+        "(= a b) / (eq a b): structural equality. Returns 1 if a and b are equal, 0 otherwise. \
+         Functions compare by identity — distinct functions are never equal, but a function \
+         equals itself."
+            .into(),
+    )
 }
 
 /// `(!= a b)`: structural equality, returning `1` if not equal and `0` otherwise.
@@ -54,6 +60,11 @@ fn neq() -> NativeFn {
     NativeFn::pure("neq".into(), 2, |args| {
         Ok(Rc::new((args[0] != args[1]).into()))
     })
+    .with_doc(
+        "(!= a b) / (neq a b): structural inequality. Returns 1 if a and b are not equal, \
+         0 otherwise. See `eq` for semantics."
+            .into(),
+    )
 }
 
 /// `(not a)`: returns `1` if a is falsy and `0` otherwise.
@@ -61,4 +72,5 @@ fn not() -> NativeFn {
     NativeFn::pure("not".into(), 1, |args| {
         Ok(Rc::new((!args[0].is_truthy()).into()))
     })
+    .with_doc("(! a) / (not a): returns 1 if a is falsy and 0 otherwise.".into())
 }

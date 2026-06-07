@@ -29,6 +29,11 @@ fn cons() -> NativeFn {
             tail: args[1].clone(),
         }))
     })
+    .with_doc(
+        "(cons head tail): a new cons cell. tail is typically a list (a cons chain or ()) \
+         but any value is permitted — improper pairs are allowed."
+            .into(),
+    )
 }
 
 /// `(car xs)`: the head of a cons cell. `(car ())` is `()`.
@@ -38,6 +43,7 @@ fn car() -> NativeFn {
         Value::Unit => Ok(Rc::new(Value::Unit)),
         other => Err(RuntimeError::type_mismatch("car", "cons/()", other)),
     })
+    .with_doc("(car xs): the head of a cons cell. (car ()) is ().".into())
 }
 
 /// `(cdr xs)`: the tail of a cons cell. `(cdr ())` is `()`.
@@ -47,6 +53,7 @@ fn cdr() -> NativeFn {
         Value::Unit => Ok(Rc::new(Value::Unit)),
         other => Err(RuntimeError::type_mismatch("cdr", "cons/()", other)),
     })
+    .with_doc("(cdr xs): the tail of a cons cell. (cdr ()) is ().".into())
 }
 
 /// `(car! ref v)`: replaces the head of the cons cell held in `ref` with `v`
@@ -67,6 +74,11 @@ fn car_bang() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("car!", "ref", other)),
     })
+    .with_doc(
+        "(car! ref v): replaces the head of the cons cell held in ref (mutating it) and \
+         returns the new cons. Errors if ref is not a ref or does not hold a cons."
+            .into(),
+    )
 }
 
 /// `(cdr! ref v)`: replaces the tail of the cons cell held in `ref` with `v`
@@ -87,6 +99,11 @@ fn cdr_bang() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("cdr!", "ref", other)),
     })
+    .with_doc(
+        "(cdr! ref v): replaces the tail of the cons cell held in ref (mutating it) and \
+         returns the new cons. Errors if ref is not a ref or does not hold a cons."
+            .into(),
+    )
 }
 
 /// Builds a cons list from an iterator of values, terminated by `Unit`.

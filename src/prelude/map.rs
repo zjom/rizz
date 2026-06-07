@@ -28,6 +28,11 @@ fn put() -> NativeFn {
             got: Value::type_name(other).into(),
         }),
     })
+    .with_doc(
+        "(put m k v): a new map with key k bound to v. Replaces any existing binding for k. \
+         m is not mutated. Errors if m is not a map."
+            .into(),
+    )
 }
 
 /// `(keys m)`: an array of the map's keys (order unspecified).
@@ -39,6 +44,7 @@ fn keys() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("keys", "map", other)),
     })
+    .with_doc("(keys m): an array of the map's keys. Order is unspecified.".into())
 }
 
 /// `(values m)`: an array of the map's values (order unspecified).
@@ -50,6 +56,7 @@ fn values() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("values", "map", other)),
     })
+    .with_doc("(values m): an array of the map's values. Order is unspecified.".into())
 }
 
 /// `(del m k)`: the map with key `k` removed (a no-op if `k` is absent).
@@ -58,6 +65,10 @@ fn del() -> NativeFn {
         Value::Map(m) => Ok(Rc::new(Value::Map(m.without(&args[1])))),
         other => Err(RuntimeError::type_mismatch("del", "map", other)),
     })
+    .with_doc(
+        "(del m k): a new map with key k removed (a no-op if k is absent). m is not mutated."
+            .into(),
+    )
 }
 
 /// `(put! ref k v)`: inserts `(k → v)` into the map held in `ref` and returns
@@ -74,6 +85,11 @@ fn put_bang() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("put!", "ref", other)),
     })
+    .with_doc(
+        "(put! ref k v): binds k to v in the map held in ref (mutating it) and returns the \
+         new map. Errors if ref is not a ref or does not hold a map."
+            .into(),
+    )
 }
 
 /// `(del! ref k)`: removes key `k` from the map held in `ref` (a no-op if `k`
@@ -91,6 +107,11 @@ fn del_bang() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("del!", "ref", other)),
     })
+    .with_doc(
+        "(del! ref k): removes key k from the map held in ref (mutating it) and returns the \
+         new map. A no-op if k is absent. Errors if ref is not a ref or does not hold a map."
+            .into(),
+    )
 }
 
 #[cfg(test)]

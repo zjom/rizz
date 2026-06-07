@@ -12,6 +12,11 @@ fn typeof_() -> NativeFn {
     NativeFn::pure("typeof".into(), 1, |args| {
         Ok(Rc::new(Value::Ident(Value::type_name(&args[0]).into())))
     })
+    .with_doc(
+        "(typeof v): the type name of v as an identifier (e.g. 'int, 'float, 'str, \
+         'array, 'map, 'ref, 'cons, 'closure, 'macro, 'native-fn, 'ident, 'unit)."
+            .into(),
+    )
 }
 
 /// `(show v)`: returns the doc string attached to a closure, macro, or native
@@ -25,6 +30,12 @@ fn show() -> NativeFn {
             None => Rc::new(Value::Unit),
         })
     })
+    .with_doc(
+        "(show v): returns the doc string attached to a closure, macro, or native fn at \
+         definition time (see the optional (doc \"...\") slot on binding forms). Returns () \
+         when v carries no doc. Refs are peeled so (show (deref r)) and (show r) behave the same."
+            .into(),
+    )
 }
 
 fn doc_of(v: &Value) -> Option<Rc<str>> {

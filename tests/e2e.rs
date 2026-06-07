@@ -844,7 +844,10 @@ fn fn_doc_strings_are_newline_joined() {
           (doc "line one" "line two" "line three")
           (+ n 1))
         (show inc)"#;
-    assert_eq!(*run(src), Value::Str("line one\nline two\nline three".into()));
+    assert_eq!(
+        *run(src),
+        Value::Str("line one\nline two\nline three".into())
+    );
 }
 
 #[test]
@@ -905,8 +908,13 @@ fn let_ref_doc_on_callable_is_attached() {
 }
 
 #[test]
-fn show_on_builtin_without_doc_is_unit() {
-    assert_eq!(*run("(show +)"), Value::Unit);
+fn show_on_documented_builtin_returns_doc() {
+    let v = run("(show +)");
+    let s = match &*v {
+        Value::Str(s) => s.clone(),
+        other => panic!("expected str, got {other}"),
+    };
+    assert!(s.contains("(+ a b)"), "doc string was {s:?}");
 }
 
 #[test]

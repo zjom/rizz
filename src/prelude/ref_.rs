@@ -16,6 +16,11 @@ fn _ref() -> NativeFn {
             args[0].deref().to_owned(),
         )))))
     })
+    .with_doc(
+        "(ref v): wraps v in a mutable cell. Use deref to read and set! (or put!, push!, \
+         car!, cdr!, etc.) to write."
+            .into(),
+    )
 }
 
 fn deref() -> NativeFn {
@@ -23,6 +28,7 @@ fn deref() -> NativeFn {
         Value::Ref(cell) => Ok(Rc::new(cell.borrow().clone())),
         other => Err(RuntimeError::type_mismatch("deref", "ref", other)),
     })
+    .with_doc("(deref r): the value currently held in the ref r. Errors if r is not a ref.".into())
 }
 
 fn set() -> NativeFn {
@@ -34,4 +40,9 @@ fn set() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("set!", "ref", other)),
     })
+    .with_doc(
+        "(set! r v): overwrites the value held in ref r with v and returns v. \
+         Errors if r is not a ref."
+            .into(),
+    )
 }
