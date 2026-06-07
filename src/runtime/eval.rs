@@ -305,20 +305,18 @@ fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeEr
     Ok((closure, env))
 }
 
-/// Splits the tail of a `fn` form into `(name, params, doc, body)`. Accepts:
+/// The tail of a `fn` form: `(name, params, doc, body)`. Accepts:
 /// - `(PARAMS BODY)` — anonymous.
 /// - `(PARAMS (doc ...) BODY)` — anonymous with doc.
 /// - `(NAME PARAMS BODY)` — named.
 /// - `(NAME PARAMS (doc ...) BODY)` — named with doc.
-///
+type CallableTail = (Option<Rc<str>>, Rc<Value>, Option<Rc<str>>, Rc<Value>);
+
 /// The 3-element shape disambiguates on whether the middle item is a `(doc ...)`
 /// form: if yes, it's the anonymous-with-doc shape; otherwise it's the named
 /// shape. This means a 3-element call with a non-ident first slot still falls
 /// into the named path and surfaces a "name must be ident" error.
-fn split_fn_form(
-    items: &[Rc<Value>],
-    env: &Env,
-) -> Result<(Option<Rc<str>>, Rc<Value>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
+fn split_fn_form(items: &[Rc<Value>], env: &Env) -> Result<CallableTail, RuntimeError> {
     match items.len() {
         2 => Ok((None, items[0].clone(), None, items[1].clone())),
         3 if is_doc_form(&items[1]) => {
@@ -362,7 +360,7 @@ fn split_callable_form(
     form: &'static str,
     items: &[Rc<Value>],
     env: &Env,
-) -> Result<(Rc<str>, Rc<Value>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
+) -> Result<CallableTail, RuntimeError> {
     let (name_form, params_form, doc, body) = match items.len() {
         3 => (&items[0], &items[1], None, items[2].clone()),
         4 if is_doc_form(&items[2]) => {
@@ -384,7 +382,7 @@ fn split_callable_form(
             got: Value::type_name(name_form).into(),
         });
     };
-    Ok((name.clone(), params_form.clone(), doc, body))
+    Ok((Some(name.clone()), params_form.clone(), doc, body))
 }
 
 /// Whether `v` is a `(doc ...)` list — used to decide whether an extra slot in
@@ -482,13 +480,14 @@ fn attach_doc(value: Rc<Value>, doc: Option<Rc<str>>) -> Rc<Value> {
     }
 }
 
+type ParamList = (Vec<Rc<str>>, Option<Rc<str>>);
 /// Walks the param-list form for `fn`/`defmacro`. Accepts a cons chain of
 /// idents (`(a b c)`), a dotted chain whose final tail is an ident
 /// (`(a b . rest)`), or a single bare ident (fully variadic).
 fn parse_param_list(
     form: &'static str,
     params_form: &Rc<Value>,
-) -> Result<(Vec<Rc<str>>, Option<Rc<str>>), RuntimeError> {
+) -> Result<ParamList, RuntimeError> {
     if let Value::Ident(name) = &**params_form {
         return Ok((Vec::new(), Some(name.clone())));
     }
@@ -533,16 +532,16 @@ fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Runtim
     let items: Vec<_> = Value::iter(tail).collect();
     let (name, params_form, doc, body) = split_callable_form(KW_DEFMACRO, &items, env)?;
     let (params, rest) = parse_param_list(KW_DEFMACRO, &params_form)?;
-
+    let name = name.expect("`split_callable_form` ensures we have name");
     let mac = Rc::new(Value::Macro(Rc::new(Closure {
-        name: name.clone(),
+        name: Rc::clone(&name),
         params,
         rest,
         body,
         env: env.clone(),
         doc,
     })));
-    let env = env.clone().update(name, mac.clone());
+    let env = env.clone().update(Rc::clone(&name), mac.clone());
     Ok((mac, env))
 }
 
@@ -562,6 +561,7 @@ fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeE
     Ok((val, env))
 }
 
+type DefvarTail = (Rc<str>, Option<Rc<str>>, Rc<Value>);
 /// Splits the tail of a `let` / `let!` form into `(name, doc, value)`. Accepts
 /// either `(NAME VALUE)` or `(NAME (doc ...) VALUE)` — the 3-element shape is
 /// only chosen when the middle item is a `doc` form so that `(let x 1 2)` still
@@ -570,7 +570,7 @@ fn split_var_form(
     form: &'static str,
     items: &[Rc<Value>],
     env: &Env,
-) -> Result<(Rc<str>, Option<Rc<str>>, Rc<Value>), RuntimeError> {
+) -> Result<DefvarTail, RuntimeError> {
     let (name_form, doc, value_form) = match items.len() {
         2 => (&items[0], None, items[1].clone()),
         3 if is_doc_form(&items[1]) => {
@@ -1297,11 +1297,7 @@ mod tests {
     #[test]
     fn defun_anonymous_returns_closure_without_binding() {
         // (fn (x) x): no NAME slot — produces a closure but does not extend env.
-        let form = list(vec![
-            ident(KW_DEFUN),
-            list(vec![ident("x")]),
-            ident("x"),
-        ]);
+        let form = list(vec![ident(KW_DEFUN), list(vec![ident("x")]), ident("x")]);
         let (v, env) = eval_ok(form, &Env::new());
         assert!(matches!(
             &*v,
@@ -1313,11 +1309,7 @@ mod tests {
     #[test]
     fn defun_anonymous_callable_inline() {
         // ((fn (x) x) 7) -> 7
-        let lambda = list(vec![
-            ident(KW_DEFUN),
-            list(vec![ident("x")]),
-            ident("x"),
-        ]);
+        let lambda = list(vec![ident(KW_DEFUN), list(vec![ident("x")]), ident("x")]);
         let form = list(vec![lambda, int(7)]);
         let (v, _) = eval_ok(form, &Env::new());
         assert_eq!(*v, Value::Int(7));
