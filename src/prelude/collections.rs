@@ -11,13 +11,6 @@
 //!
 //! Higher-order builtins are constructed via [`NativeFn::with_env`] so they
 //! can dispatch user-supplied callables through [`crate::runtime::apply`].
-//!
-//! Caveat: the evaluator re-evaluates whatever value a native fn returns,
-//! so for a returned array each element is evaluated a second time.
-//! Self-evaluating elements (ints, floats, strings, units, and arrays/maps
-//! of those) are unaffected. A callback that returns a non-self-evaluating
-//! value — a closure or a bare identifier — would be re-evaluated by the
-//! caller and misbehave; current callbacks return data, so this isn't hit.
 
 use crate::prelude::cons::{cons_list, is_list};
 use crate::runtime::apply;
