@@ -847,6 +847,7 @@ Recapped here for completeness; see §7 for semantics.
 | `show`     | 1     | Doc string attached to a closure/macro/native fn (or `()` if none). See §11. |
 | `id`       | 1     | Identity function — returns its argument unchanged.                          |
 | `empty-of` | 1     | An "empty" value of the same variant as the argument. See below.             |
+| `is`       | 2     | `(is x ty)` returns `x` if `(typeof x)` is `ty`, else `()`. See below.       |
 
 `(empty-of v)` returns a value of the same variant as `v` in its "empty"
 or zero state:
@@ -865,6 +866,21 @@ or zero state:
 
 Refs are peeled, not preserved: `(empty-of (ref 7))` is `0`, not a fresh
 ref holding `0`.
+
+`(is x ty)` is a type guard: `ty` is an ident or string naming a type
+(the values produced by `typeof`, e.g. `int`, `str`, `array`, `map`,
+`cons`, `ref`, `closure`, …). If `(typeof x)` matches `ty`, `x` is
+returned unchanged; otherwise the result is `()`. Combined with the
+truthiness rules (§3.1), this makes `is` directly usable in `if`/`cond`
+and as a filter predicate:
+
+```
+(if (is v 'int) (+ v 1) v)
+(filter (fn [x] (is x 'str)) xs)
+```
+
+Like `typeof`, `is` does not peel refs: `(is (ref 7) 'int)` is `()`,
+while `(is (ref 7) 'ref)` returns the ref.
 
 ---
 

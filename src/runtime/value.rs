@@ -65,10 +65,7 @@ pub enum Value {
     Unit,
     /// A cons cell `(head . tail)`. Lists are cons chains terminated by
     /// `Unit`; dotted (improper) lists end in some other value.
-    Cons {
-        head: Rc<Value>,
-        tail: Rc<Value>,
-    },
+    Cons { head: Rc<Value>, tail: Rc<Value> },
     /// A Rust-implemented function. See [`NativeFn`] for the four flavors.
     NativeFn(Rc<NativeFn>),
     /// A user-defined function captured at its definition site.

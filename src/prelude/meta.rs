@@ -13,7 +13,7 @@
 //!   through refs.
 
 use crate::{
-    Env,
+    Env, RuntimeError,
     consts::{
         KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_DOC, KW_EVAL, KW_IF, KW_OPEN,
         KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
@@ -30,6 +30,7 @@ pub fn env() -> Env {
         ("show", show()),
         ("id", id()),
         ("empty-of", empty_of()),
+        ("is", is()),
     ])
 }
 
@@ -43,6 +44,23 @@ fn typeof_() -> NativeFn {
          'array, 'map, 'ref, 'cons, 'closure, 'macro, 'native-fn, 'ident, 'unit)."
             .into(),
     )
+}
+
+/// `(is x 'map)`
+fn is() -> NativeFn {
+    let name: Rc<str> = "is".into();
+    NativeFn::pure(name.clone(), 2, move |args| {
+        let expected = args[1]
+            .as_str_or_ident()
+            .ok_or_else(|| RuntimeError::type_mismatch("is", "ident", &args[0]))?;
+        let actual = Value::type_name(&args[0]);
+        if expected.as_ref().trim() == actual {
+            return Ok(args[0].clone());
+        }
+
+        Ok(Rc::new(Value::Unit))
+    })
+    .with_doc("`(is x ty)`: returns `x` if `x` is of the type `ty` else ()".into())
 }
 
 /// `(id v)`: identity function — returns `v` unchanged.
