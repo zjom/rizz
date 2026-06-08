@@ -1,0 +1,4 @@
+- tail-call optimization; deep recursion can exhaust the host stack
+- better module system; selective imports, module level docs
+- exception form
+- nested quasiquote depth tracking
