@@ -2,7 +2,7 @@
 //!
 //! Each submodule contributes one group of builtins as a free-standing
 //! [`Env`]. [`env()`] unions them together and then folds in the
-//! rizz-defined macros from `_.rz` (`cond`, `unless`, `for`, `loop`, `while`,
+//! rizz-defined macros from `_.rz` (`cond`, `match`, `unless`, `for`, `loop`, `while`,
 //! `and`, `or`, `compose`, `pipe`). The resulting env is what
 //! [`crate::Runtime::new`] and [`crate::parse_and_run`] start from.
 //!
@@ -48,8 +48,8 @@ use crate::runtime::Env;
 /// Build a fresh default environment.
 ///
 /// The env contains every Rust-implemented builtin from this module's
-/// submodules plus the rizz-defined macros from `_.rz` (`cond`, `unless`,
-/// `for`, `loop`, `while`, `and`, `or`, `compose`, `pipe`). This is the
+/// submodules plus the rizz-defined macros from `_.rz` (`cond`, `match`,
+/// `unless`, `for`, `loop`, `while`, `and`, `or`, `compose`, `pipe`). This is the
 /// env [`crate::Runtime::new`] starts from.
 ///
 /// Successive calls return independent envs; cloning an [`Env`] is cheap

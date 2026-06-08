@@ -763,6 +763,65 @@ fn cond_does_not_evaluate_later_branches() {
 }
 
 #[test]
+fn match_first_truthy_predicate_wins() {
+    // The matched value is implicitly threaded as the first arg of each
+    // predicate call: `(is 'int)` expands to `(is x 'int)`.
+    let src = "(match 7 ((is 'str) 'string)
+                       ((is 'int) 'integer)
+                       (else      'other))";
+    assert_eq!(*run(src), Value::Ident("integer".into()));
+}
+
+#[test]
+fn match_else_branch_taken_when_no_predicate_matches() {
+    let src = "(match 7 ((is 'str) 'string)
+                       ((is 'map) 'mapish)
+                       (else      'other))";
+    assert_eq!(*run(src), Value::Ident("other".into()));
+}
+
+#[test]
+fn match_no_clauses_returns_unit() {
+    assert_eq!(*run("(match 7)"), Value::Unit);
+}
+
+#[test]
+fn match_no_match_no_else_returns_unit() {
+    assert_eq!(*run("(match 7 ((is 'str) 'string))"), Value::Unit);
+}
+
+#[test]
+fn match_evaluates_value_only_once() {
+    // The body of the fn `bumps` increments the ref and returns its prior
+    // value. If `match` evaluated `(bumps)` per-clause we'd see a count > 1.
+    let src = "
+        (let! __n 0)
+        (let bumps (fn _ () (do (set! __n (+ (deref __n) 1)) (deref __n))))
+        (match (bumps) ((is 'str) 'string)
+                       ((is 'map) 'mapish)
+                       (else      'other))
+        (deref __n)";
+    assert_eq!(*run(src), Value::Int(1));
+}
+
+#[test]
+fn match_does_not_evaluate_later_branches() {
+    // If later clauses were evaluated, `(/ 1 0)` would error. The first
+    // predicate matches and is truthy (its result is the value 7), so the
+    // later else branch is not reached.
+    let src = "(match 7 ((is 'int) 42) (else (/ 1 0)))";
+    assert_eq!(*run(src), Value::Int(42));
+}
+
+#[test]
+fn match_threads_value_as_first_predicate_arg() {
+    // Confirms positional threading: `(< 10)` here means `(< x 10)`, so 3
+    // matches and 'small is returned.
+    let src = "(match 3 ((< 10) 'small) (else 'big))";
+    assert_eq!(*run(src), Value::Ident("small".into()));
+}
+
+#[test]
 fn for_returns_last_body_value() {
     assert_eq!(*run("(for x [10 20 30] x)"), Value::Int(30));
 }

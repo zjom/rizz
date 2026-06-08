@@ -617,7 +617,32 @@ when no clause matches and no `else` is present, the result is `()`.
 (cond)                ;; => ()
 ```
 
-### 9.2 `unless` — inverted conditional
+### 9.2 `match` — dispatch on a value via predicates
+
+```
+(match VAL (PRED EXPR)... )
+(match VAL (PRED EXPR)... (else EXPR))
+```
+
+Evaluates `VAL` exactly once, then walks the clauses left to right. Each
+clause is a two-element list `(PRED EXPR)` where `PRED` is a call form
+`(FN ARGS...)`; the matched value is implicitly inserted as the **first**
+argument, so `PRED` is invoked as `(FN VAL ARGS...)`. The first clause
+whose predicate evaluates truthy has its `EXPR` evaluated and returned.
+A literal `else` in predicate position always matches. Later clauses are
+not evaluated once a match is found. With no clauses, or when no clause
+matches and no `else` is present, the result is `()`.
+
+```
+(match x ((is 'map)   'mapish)
+         ((is 'array) 'arrayish)
+         ((is 'float) 'floatish)
+         (else        'other))
+
+(match 3 ((< 10) 'small) (else 'big))   ;; => 'small  — expands (< 3 10)
+```
+
+### 9.3 `unless` — inverted conditional
 
 ```
 (unless COND BODY...)
@@ -627,7 +652,7 @@ Evaluates the body forms in order when `COND` is falsy and returns the
 value of the last form. When `COND` is truthy the body is not evaluated and
 the result is `()`. Equivalent to `(if COND () (do BODY...))`.
 
-### 9.3 `for` — iterate a sequence
+### 9.4 `for` — iterate a sequence
 
 ```
 (for VAR SEQ BODY...)
@@ -645,7 +670,7 @@ provide an accumulator — use a `ref` when one is needed.
 (deref sum)         ;; => 10
 ```
 
-### 9.4 `loop` — repeat N times
+### 9.5 `loop` — repeat N times
 
 ```
 (loop N BODY...)
@@ -661,7 +686,7 @@ the value of the body on the final iteration, or `()` if `N ≤ 0`.
 (deref c)           ;; => 7
 ```
 
-### 9.5 `while` — repeat while truthy
+### 9.6 `while` — repeat while truthy
 
 ```
 (while COND BODY...)
@@ -680,7 +705,7 @@ of the body from the most recent iteration (or `()` if the body never ran).
 (deref sum)         ;; => 10
 ```
 
-### 9.6 `and`, `or` — short-circuit logic
+### 9.7 `and`, `or` — short-circuit logic
 
 ```
 (and A B)
@@ -701,7 +726,7 @@ the standard test from §3.1.
 (and () (/ 1 0)) ;; => () — RHS never evaluated
 ```
 
-### 9.7 `compose`, `pipe` — function composition
+### 9.8 `compose`, `pipe` — function composition
 
 ```
 (compose F G H ...)

@@ -16,6 +16,27 @@
                ,(car (cdr (car clauses)))
                (cond ,@(cdr clauses))))))
 
+(defmacro match (val . clauses)
+  (doc "(match VAL (PRED EXPR) ... (else EXPR))"
+       "Like `cond`, but VAL is evaluated once and implicitly inserted as the"
+       "first argument of each clause's predicate call. (else EXPR) at the"
+       "tail matches unconditionally. Returns () if no clause matches."
+       ""
+       "Example:"
+       "  (match x ((is 'map)   'mapish)"
+       "           ((is 'array) 'arrayish)"
+       "           (else        'other))")
+  `((fn __match-fn (__v) (__match-clauses __v ,@clauses)) ,val))
+
+(defmacro __match-clauses (v . clauses)
+  (if (= clauses ())
+      ()
+      (if (= (car (car clauses)) 'else)
+          (car (cdr (car clauses)))
+          `(if (,(car (car (car clauses))) ,v ,@(cdr (car (car clauses))))
+               ,(car (cdr (car clauses)))
+               (__match-clauses ,v ,@(cdr clauses))))))
+
 (defmacro unless (cond . body)
   (doc "(unless COND BODY...)"
        "Evaluates BODY when COND is falsy, returning the value of the last form."
