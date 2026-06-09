@@ -492,8 +492,9 @@ non-mutating updates use the unsuffixed forms (`push`, `pop`, `put`, `del`,
 
 | Name    | Arity | Cell type | Description                        |
 | ------- | ----- | --------- | ---------------------------------- |
-| `push!` | 2     | array     | Appends an element.                |
-| `pop!`  | 1     | array     | Removes the last element.          |
+| `push!`       | 2     | array     | Appends an element.                |
+| `pop!`        | 1     | array     | Removes the last element.          |
+| `array-set!`  | 3     | array     | Replaces the element at `idx`.     |
 | `put!`  | 3     | map       | Inserts `(k → v)`.                 |
 | `del!`  | 2     | map       | Removes a key; no-op if absent.    |
 | `car!`  | 2     | cons      | Replaces the head; tail preserved. |
@@ -520,7 +521,7 @@ as itself.
 - **Equality is by cell identity.** `(= (ref 5) (ref 5))` is `0`. A ref
   equals itself and any binding aliased to it.
 - **No auto-collapse on construction.** `ref`, `set!`, `push!`, `put!`,
-  `car!`, `cdr!` all store the value handed to them as-is; nesting refs
+  `array-set!`, `car!`, `cdr!` all store the value handed to them as-is; nesting refs
   nests storage.
 - **`typeof` on a ref returns `ref`**, not the contents' type — use `typeof`
   on a `deref` if you want the inner kind.
@@ -809,13 +810,15 @@ These work uniformly across strings, arrays, maps, and cons lists.
 
 | Name         | Arity | Description                                                   |
 | ------------ | ----- | ------------------------------------------------------------- |
-| `push`       | 2     | Append an element (returns a new array).                      |
-| `push!`      | 2     | In-place append on a ref-of-array (§7.2).                     |
-| `pop`        | 1     | Remove the last element; empty array stays empty.             |
-| `pop!`       | 1     | In-place remove-last on a ref-of-array (§7.2).                |
-| `range`      | 2     | Array of ints in `[start, end)`.                              |
-| `array-of`   | 1     | Constructs an array with a single value.                      |
-| `array-from` | 1     | Constructs an array from `xs`. Traverses if `xs` is iterable. |
+| `push`        | 2     | Append an element (returns a new array).                      |
+| `push!`       | 2     | In-place append on a ref-of-array (§7.2).                     |
+| `pop`         | 1     | Remove the last element; empty array stays empty.             |
+| `pop!`        | 1     | In-place remove-last on a ref-of-array (§7.2).                |
+| `array-set`   | 3     | New array with element at `idx` replaced.                     |
+| `array-set!`  | 3     | In-place set on a ref-of-array (§7.2).                        |
+| `range`       | 2     | Array of ints in `[start, end)`.                              |
+| `array-of`    | 1     | Constructs an array with a single value.                      |
+| `array-from`  | 1     | Constructs an array from `xs`. Traverses if `xs` is iterable. |
 
 ### 10.5 Maps
 

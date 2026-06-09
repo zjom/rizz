@@ -1,5 +1,6 @@
 //! Array builtins: construction (`push`, `pop`, `range`, `array-of`,
-//! `array-from`) and the in-place variants `push!` / `pop!`.
+//! `array-from`, `array-set`) and the in-place variants `push!` / `pop!` /
+//! `array-set!`.
 //!
 //! Arrays are persistent ([`im::Vector`]); the unsuffixed ops return a new
 //! array sharing structure with the input, the `!` variants mutate an
@@ -23,7 +24,77 @@ pub fn env() -> Env {
         ("range", range()),
         ("array-of", of()),
         ("array-from", from()),
+        ("array-set", set()),
+        ("array-set!", set_bang()),
     ])
+}
+
+fn set_bang() -> NativeFn {
+    let name: Rc<str> = "array-set!".into();
+    NativeFn::pure(name.clone(), 3, move |args| {
+        let cell = match &*args[0] {
+            Value::Ref(cell) => cell,
+            other => return Err(RuntimeError::type_mismatch(&name, "ref", other)),
+        };
+        let idx = args[1]
+            .as_int()
+            .ok_or_else(|| RuntimeError::type_mismatch(&name, "pos int", &args[1]))?;
+        if idx < 0 {
+            return Err(RuntimeError::type_mismatch(&name, "pos int", &args[1]));
+        }
+        let new = match &*cell.borrow() {
+            Value::Array(xs) => {
+                if idx >= xs.len() as i64 {
+                    return Err(RuntimeError::IndexOob {
+                        name: name.clone(),
+                        length: xs.len() as i64,
+                        got: idx,
+                    });
+                }
+                Value::Array(xs.update(idx as usize, args[2].clone()))
+            }
+            other => return Err(RuntimeError::type_mismatch(&name, "ref<array>", other)),
+        };
+        *cell.borrow_mut() = new.clone();
+        Ok(Rc::new(new))
+    })
+    .with_doc(
+        "(array-set! ref idx v): replaces the element at idx in the array held in ref \
+         (mutating it) and returns the new array. Errors if ref is not a ref or does \
+         not hold an array, if idx is not a non-negative int, or if idx is out of bounds."
+            .into(),
+    )
+}
+fn set() -> NativeFn {
+    let name: Rc<str> = "array-set".into();
+    NativeFn::pure(name.clone(), 3, move |args| {
+        let arr = args[0]
+            .as_array()
+            .ok_or_else(|| RuntimeError::type_mismatch(&name, "array", &args[0]))?;
+        let idx = args[1]
+            .as_int()
+            .ok_or_else(|| RuntimeError::type_mismatch(&name, "pos int", &args[1]))?;
+        if idx < 0 {
+            return Err(RuntimeError::type_mismatch(&name, "pos int", &args[1]));
+        }
+        if idx >= arr.len() as i64 {
+            return Err(RuntimeError::IndexOob {
+                name: name.clone(),
+                length: arr.len() as i64,
+                got: idx,
+            });
+        }
+
+        Ok(Rc::new(Value::Array(
+            arr.update(idx as usize, args[2].clone()),
+        )))
+    })
+    .with_doc(
+        "(array-set arr idx v): a new array with the element at idx replaced by v. \
+         arr is not mutated. Errors if arr is not an array, if idx is not a \
+         non-negative int, or if idx is out of bounds."
+            .into(),
+    )
 }
 
 /// `(array-from xs)`: constructs an array from `xs`

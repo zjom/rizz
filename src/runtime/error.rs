@@ -38,6 +38,13 @@ pub enum RuntimeError {
         got: Rc<str>,
     },
 
+    #[error("{name} failed due to out of bounds error, length: {length}, idx: {got}")]
+    IndexOob {
+        name: Rc<str>,
+        length: i64,
+        got: i64,
+    },
+
     /// A numeric op raised an arithmetic fault: integer overflow, division
     /// by zero, or a NaN comparison. The `reason` field carries the
     /// specific message from the failing op.
