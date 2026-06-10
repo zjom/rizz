@@ -760,6 +760,33 @@ returns `id`; with a single argument it returns that function unchanged.
 ((pipe    inc double) 3) ;; => 8   — inc then double: (3+1)*2
 ```
 
+### 9.9 Function combinators
+
+A handful of small higher-order helpers, defined as prelude functions
+(so they are ordinary values — pass them around, partially apply them,
+etc.). Like `compose`/`pipe`, they assume the conventional arities noted
+below.
+
+```
+(const V)         ;; -> a function of any arity that ignores its args and returns V
+(flip F)          ;; -> (fn _ (a b) (F b a))            — F binary
+(partial F A)     ;; -> (fn _ (b) (F A b))              — F binary; binds first arg
+(complement P)    ;; -> (fn _ (x) (! (P x)))            — P unary predicate
+(on F G)          ;; -> (fn _ (a b) (F (G a) (G b)))    — combine through a projection
+(juxt F G)        ;; -> (fn _ (x) [(F x) (G x)])        — apply both, collect results
+(tap F X)         ;; runs (F X) for effect, returns X   — side-effecting identity
+```
+
+```
+((const 7) 1 2 3)                       ;; => 7
+((flip -) 3 10)                         ;; => 7    — (- 10 3)
+((partial + 1) 4)                       ;; => 5    — increment
+((partial (flip /) 2) 10)              ;; => 5    — halve, binding the second arg
+(filter (complement (fn _ (n) (> n 2))) [1 2 3 4]) ;; => [1 2]
+((on < len) "a" "bbb")                  ;; => 1    — compare by length
+((juxt (partial + 1) (partial * 2)) 5)  ;; => [6 10]
+```
+
 ---
 
 ## 10. Standard library

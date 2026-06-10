@@ -1209,6 +1209,92 @@ fn pipe_is_reverse_of_compose() {
     }
 }
 
+// ----- function combinators: const / flip / partial / complement / on / juxt / tap -----
+
+#[test]
+fn const_ignores_args_and_returns_value() {
+    assert_eq!(*run("((const 7))"), Value::Int(7));
+    assert_eq!(*run("((const 7) 1 2 3)"), Value::Int(7));
+}
+
+#[test]
+fn const_works_as_a_mapping_function() {
+    // (fmap (const 0) [1 2 3]) => [0 0 0]
+    let v = run("(fmap (const 0) [1 2 3])");
+    match &*v {
+        Value::Array(xs) => {
+            assert_eq!(xs.len(), 3);
+            assert!(xs.iter().all(|x| **x == Value::Int(0)));
+        }
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
+#[test]
+fn flip_swaps_the_two_arguments() {
+    // (flip -) 3 10 => (- 10 3) = 7
+    assert_eq!(*run("((flip -) 3 10)"), Value::Int(7));
+    // (flip cons) () 1 => (cons 1 ()) = (1)
+    assert_eq!(*run("((flip cons) () 1)"), int_list(&[1]));
+}
+
+#[test]
+fn partial_binds_the_first_argument() {
+    // (partial + 1) is increment.
+    assert_eq!(*run("((partial + 1) 4)"), Value::Int(5));
+    // Combined with flip, binds the second argument: halve.
+    assert_eq!(*run("((partial (flip /) 2) 10)"), Value::Int(5));
+}
+
+#[test]
+fn complement_negates_a_unary_predicate() {
+    let v = run("(filter (complement (fn _ (n) (> n 2))) [1 2 3 4])");
+    match &*v {
+        Value::Array(xs) => {
+            assert_eq!(xs.len(), 2);
+            assert_eq!(*xs[0], Value::Int(1));
+            assert_eq!(*xs[1], Value::Int(2));
+        }
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
+#[test]
+fn on_projects_both_args_before_combining() {
+    // (on < len) "a" "bbb" => (< (len "a") (len "bbb")) = 1
+    assert_eq!(*run("((on < len) \"a\" \"bbb\")"), Value::Int(1));
+    assert_eq!(*run("((on < len) \"bbb\" \"a\")"), Value::Int(0));
+}
+
+#[test]
+fn juxt_applies_both_fns_and_collects_results() {
+    let v = run("((juxt (partial + 1) (partial * 2)) 5)");
+    match &*v {
+        Value::Array(xs) => {
+            assert_eq!(*xs[0], Value::Int(6));
+            assert_eq!(*xs[1], Value::Int(10));
+        }
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
+#[test]
+fn tap_runs_side_effect_and_returns_value() {
+    // The side effect mutates a ref; tap still returns the original value.
+    let src = "
+        (let! seen ())
+        (let out (tap (fn _ (x) (set! seen x)) 42))
+        [out (deref seen)]";
+    let v = run(src);
+    match &*v {
+        Value::Array(xs) => {
+            assert_eq!(*xs[0], Value::Int(42));
+            assert_eq!(*xs[1], Value::Int(42));
+        }
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
 // ----- the eval special form -----
 
 #[test]

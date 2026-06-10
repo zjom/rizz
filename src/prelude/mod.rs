@@ -2,8 +2,10 @@
 //!
 //! Each submodule contributes one group of builtins as a free-standing
 //! [`Env`]. [`env()`] unions them together and then folds in the
-//! rizz-defined macros from `_.rz` (`cond`, `match`, `unless`, `for`, `loop`, `while`,
-//! `and`, `or`, `compose`, `pipe`). The resulting env is what
+//! rizz-defined forms from `_.rz`: the control-flow macros (`cond`,
+//! `match`, `unless`, `for`, `loop`, `while`, `and`, `or`) and the
+//! function combinators (`compose`, `pipe`, `const`, `flip`, `partial`,
+//! `complement`, `on`, `juxt`, `tap`). The resulting env is what
 //! [`crate::Runtime::new`] and [`crate::parse_and_run`] start from.
 //!
 //! | Submodule        | Provides                                                    |
@@ -57,9 +59,10 @@ thread_local! {
 /// Build a fresh default environment.
 ///
 /// The env contains every Rust-implemented builtin from this module's
-/// submodules plus the rizz-defined macros from `_.rz` (`cond`, `match`,
-/// `unless`, `for`, `loop`, `while`, `and`, `or`, `compose`, `pipe`). This is the
-/// env [`crate::Runtime::new`] starts from.
+/// submodules plus the rizz-defined forms from `_.rz` (`cond`, `match`,
+/// `unless`, `for`, `loop`, `while`, `and`, `or`, `compose`, `pipe`,
+/// `const`, `flip`, `partial`, `complement`, `on`, `juxt`, `tap`). This
+/// is the env [`crate::Runtime::new`] starts from.
 ///
 /// The prelude is built once per thread and cloned out on each call —
 /// cloning an [`Env`] is cheap (it's backed by [`im::HashMap`]), and the
