@@ -13,14 +13,16 @@
 //! `Rc<str>`.
 
 mod error;
+mod peeker;
 mod position;
 pub use error::*;
 use im::{HashMap, Vector};
 use ordered_float::OrderedFloat;
+use peeker::PeekReader;
 pub use position::Position;
 use std::{
     collections::HashSet,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, Read},
 };
 
 use std::rc::Rc;
@@ -102,7 +104,7 @@ impl Drop for Sexp {
 /// interned via a private `HashSet`, so repeated names share one
 /// `Rc<str>` for the lifetime of the parse.
 pub struct Parser<R: Read> {
-    reader: BufReader<R>,
+    reader: PeekReader<R>,
     pos: Position,
     list_depth: usize,
     expr_depth: usize,
@@ -127,7 +129,7 @@ where
     /// internally, so passing an unbuffered `Read` is fine.
     pub fn new(r: R) -> Self {
         Self {
-            reader: BufReader::new(r),
+            reader: PeekReader::new(r),
             pos: Position::new(),
             idents: HashSet::new(),
             list_depth: 0,
@@ -527,16 +529,12 @@ where
     /// If fewer bytes are available than `buf.len()`, fills the prefix and
     /// leaves the rest of `buf` untouched.
     ///
-    /// Known limitation: "available" means *currently buffered*. `BufRead`
-    /// has no way to peek past the buffer without consuming, so when exactly
-    /// one byte remains before the internal 8 KiB buffer boundary, a 2-byte
-    /// lookahead (`,@`, the dotted-list marker, `;;` comment) sees only its first byte and
-    /// can mis-lex. This needs a multi-byte token to straddle that exact
-    /// boundary; fixing it properly means an internal peek buffer in front
-    /// of the reader.
+    /// [`PeekReader::peek`] reads ahead as needed, so a short fill means a
+    /// genuine end-of-input — never an artefact of a refill boundary
+    /// splitting a multi-byte token.
     fn peek_many(&mut self, buf: &mut [u8]) -> Result<(), ParseError> {
         let at = self.at();
-        let avail = match self.reader.fill_buf() {
+        let avail = match self.reader.peek(buf.len()) {
             Ok(a) => a,
             Err(e) => return Err(ParseError::IOError { source: e, at }),
         };
@@ -640,7 +638,7 @@ where
             // genuine I/O fault — propagate it untouched.
             self.read_while(&mut throwaway, |b| WHITESPACE.contains(b))?;
 
-            let starts_comment = match self.reader.fill_buf() {
+            let starts_comment = match self.reader.peek(2) {
                 Ok(avail) => avail.len() >= 2 && avail[0] == b';' && avail[1] == b';',
                 Err(e) => {
                     return Err(ParseError::IOError {
@@ -661,6 +659,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::parser::peeker::PEEK_READER_CAP;
+    use std::io;
     use std::vec;
 
     use super::*;
@@ -1376,6 +1376,91 @@ mod tests {
             matches!(err, ParseError::StraySemicolon { .. }),
             "got {:?}",
             err
+        );
+    }
+
+    // ----- peek across a refill boundary -----
+
+    /// A [`Read`] that hands back at most one byte per `read` call. This forces
+    /// every `fill_buf` to surface a single byte, so any two-byte lookahead
+    /// must read ahead across a refill boundary — exactly the case a plain
+    /// `BufReader` mis-lexed. Parsing through it must match parsing the same
+    /// source from a contiguous slice.
+    struct DripReader<'a> {
+        bytes: &'a [u8],
+    }
+
+    impl Read for DripReader<'_> {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            if self.bytes.is_empty() || out.is_empty() {
+                return Ok(0);
+            }
+            out[0] = self.bytes[0];
+            self.bytes = &self.bytes[1..];
+            Ok(1)
+        }
+    }
+
+    fn parse_dripped(input: &str) -> Result<Vec<Sexp>, ParseError> {
+        Parser::new(DripReader {
+            bytes: input.as_bytes(),
+        })
+        .parse()
+    }
+
+    #[test]
+    fn two_byte_tokens_survive_a_split_buffer() {
+        // Each of these hinges on a reliable two-byte peek: `,@` vs `,`, the
+        // standalone dotted `.`, and the `;;` that opens a comment. Drip-feeding
+        // one byte per read splits every such token across reads, which the old
+        // fill_buf-only peek could not see past.
+        for src in [
+            "(a ,@b)",
+            "(a ,b)",
+            "(a . b)",
+            "(a b ;; trailing comment\n c)",
+            "(foo.bar ,@xs . tail)",
+        ] {
+            assert_eq!(
+                parse_dripped(src).unwrap(),
+                parse_all(src).unwrap(),
+                "drip-fed parse of {src:?} diverged from contiguous parse",
+            );
+        }
+    }
+
+    #[test]
+    fn peek_reads_ahead_across_a_real_refill_boundary() {
+        // Place `,@` so its two bytes straddle byte index PEEK_READER_CAP: pad
+        // a list with single-char elements until the `,@` token lands on the
+        // buffer seam, then confirm it still lexes as unquote-splice.
+        let mut src = String::from("(");
+        // Two bytes per element ("a "), so reach one byte short of the seam.
+        while src.len() < PEEK_READER_CAP - 1 {
+            src.push_str("a ");
+        }
+        assert_eq!(src.len(), PEEK_READER_CAP - 1);
+        src.push_str(",@b)");
+
+        let forms = parse_all(&src).unwrap();
+        assert_eq!(forms.len(), 1);
+
+        // Walk to the final cons cell; its head must be (unquote-splice b),
+        // not a bare `,` unquote of `@b`.
+        let mut node = &forms[0];
+        let splice = loop {
+            let Sexp::Exp { head, tail } = node else {
+                panic!("expected a proper list");
+            };
+            if matches!(tail.as_ref(), Sexp::Unit) {
+                break head.as_ref();
+            }
+            node = tail;
+        };
+        assert_eq!(
+            splice,
+            &list(vec![ident("unquote-splice"), ident("b")]),
+            "token straddling the buffer seam mis-lexed",
         );
     }
 }
