@@ -59,9 +59,18 @@ fn set_bang() -> NativeFn {
         Ok(Rc::new(new))
     })
     .with_doc(
-        "(array-set! ref idx v): replaces the element at idx in the array held in ref \
-         (mutating it) and returns the new array. Errors if ref is not a ref or does \
-         not hold an array, if idx is not a non-negative int, or if idx is out of bounds."
+        "\
+(array-set! REF IDX V)
+
+Replaces the element at IDX in the array held in REF, mutating it
+in place, and returns the new array.
+
+REF — ref: must hold an array.
+IDX — int: 0-based index into the array.
+
+Errors when IDX is negative or out of bounds.
+
+See also: (array-set ARR IDX V), (push! REF V), (pop! REF)."
             .into(),
     )
 }
@@ -90,9 +99,17 @@ fn set() -> NativeFn {
         )))
     })
     .with_doc(
-        "(array-set arr idx v): a new array with the element at idx replaced by v. \
-         arr is not mutated. Errors if arr is not an array, if idx is not a \
-         non-negative int, or if idx is out of bounds."
+        "\
+(array-set ARR IDX V)
+
+Returns a new array with the element at IDX replaced by V. ARR is
+not mutated.
+
+IDX — int: 0-based index into the array.
+
+Errors when IDX is negative or out of bounds.
+
+See also: (array-set! REF IDX V), (push ARR V)."
             .into(),
     )
 }
@@ -127,9 +144,20 @@ fn from() -> NativeFn {
         })))
     })
     .with_doc(
-        "(array-from xs): converts xs to an array. Strings split into 1-char strings, \
-         maps yield [key value] pairs, arrays pass through, lists are flattened, \
-         and any other value is wrapped in [x]."
+        "\
+(array-from XS)
+
+Converts XS to an array: a str splits into 1-char strs, a map
+yields 2-element [K V] arrays, an array passes through, a cons
+list converts element-wise, and any other value is wrapped as
+[XS].
+
+Example:
+  (array-from \"abc\")     ;; => [\"a\" \"b\" \"c\"]
+  (array-from {'a: 1})    ;; => [['a 1]]
+  (array-from '(1 2 3))   ;; => [1 2 3]
+
+See also: (array-of V)."
             .into(),
     )
 }
@@ -141,7 +169,14 @@ fn of() -> NativeFn {
         Ok(Rc::new(Value::Array(Vector::unit(args[0].clone()))))
     })
     .with_doc(
-        "(array-of v): a single-element array [v]. Equivalent to writing [v] literally.".into(),
+        "\
+(array-of V)
+
+Returns the single-element array [V] — equivalent to writing [V]
+literally.
+
+See also: (array-from XS)."
+            .into(),
     )
 }
 
@@ -156,8 +191,13 @@ fn push() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("push", "array", other)),
     })
     .with_doc(
-        "(push arr v): a new array with v appended at the end. \
-         arr is not mutated. Errors if arr is not an array."
+        "\
+(push ARR V)
+
+Returns a new array with V appended at the end. ARR is not
+mutated.
+
+See also: (push! REF V), (pop ARR), (concat A B)."
             .into(),
     )
 }
@@ -181,8 +221,15 @@ fn push_bang() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("push!", "ref", other)),
     })
     .with_doc(
-        "(push! ref v): appends v to the array held in ref (mutating it) and returns \
-         the new array. Errors if ref is not a ref or does not hold an array."
+        "\
+(push! REF V)
+
+Appends V to the array held in REF, mutating it in place, and
+returns the new array.
+
+REF — ref: must hold an array.
+
+See also: (push ARR V), (pop! REF)."
             .into(),
     )
 }
@@ -199,8 +246,13 @@ fn pop() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("pop", "array", other)),
     })
     .with_doc(
-        "(pop arr): a new array with the last element removed. \
-         An empty array passes through unchanged. arr is not mutated."
+        "\
+(pop ARR)
+
+Returns a new array with the last element removed; an empty array
+passes through unchanged. ARR is not mutated.
+
+See also: (pop! REF), (push ARR V)."
             .into(),
     )
 }
@@ -225,8 +277,15 @@ fn pop_bang() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("pop!", "ref", other)),
     })
     .with_doc(
-        "(pop! ref): removes the last element from the array held in ref (mutating it) \
-         and returns the new array. Errors if ref is not a ref or does not hold an array."
+        "\
+(pop! REF)
+
+Removes the last element from the array held in REF, mutating it
+in place, and returns the new array.
+
+REF — ref: must hold an array.
+
+See also: (pop ARR), (push! REF V)."
             .into(),
     )
 }
@@ -245,8 +304,11 @@ fn range() -> NativeFn {
         Ok(Rc::new(Value::Array(out)))
     })
     .with_doc(
-        "(range start end): an array of the ints in the half-open interval [start, end). \
-         Empty if start >= end. Both args must be ints."
+        "\
+(range START END)
+
+Returns an array of the ints in the half-open interval
+[START, END), empty if START >= END."
             .into(),
     )
 }

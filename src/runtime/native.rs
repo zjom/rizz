@@ -99,7 +99,7 @@
 //!
 //! ```ignore
 //! NativeFn::pure("len".into(), 1, |args| { /* ... */ })
-//!     .with_doc("(len coll): the length of a string, array, list, or map.".into())
+//!     .with_doc("(len COLL)\n\nReturns int: the element count of COLL.".into())
 //! ```
 
 use std::rc::Rc;

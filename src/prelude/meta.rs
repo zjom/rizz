@@ -40,8 +40,13 @@ fn typeof_() -> NativeFn {
         Ok(Rc::new(Value::Ident(Value::type_name(&args[0]).into())))
     })
     .with_doc(
-        "(typeof v): the type name of v as an identifier (e.g. 'int, 'float, 'str, \
-         'array, 'map, 'ref, 'cons, 'closure, 'macro, 'native-fn, 'ident, 'unit)."
+        "\
+(typeof V)
+
+Returns ident: the type name of V — one of 'int 'float 'str
+'ident 'array 'map 'ref 'cons 'closure 'macro 'native-fn 'unit.
+
+See also: (is X TY), (empty-of V)."
             .into(),
     )
 }
@@ -60,13 +65,33 @@ fn is() -> NativeFn {
 
         Ok(Rc::new(Value::Unit))
     })
-    .with_doc("`(is x ty)`: returns `x` if `x` is of the type `ty` else ()".into())
+    .with_doc(
+        "\
+(is X TY)
+
+Returns X if X's type name matches TY, else ().
+
+TY — ident | str: a type name as reported by (typeof V).
+
+Example:
+  (is 5 'int)   ;; => 5
+  (is 5 'str)   ;; => ()
+
+See also: (typeof V)."
+            .into(),
+    )
 }
 
 /// `(id v)`: identity function — returns `v` unchanged.
 fn id() -> NativeFn {
-    NativeFn::pure("id".into(), 1, |args| Ok(args[0].clone()))
-        .with_doc("(id v): identity function for `v`. ie returns itself".into())
+    NativeFn::pure("id".into(), 1, |args| Ok(args[0].clone())).with_doc(
+        "\
+(id V)
+
+Returns V unchanged — the identity function, handy as a no-op
+argument to higher-order operations like (compose F G)."
+            .into(),
+    )
 }
 
 /// `(show v)`: returns the doc string attached to a closure, macro, or native
@@ -92,12 +117,19 @@ fn show() -> NativeFn {
         Ok(out)
     })
     .with_doc(
-        "(show v): returns the doc string attached to a closure, macro, or native fn at \
-         definition time (see the optional (doc \"...\") slot on binding forms). When v is \
-         an identifier naming a special form (e.g. 'fn, 'let!, 'defmacro, 'quote), returns \
-         the built-in description of that form. When v is any other ident, it is looked up \
-         in the env and the bound value's doc is returned. Returns () when no doc is \
-         available. Refs are peeled so (show (deref r)) and (show r) behave the same."
+        "\
+(show V)
+
+Returns the doc string attached to a closure, macro, or native fn
+at definition time (see the optional (doc \"...\") slot on binding
+forms). When V is an ident naming a special form (e.g. 'fn, 'let!,
+'quote), returns the built-in description of that form; any other
+ident is looked up in the env and the bound value's doc is
+returned. Returns () when no doc is available. Refs are peeled, so
+(show (deref r)) and (show r) behave the same.
+
+Example:
+  (show 'fn)   ;; => the fn special form's syntax help"
             .into(),
     )
 }
@@ -113,11 +145,17 @@ fn empty_of() -> NativeFn {
         Ok(Rc::new(empty_of_aux(&args[0])))
     })
     .with_doc(
-        "(empty-of v): returns an empty value of the same variant as v \
-         (0 for ints, 0.0 for floats, \"\" for strings, the empty ident for idents, \
-         () for cons/unit, [] for arrays, {} for maps, and a nullary () -> () callable \
-         for closures/macros/native fns). Refs are peeled — the result mirrors the \
-         inner value's variant and is not re-wrapped in a ref."
+        "\
+(empty-of V)
+
+Returns an empty value of the same variant as V: 0 for ints, 0.0
+for floats, \"\" for strs, the empty ident for idents, () for
+cons/unit, [] for arrays, {} for maps, and a nullary () -> ()
+callable for closures, macros, and native fns. Refs are peeled —
+the result mirrors the inner value's variant and is not re-wrapped
+in a ref.
+
+See also: (typeof V)."
             .into(),
     )
 }
@@ -166,10 +204,15 @@ fn special_form_doc(name: &str) -> Option<&'static str> {
 (let NAME VALUE)
 (let NAME (doc STR+) VALUE)
 
-Evaluates VALUE, binds it to NAME in the surrounding env, and returns the bound \
-value. An optional (doc \"...\") slot documents the binding; the doc is attached \
-to callables (closure, macro, native fn) and silently dropped on non-callables. \
-Errors: arity \u{2260} 2 (or 3 with a doc slot); NAME not an ident."
+Evaluates VALUE, binds it to NAME in the surrounding env, and
+returns the bound value. An optional (doc \"...\") slot documents
+the binding; the doc is attached to callables (closure, macro,
+native fn) and silently dropped on non-callables.
+
+Errors when called with arity \u{2260} 2 (or 3 with a doc slot), or when
+NAME is not an ident.
+
+See also: (let! NAME VALUE), (fn NAME PARAMS BODY), (show V)."
         }
 
         KW_LET_REF => {
@@ -177,10 +220,13 @@ Errors: arity \u{2260} 2 (or 3 with a doc slot); NAME not an ident."
 (let! NAME VALUE)
 (let! NAME (doc STR+) VALUE)
 
-Like `let`, but wraps VALUE in a fresh ref before binding it to NAME. Returns the \
-underlying value (with the doc attached when callable). Equivalent to \
-(let NAME (ref VALUE)). The doc, if any, is attached to the inner callable before \
-the ref is built, so (show (deref NAME)) surfaces it."
+Like (let NAME VALUE), but wraps VALUE in a fresh ref before
+binding it to NAME — equivalent to (let NAME (ref VALUE)). Returns
+the underlying value (with the doc attached when callable). The
+doc, if any, is attached to the inner callable before the ref is
+built, so (show (deref NAME)) surfaces it.
+
+See also: (let NAME VALUE), (ref V), (set! R V)."
         }
 
         KW_FN => {
@@ -190,11 +236,17 @@ the ref is built, so (show (deref NAME)) surfaces it."
 (fn NAME REST BODY)                 ;; variadic via bare ident
 (fn NAME PARAMS (doc STR+) BODY)    ;; optional doc slot
 
-Creates a closure capturing the current env (lexical scope), binds it under NAME, \
-and returns the closure. NAME is bound inside the body so the function can recurse. \
-PARAMS is a list of identifiers (use () for zero params). A dotted-tail or bare-ident \
-params form makes the function variadic. BODY is a single form; use `do` for \
-multi-step bodies. Errors: arity \u{2260} 3; NAME or any param not an ident."
+Creates a closure capturing the current env (lexical scope), binds
+it under NAME, and returns the closure. NAME is bound inside the
+body so the function can recurse. PARAMS is a list of identifiers
+(use () for zero params). A dotted-tail or bare-ident params form
+makes the function variadic. BODY is a single form; use (do ...)
+for multi-step bodies.
+
+Errors when called with arity \u{2260} 3, or when NAME or any param is
+not an ident.
+
+See also: (defmacro NAME PARAMS BODY), (let NAME VALUE)."
         }
 
         KW_DEFMACRO => {
@@ -202,98 +254,130 @@ multi-step bodies. Errors: arity \u{2260} 3; NAME or any param not an ident."
 (defmacro NAME (PARAMS...) BODY)
 (defmacro NAME PARAMS (doc STR+) BODY)
 
-Defines a macro: a callable whose arguments are passed unevaluated. The body \
-runs at expansion time and must produce a form, which is then evaluated in the \
-caller's env. Otherwise shares `fn`'s parameter shape (positional, dotted-tail, \
-bare-ident variadic) and optional doc slot."
+Defines a macro: a callable whose arguments are passed
+unevaluated. The body runs at expansion time and must produce a
+form, which is then evaluated in the caller's env. Otherwise
+shares fn's parameter shape (positional, dotted-tail, bare-ident
+variadic) and optional doc slot.
+
+See also: (fn NAME PARAMS BODY), (quasi DATUM)."
         }
 
         KW_IF => {
             "\
 (if COND THEN ELSE)
 
-Evaluates COND. If truthy evaluates THEN; otherwise evaluates ELSE. The untaken \
-branch is never evaluated. Errors: arity \u{2260} 3."
+Evaluates COND. If truthy evaluates THEN; otherwise evaluates
+ELSE. The untaken branch is never evaluated.
+
+Errors when called with arity \u{2260} 3.
+
+See also: (cond ...), (unless COND BODY...)."
         }
 
         KW_DO => {
             "\
-(do FORM*)
+(do FORM...)
 
-Evaluates each form in order, threading the env between them, and returns the \
-last value (or () if empty). `do` is not a scope boundary: later forms see \
-let/fn bindings introduced by earlier forms, and those bindings leak out to the \
-surrounding env. Pure sequencing \u{2014} equivalent to splicing the forms into \
-the enclosing position."
+Evaluates each form in order, threading the env between them, and
+returns the last value (or () if empty). do is not a scope
+boundary: later forms see let/fn bindings introduced by earlier
+forms, and those bindings leak out to the surrounding env. Pure
+sequencing \u{2014} equivalent to splicing the forms into the enclosing
+position."
         }
 
         KW_QUOTE => {
             "\
 (quote X)   ;; or 'X
 
-Returns X unevaluated. Identifiers appear as Ident values; lists appear as Cons \
-chains. Errors: arity \u{2260} 1."
+Returns X unevaluated. Identifiers appear as ident values; lists
+appear as cons chains.
+
+Errors when called with arity \u{2260} 1.
+
+See also: (quasi DATUM), (eval FORM)."
         }
 
         KW_QUASIQUOTE => {
             "\
 (quasi DATUM)   ;; or `DATUM
 
-Returns DATUM as a literal, except (unquote X) is replaced by the evaluation of \
-X, and (unquote-splice X) as a list element has X evaluated and its sequence \
-spliced into the surrounding list. Recurses into nested lists. No nested-depth \
-tracking \u{2014} unquotes splice into the nearest enclosing list. Errors: \
-arity \u{2260} 1."
+Returns DATUM as a literal, except (unquote X) is replaced by the
+evaluation of X, and (unquote-splice X) as a list element has X
+evaluated and its sequence spliced into the surrounding list.
+Recurses into nested lists. No nested-depth tracking \u{2014} unquotes
+splice into the nearest enclosing list.
+
+Errors when called with arity \u{2260} 1.
+
+See also: (unquote X), (unquote-splice X), (quote X)."
         }
 
         KW_UNQUOTE => {
             "\
 (unquote X)   ;; or ,X
 
-Only meaningful inside a (quasi ...) form: marks X for evaluation, with the \
-resulting value substituted into the surrounding template."
+Only meaningful inside a (quasi ...) form: marks X for evaluation,
+with the resulting value substituted into the surrounding
+template.
+
+See also: (quasi DATUM), (unquote-splice X)."
         }
 
         KW_UNQUOTE_SPLICE => {
             "\
 (unquote-splice X)   ;; or ,@X
 
-Only meaningful as an element of a list inside a (quasi ...) form: evaluates X \
-and splices its resulting sequence into the surrounding list. Splicing outside \
-a surrounding list raises TypeMismatch."
+Only meaningful as an element of a list inside a (quasi ...) form:
+evaluates X and splices its resulting sequence into the
+surrounding list.
+
+Errors when spliced outside a surrounding list.
+
+See also: (quasi DATUM), (unquote X)."
         }
 
         KW_EVAL => {
             "\
 (eval FORM)
 
-Evaluates FORM in the current env and returns its value. Useful for running \
-forms built from quoted/quasiquoted templates."
+Evaluates FORM in the current env and returns its value. Useful
+for running forms built from quoted or quasiquoted templates.
+
+See also: (quote X), (quasi DATUM)."
         }
 
         KW_OPEN => {
             "\
 (open PATH)
 
-Loads the rizz source file at PATH, evaluates its top-level forms in a fresh \
-module env, and merges the module's top-level let/fn bindings into the caller's \
-env. Returns the value of the loaded module's last form. PATH may be a string or \
-a bare identifier. If PATH has no extension, `.rz` is appended. Relative paths \
-resolve against the caller's source-file directory. Names starting with `_` are \
-treated as module-private and are not merged. On a name collision the caller's \
-existing binding wins."
+Loads the rizz source file at PATH, evaluates its top-level forms
+in a fresh module env, and merges the module's top-level let/fn
+bindings into the caller's env. Returns the value of the loaded
+module's last form. Names starting with _ are treated as
+module-private and are not merged; on a name collision the
+caller's existing binding wins.
+
+PATH — path | ident: if PATH has no extension, .rz is appended.
+       Relative paths resolve against the caller's source-file
+       directory."
         }
 
         KW_DOC => {
             "\
-(doc ARG+)
+(doc STR+)
 
-Documentation slot for binding forms. Not a standalone special form \u{2014} only \
-meaningful in the optional doc position of `let`, `let!`, `fn`, and `defmacro`. \
-Each ARG is evaluated and must produce either a string or a (recursively \
-flattened) collection of strings. All collected strings are joined with \\n and \
-stored on the bound callable. A `doc` form with zero arguments raises \
-ArityMismatch."
+Documentation slot for binding forms. Not a standalone special
+form \u{2014} only meaningful in the optional doc position of let, let!,
+fn, and defmacro. Each argument is evaluated and must produce
+either a string or a (recursively flattened) collection of
+strings; all collected strings are joined with newlines and stored
+on the bound callable.
+
+Errors when given zero arguments.
+
+See also: (show V)."
         }
 
         _ => return None,

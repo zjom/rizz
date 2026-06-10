@@ -39,8 +39,13 @@ fn put() -> NativeFn {
         }),
     })
     .with_doc(
-        "(put m k v): a new map with key k bound to v. Replaces any existing binding for k. \
-         m is not mutated. Errors if m is not a map."
+        "\
+(put M K V)
+
+Returns a new map with K bound to V, replacing any existing binding
+for K. M is not mutated.
+
+See also: (put! REF K V), (del M K), (get COLL K)."
             .into(),
     )
 }
@@ -54,7 +59,15 @@ fn keys() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("keys", "map", other)),
     })
-    .with_doc("(keys m): an array of the map's keys. Order is unspecified.".into())
+    .with_doc(
+        "\
+(keys M)
+
+Returns array: M's keys, in unspecified order.
+
+See also: (values M)."
+            .into(),
+    )
 }
 
 /// `(values m)`: an array of the map's values (order unspecified).
@@ -66,7 +79,15 @@ fn values() -> NativeFn {
         }
         other => Err(RuntimeError::type_mismatch("values", "map", other)),
     })
-    .with_doc("(values m): an array of the map's values. Order is unspecified.".into())
+    .with_doc(
+        "\
+(values M)
+
+Returns array: M's values, in unspecified order.
+
+See also: (keys M)."
+            .into(),
+    )
 }
 
 /// `(del m k)`: the map with key `k` removed (a no-op if `k` is absent).
@@ -76,7 +97,13 @@ fn del() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("del", "map", other)),
     })
     .with_doc(
-        "(del m k): a new map with key k removed (a no-op if k is absent). m is not mutated."
+        "\
+(del M K)
+
+Returns a new map with the binding for K removed — a no-op if K is
+absent. M is not mutated.
+
+See also: (del! REF K), (put M K V)."
             .into(),
     )
 }
@@ -96,8 +123,15 @@ fn put_bang() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("put!", "ref", other)),
     })
     .with_doc(
-        "(put! ref k v): binds k to v in the map held in ref (mutating it) and returns the \
-         new map. Errors if ref is not a ref or does not hold a map."
+        "\
+(put! REF K V)
+
+Binds K to V in the map held in REF, mutating it in place, and
+returns the new map.
+
+REF — ref: must hold a map.
+
+See also: (put M K V), (del! REF K)."
             .into(),
     )
 }
@@ -118,8 +152,15 @@ fn del_bang() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("del!", "ref", other)),
     })
     .with_doc(
-        "(del! ref k): removes key k from the map held in ref (mutating it) and returns the \
-         new map. A no-op if k is absent. Errors if ref is not a ref or does not hold a map."
+        "\
+(del! REF K)
+
+Removes the binding for K from the map held in REF, mutating it in
+place, and returns the new map. A no-op if K is absent.
+
+REF — ref: must hold a map.
+
+See also: (del M K), (put! REF K V)."
             .into(),
     )
 }

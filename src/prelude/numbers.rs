@@ -82,8 +82,16 @@ fn add() -> NativeFn {
         |a, b| Ok(a + b),
     )
     .with_doc(
-        "(+ a b) / (sum a b): adds two ints or two floats (never mixed). \
-         Errors on integer overflow."
+        "\
+(+ A B)
+(sum A B)
+
+Adds two ints or two floats (never mixed — there is no implicit
+numeric coercion).
+
+Errors when the int result overflows.
+
+See also: (- A B), (* A B), (/ A B)."
             .into(),
     )
 }
@@ -94,8 +102,15 @@ fn sub() -> NativeFn {
         |a, b| Ok(a - b),
     )
     .with_doc(
-        "(- a b) / (sub a b): subtracts two ints or two floats (never mixed). \
-         Errors on integer overflow."
+        "\
+(- A B)
+(sub A B)
+
+Subtracts B from A — two ints or two floats (never mixed).
+
+Errors when the int result overflows.
+
+See also: (+ A B), (* A B), (/ A B)."
             .into(),
     )
 }
@@ -107,8 +122,15 @@ fn mul() -> NativeFn {
         |a, b| Ok(a * b),
     )
     .with_doc(
-        "(* a b) / (mul a b): multiplies two ints or two floats (never mixed). \
-         Errors on integer overflow."
+        "\
+(* A B)
+(mul A B)
+
+Multiplies two ints or two floats (never mixed).
+
+Errors when the int result overflows.
+
+See also: (+ A B), (- A B), (/ A B)."
             .into(),
     )
 }
@@ -120,8 +142,17 @@ fn div() -> NativeFn {
         |a, b| Ok(a / b),
     )
     .with_doc(
-        "(/ a b) / (div a b): divides two ints (truncating) or two floats (never mixed). \
-         Errors on integer division by zero."
+        "\
+(/ A B)
+(div A B)
+
+Divides A by B — two ints (truncating) or two floats (never mixed).
+Float division follows IEEE-754: dividing by 0.0 yields ±inf, and
+0.0 / 0.0 yields NaN, silently.
+
+Errors when dividing an int by zero.
+
+See also: (+ A B), (- A B), (* A B)."
             .into(),
     )
 }
@@ -147,36 +178,71 @@ fn cmp() -> NativeFn {
         },
     )
     .with_doc(
-        "(cmp a b): three-way numeric comparison. Returns -1 if a<b, 0 if a=b, 1 if a>b. \
-         Operates on two ints or two floats (never mixed). Errors if a NaN is involved."
+        "\
+(cmp A B)
+
+Three-way numeric comparison of two ints or two floats (never
+mixed). Returns -1 if A < B, 0 if A = B, and 1 if A > B.
+
+Errors when a NaN is involved.
+
+See also: (< A B), (<= A B), (> A B), (>= A B)."
             .into(),
     )
 }
 
 fn gt() -> NativeFn {
     binop("gt", |a, b| Ok(a > b), |a, b| Ok(a > b)).with_doc(
-        "(> a b) / (gt a b): returns 1 if a>b, else 0. Two ints or two floats (never mixed)."
+        "\
+(> A B)
+(gt A B)
+
+Returns 1 if A > B, else 0. Compares two ints or two floats (never
+mixed).
+
+See also: (>= A B), (< A B), (cmp A B)."
             .into(),
     )
 }
 
 fn gte() -> NativeFn {
     binop("gte", |a, b| Ok(a >= b), |a, b| Ok(a >= b)).with_doc(
-        "(>= a b) / (gte a b): returns 1 if a>=b, else 0. Two ints or two floats (never mixed)."
+        "\
+(>= A B)
+(gte A B)
+
+Returns 1 if A >= B, else 0. Compares two ints or two floats (never
+mixed).
+
+See also: (> A B), (<= A B), (cmp A B)."
             .into(),
     )
 }
 
 fn lt() -> NativeFn {
     binop("lt", |a, b| Ok(a < b), |a, b| Ok(a < b)).with_doc(
-        "(< a b) / (lt a b): returns 1 if a<b, else 0. Two ints or two floats (never mixed)."
+        "\
+(< A B)
+(lt A B)
+
+Returns 1 if A < B, else 0. Compares two ints or two floats (never
+mixed).
+
+See also: (<= A B), (> A B), (cmp A B)."
             .into(),
     )
 }
 
 fn lte() -> NativeFn {
     binop("lte", |a, b| Ok(a <= b), |a, b| Ok(a <= b)).with_doc(
-        "(<= a b) / (lte a b): returns 1 if a<=b, else 0. Two ints or two floats (never mixed)."
+        "\
+(<= A B)
+(lte A B)
+
+Returns 1 if A <= B, else 0. Compares two ints or two floats (never
+mixed).
+
+See also: (< A B), (>= A B), (cmp A B)."
             .into(),
     )
 }
@@ -267,18 +333,34 @@ fn extremum(name: &'static str, pick_max: bool) -> NativeFn {
 
 fn min() -> NativeFn {
     extremum("min", false).with_doc(
-        "(min x y …) | (min [xs…]) | (min '(xs…)): smallest of the given numbers, \
-         or smallest of a single array/list of numbers. All elements must share a \
-         numeric type (all ints or all floats). Errors if a NaN is involved."
+        "\
+(min N...)
+(min NS)   ;; NS a single array or cons list of numbers
+
+Returns the smallest of the given numbers, or the smallest element
+of a single array or cons list of numbers. All elements must share
+one numeric type (all ints or all floats).
+
+Errors when the input is empty or a NaN is involved.
+
+See also: (max), (clamp VAL LOW HIGH)."
             .into(),
     )
 }
 
 fn max() -> NativeFn {
     extremum("max", true).with_doc(
-        "(max x y …) | (max [xs…]) | (max '(xs…)): largest of the given numbers, \
-         or largest of a single array/list of numbers. All elements must share a \
-         numeric type (all ints or all floats). Errors if a NaN is involved."
+        "\
+(max N...)
+(max NS)   ;; NS a single array or cons list of numbers
+
+Returns the largest of the given numbers, or the largest element
+of a single array or cons list of numbers. All elements must share
+one numeric type (all ints or all floats).
+
+Errors when the input is empty or a NaN is involved.
+
+See also: (min), (clamp VAL LOW HIGH)."
             .into(),
     )
 }
@@ -328,9 +410,15 @@ fn clamp() -> NativeFn {
         })
     })
     .with_doc(
-        "(clamp val low high): clamps val into the inclusive range [low, high]. \
-         All three args must share a numeric type (all ints or all floats). \
-         Errors if low > high or any float is NaN."
+        "\
+(clamp VAL LOW HIGH)
+
+Clamps VAL into the inclusive range [LOW, HIGH]. All three
+arguments must share one numeric type (all ints or all floats).
+
+Errors when LOW > HIGH or any float is NaN.
+
+See also: (min), (max)."
             .into(),
     )
 }

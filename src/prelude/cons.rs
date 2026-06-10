@@ -33,8 +33,13 @@ fn cons() -> NativeFn {
         }))
     })
     .with_doc(
-        "(cons head tail): a new cons cell. tail is typically a list (a cons chain or ()) \
-         but any value is permitted — improper pairs are allowed."
+        "\
+(cons HEAD TAIL)
+
+Returns a new cons cell. TAIL is typically a list (a cons chain or
+()) but any value is permitted — improper pairs are allowed.
+
+See also: (car XS), (cdr XS)."
             .into(),
     )
 }
@@ -46,7 +51,15 @@ fn car() -> NativeFn {
         Value::Unit => Ok(Rc::new(Value::Unit)),
         other => Err(RuntimeError::type_mismatch("car", "cons/()", other)),
     })
-    .with_doc("(car xs): the head of a cons cell. (car ()) is ().".into())
+    .with_doc(
+        "\
+(car XS)
+
+Returns the head of a cons cell. (car ()) is ().
+
+See also: (cdr XS), (car! REF V), (first COLL)."
+            .into(),
+    )
 }
 
 /// `(cdr xs)`: the tail of a cons cell. `(cdr ())` is `()`.
@@ -56,7 +69,15 @@ fn cdr() -> NativeFn {
         Value::Unit => Ok(Rc::new(Value::Unit)),
         other => Err(RuntimeError::type_mismatch("cdr", "cons/()", other)),
     })
-    .with_doc("(cdr xs): the tail of a cons cell. (cdr ()) is ().".into())
+    .with_doc(
+        "\
+(cdr XS)
+
+Returns the tail of a cons cell. (cdr ()) is ().
+
+See also: (car XS), (cdr! REF V), (rest COLL)."
+            .into(),
+    )
 }
 
 /// `(car! ref v)`: replaces the head of the cons cell held in `ref` with `v`
@@ -78,8 +99,15 @@ fn car_bang() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("car!", "ref", other)),
     })
     .with_doc(
-        "(car! ref v): replaces the head of the cons cell held in ref (mutating it) and \
-         returns the new cons. Errors if ref is not a ref or does not hold a cons."
+        "\
+(car! REF V)
+
+Replaces the head of the cons cell held in REF with V, mutating it
+in place, and returns the new cons.
+
+REF — ref: must hold a cons cell.
+
+See also: (cdr! REF V), (car XS)."
             .into(),
     )
 }
@@ -103,8 +131,15 @@ fn cdr_bang() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("cdr!", "ref", other)),
     })
     .with_doc(
-        "(cdr! ref v): replaces the tail of the cons cell held in ref (mutating it) and \
-         returns the new cons. Errors if ref is not a ref or does not hold a cons."
+        "\
+(cdr! REF V)
+
+Replaces the tail of the cons cell held in REF with V, mutating it
+in place, and returns the new cons.
+
+REF — ref: must hold a cons cell.
+
+See also: (car! REF V), (cdr XS)."
             .into(),
     )
 }

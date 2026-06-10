@@ -993,7 +993,7 @@ fn show_on_documented_builtin_returns_doc() {
         Value::Str(s) => s.clone(),
         other => panic!("expected str, got {other}"),
     };
-    assert!(s.contains("(+ a b)"), "doc string was {s:?}");
+    assert!(s.contains("(+ A B)"), "doc string was {s:?}");
 }
 
 #[test]

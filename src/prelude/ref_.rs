@@ -37,8 +37,14 @@ fn _ref() -> NativeFn {
         )))))
     })
     .with_doc(
-        "(ref v): wraps v in a mutable cell. Use deref to read and set! (or put!, push!, \
-         car!, cdr!, etc.) to write."
+        "\
+(ref V)
+
+Wraps V in a mutable cell — the only mutable value kind in rizz.
+Read it with (deref R); write it with (set! R V) or the in-place
+collection ops (put!, push!, car!, ...).
+
+See also: (deref R), (set! R V)."
             .into(),
     )
 }
@@ -49,7 +55,15 @@ fn deref() -> NativeFn {
         Value::Ref(cell) => Ok(Rc::new(cell.borrow().clone())),
         other => Err(RuntimeError::type_mismatch("deref", "ref", other)),
     })
-    .with_doc("(deref r): the value currently held in the ref r. Errors if r is not a ref.".into())
+    .with_doc(
+        "\
+(deref R)
+
+Returns the value currently held in the ref R.
+
+See also: (ref V), (set! R V)."
+            .into(),
+    )
 }
 
 /// `(set! r v)`: overwrites `r` with `v`; returns `v`. Stores `v` verbatim —
@@ -64,8 +78,14 @@ fn set() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("set!", "ref", other)),
     })
     .with_doc(
-        "(set! r v): overwrites the value held in ref r with v and returns v. \
-         Errors if r is not a ref."
+        "\
+(set! R V)
+
+Overwrites the value held in the ref R with V and returns V. V is
+stored verbatim — (set! r (ref x)) stores a ref-of-ref, with no
+implicit deref.
+
+See also: (ref V), (deref R)."
             .into(),
     )
 }

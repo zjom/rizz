@@ -53,9 +53,15 @@ fn eq() -> NativeFn {
         Ok(Rc::new((args[0] == args[1]).into()))
     })
     .with_doc(
-        "(= a b) / (eq a b): structural equality. Returns 1 if a and b are equal, 0 otherwise. \
-         Functions compare by identity — distinct functions are never equal, but a function \
-         equals itself."
+        "\
+(= A B)
+(eq A B)
+
+Returns 1 if A and B are structurally equal, else 0. Functions
+compare by identity — distinct functions are never equal, but a
+function equals itself.
+
+See also: (!= A B), (! A)."
             .into(),
     )
 }
@@ -67,8 +73,14 @@ fn neq() -> NativeFn {
         Ok(Rc::new((args[0] != args[1]).into()))
     })
     .with_doc(
-        "(!= a b) / (neq a b): structural inequality. Returns 1 if a and b are not equal, \
-         0 otherwise. See `eq` for semantics."
+        "\
+(!= A B)
+(neq A B)
+
+Returns 1 if A and B are not structurally equal, else 0. The
+negation of (= A B), sharing its semantics.
+
+See also: (= A B)."
             .into(),
     )
 }
@@ -78,5 +90,14 @@ fn not() -> NativeFn {
     NativeFn::pure("not".into(), 1, |args| {
         Ok(Rc::new((!args[0].is_truthy()).into()))
     })
-    .with_doc("(! a) / (not a): returns 1 if a is falsy and 0 otherwise.".into())
+    .with_doc(
+        "\
+(! A)
+(not A)
+
+Returns 1 if A is falsy (() or 0), else 0.
+
+See also: (= A B)."
+            .into(),
+    )
 }

@@ -197,7 +197,7 @@
 //!         None => Err(RuntimeError::type_mismatch("greet", "str", &args[0])),
 //!     }
 //! })
-//! .with_doc("(greet name): returns a greeting string.".into());
+//! .with_doc("(greet NAME)\n\nReturns a greeting string for NAME.".into());
 //!
 //! // Merge into the standard prelude.
 //! let env = rizz::prelude::install(

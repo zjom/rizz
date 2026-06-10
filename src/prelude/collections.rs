@@ -60,7 +60,14 @@ fn len() -> NativeFn {
         };
         Ok(Rc::new(Value::Int(n)))
     })
-    .with_doc("(len coll): element count of a string (by char), array, map, or cons list.".into())
+    .with_doc(
+        "\
+(len COLL)
+
+Returns int: the element count of COLL — chars of a str, elements
+of an array or cons list, entries of a map."
+            .into(),
+    )
 }
 
 /// `(slice coll start end)`: half-open `[start, end)` sub-sequence of a string
@@ -99,9 +106,14 @@ fn slice() -> NativeFn {
         }
     })
     .with_doc(
-        "(slice coll start end): half-open [start, end) sub-sequence of a string \
-         (by char), array, or cons list. Indices are clamped to [0, len]; \
-         start > end yields an empty result."
+        "\
+(slice COLL START END)
+
+Returns the half-open [START, END) sub-sequence of a str (by
+char), array, or cons list. Indices are clamped to [0, len];
+START > END yields an empty result.
+
+See also: (get COLL K), (first COLL), (rest COLL)."
             .into(),
     )
 }
@@ -151,8 +163,13 @@ fn concat() -> NativeFn {
         }
     })
     .with_doc(
-        "(concat a b): joins two strings, two arrays, two maps, or two cons lists. \
-         For maps, the second operand's entries win on key collisions."
+        "\
+(concat A B)
+
+Joins two strs, two arrays, two maps, or two cons lists. For maps,
+B's entries win on key collisions.
+
+See also: (push ARR V), (str-join XS SEP)."
             .into(),
     )
 }
@@ -199,8 +216,14 @@ fn get() -> NativeFn {
         )),
     })
     .with_doc(
-        "(get coll k): map value at key k, array/list element at int index k, \
-         or the 1-char string at int index k. A miss or out-of-bounds index yields ()."
+        "\
+(get COLL K)
+
+Returns the map value at key K, the array or list element at int
+index K, or the 1-char str at int index K. A miss or out-of-bounds
+index yields ().
+
+See also: (contains? COLL X), (slice COLL START END)."
             .into(),
     )
 }
@@ -230,8 +253,14 @@ fn contains() -> NativeFn {
         Ok(Rc::new(Value::from(result)))
     })
     .with_doc(
-        "(contains? coll x): substring test for strings, element-equality test for \
-         arrays/lists, key-presence test for maps. Returns 1 or 0."
+        "\
+(contains? COLL X)
+
+Returns 1 if X is found in COLL, else 0: a substring test for
+strs, an element-equality test for arrays and cons lists, a
+key-presence test for maps.
+
+See also: (find PRED COLL), (get COLL K)."
             .into(),
     )
 }
@@ -257,7 +286,13 @@ fn reverse() -> NativeFn {
             other,
         )),
     })
-    .with_doc("(reverse coll): a reversed string (by char), array, or cons list.".into())
+    .with_doc(
+        "\
+(reverse COLL)
+
+Returns a reversed copy of a str (by char), array, or cons list."
+            .into(),
+    )
 }
 
 /// `(first coll)`: first element of an array or cons list, or first char of a
@@ -278,8 +313,13 @@ fn first() -> NativeFn {
         )),
     })
     .with_doc(
-        "(first coll): first element of an array or cons list, or first char of a string \
-         (as a 1-char string). Returns () on an empty input."
+        "\
+(first COLL)
+
+Returns the first element of an array or cons list, or the first
+char of a str (as a 1-char str). Returns () on an empty input.
+
+See also: (rest COLL), (last COLL), (car XS)."
             .into(),
     )
 }
@@ -299,8 +339,13 @@ fn last() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("last", "array/str/list", other)),
     })
     .with_doc(
-        "(last coll): last element of an array or cons list, or last char of a string \
-         (as a 1-char string). Returns () on an empty input."
+        "\
+(last COLL)
+
+Returns the last element of an array or cons list, or the last
+char of a str (as a 1-char str). Returns () on an empty input.
+
+See also: (first COLL), (rest COLL)."
             .into(),
     )
 }
@@ -323,8 +368,14 @@ fn rest() -> NativeFn {
         other => Err(RuntimeError::type_mismatch("rest", "array/str/list", other)),
     })
     .with_doc(
-        "(rest coll): all but the first element of an array or cons list, or all but \
-         the first char of a string. An empty or single-element input yields an empty result."
+        "\
+(rest COLL)
+
+Returns all but the first element of an array or cons list, or all
+but the first char of a str. An empty or single-element input
+yields an empty result.
+
+See also: (first COLL), (cdr XS), (slice COLL START END)."
             .into(),
     )
 }
@@ -393,9 +444,22 @@ fn fmap() -> NativeFn {
         }
     })
     .with_doc(
-        "(fmap f coll): applies f to each element of coll and returns a collection of the \
-         same shape. For strings f is called per char (as a 1-char string) and must return \
-         a string. For maps f receives (k v) and must return a 2-element [k v] array."
+        "\
+(fmap F COLL)
+
+Applies F to each element of COLL and returns a collection of the
+same shape.
+
+F    — fn: called per char for a str (as a 1-char str, must
+       return a str); per element for an array or cons list; as
+       (F K V) for a map, returning a 2-element [K V] array.
+COLL — str | array | map | list.
+
+Example:
+  (fmap (fn d (x) (* x 2)) [1 2 3])        ;; => [2 4 6]
+  (fmap (fn d (k v) [k (* v 2)]) {1: 2})   ;; => {1: 4}
+
+See also: (fmapi F COLL), (filter PRED COLL), (reduce F INIT COLL)."
             .into(),
     )
 }
@@ -468,9 +532,21 @@ fn fmapi() -> NativeFn {
         }
     })
     .with_doc(
-        "(fmapi f coll): like fmap, but passes the element's index as the first arg to f. \
-         For strings f is called as (f i char) and must return a string. For arrays/lists as \
-         (f i x). For maps as (f i k v), and f must return a 2-element [k v] array."
+        "\
+(fmapi F COLL)
+
+Like (fmap F COLL), but F also receives the element's index as its
+first argument.
+
+F    — fn: called as (F I CHAR) for a str (must return a str),
+       (F I X) for an array or cons list, and (F I K V) for a map
+       (must return a 2-element [K V] array).
+COLL — str | array | map | list.
+
+Example:
+  (fmapi (fn d (i x) (+ i x)) [10 10 10])   ;; => [10 11 12]
+
+See also: (fmap F COLL)."
             .into(),
     )
 }
@@ -531,10 +607,20 @@ fn filter() -> NativeFn {
         Ok(Rc::new(out))
     })
     .with_doc(
-        "(filter pred coll): keeps the parts of a collection for which pred returns a truthy \
-         value, preserving the collection's type. For a string pred is called per char \
-         (as a 1-char string); for an array per element; for a map per entry, with the key \
-         and value passed as two args."
+        "\
+(filter PRED COLL)
+
+Keeps the elements of COLL for which PRED returns truthy,
+preserving the collection's type.
+
+PRED — fn: called per char for a str (as a 1-char str); per
+       element for an array or cons list; as (PRED K V) for a map.
+COLL — str | array | map | list.
+
+Example:
+  (filter (fn p (x) (> x 1)) [1 2 3])   ;; => [2 3]
+
+See also: (fmap F COLL), (find PRED COLL), (reduce F INIT COLL)."
             .into(),
     )
 }
@@ -579,9 +665,21 @@ fn reduce() -> NativeFn {
         Ok(acc)
     })
     .with_doc(
-        "(reduce f init coll): left fold. acc starts at init. For a string acc becomes \
-         (f acc char) per char (as a 1-char string); for an array (f acc elem) per element; \
-         for a map (f acc k v) per entry."
+        "\
+(reduce F INIT COLL)
+
+Left fold: the accumulator starts at INIT, becomes F's result at
+each step, and is returned after the last element.
+
+F    — fn: called as (F ACC CHAR) per char for a str (as a 1-char
+       str), (F ACC X) per element for an array or cons list, and
+       (F ACC K V) per entry for a map.
+COLL — str | array | map | list.
+
+Example:
+  (reduce + 0 [1 2 3 4])   ;; => 10
+
+See also: (fmap F COLL), (filter PRED COLL)."
             .into(),
     )
 }
@@ -602,9 +700,16 @@ fn zip() -> NativeFn {
         Ok(Rc::new(cons_list(pairs)))
     })
     .with_doc(
-        "(zip a b): pairs elements of two collections into a cons list of [x y] arrays. \
-         Stops at the shorter input. Strings iterate by char; maps yield [k v] entries; \
-         arrays and lists iterate element-wise."
+        "\
+(zip A B)
+
+Pairs up the elements of two collections into a cons list of
+2-element [X Y] arrays, stopping at the shorter input. Strs
+iterate by char, maps yield [K V] entries, arrays and cons lists
+iterate element-wise.
+
+Example:
+  (zip [1 2] \"ab\")   ;; => ([1 \"a\"] [2 \"b\"])"
             .into(),
     )
 }
@@ -622,8 +727,14 @@ fn all() -> NativeFn {
         Ok(Rc::new(true.into()))
     })
     .with_doc(
-        "(all pred coll): returns 1 if pred returns truthy for every element of coll, \
-         else 0. Short-circuits on the first falsy result. Returns 1 for an empty coll."
+        "\
+(all PRED COLL)
+
+Returns 1 if PRED returns truthy for every element of COLL, else
+0. Short-circuits on the first falsy result; an empty COLL yields
+1.
+
+See also: (any PRED COLL), (find PRED COLL)."
             .into(),
     )
 }
@@ -641,8 +752,13 @@ fn any() -> NativeFn {
         Ok(Rc::new(false.into()))
     })
     .with_doc(
-        "(any pred coll): returns 1 if pred returns truthy for any element of coll, \
-         else 0. Short-circuits on the first truthy result. Returns 0 for an empty coll."
+        "\
+(any PRED COLL)
+
+Returns 1 if PRED returns truthy for any element of COLL, else 0.
+Short-circuits on the first truthy result; an empty COLL yields 0.
+
+See also: (all PRED COLL), (find PRED COLL)."
             .into(),
     )
 }
@@ -670,8 +786,15 @@ fn find() -> NativeFn {
         Ok(Rc::new(Value::Unit))
     })
     .with_doc(
-        "(find pred coll): returns the index of the first element of coll for which pred \
-         returns truthy, or () if none. coll must be a string, array, or cons list."
+        "\
+(find PRED COLL)
+
+Returns int: the index of the first element of COLL for which
+PRED returns truthy, or () if none match.
+
+COLL — str | array | list.
+
+See also: (contains? COLL X), (filter PRED COLL)."
             .into(),
     )
 }

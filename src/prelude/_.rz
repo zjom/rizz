@@ -1,13 +1,16 @@
 (defmacro cond clauses
   (doc "(cond (TEST EXPR) ... (else EXPR))"
-       "Evaluates each TEST in order and returns the EXPR of the first truthy clause."
-       "An (else EXPR) clause at the tail matches unconditionally."
-       "Returns () if no clause matches."
+       ""
+       "Evaluates each TEST in order and returns the EXPR of the first"
+       "truthy clause. An (else EXPR) clause at the tail matches"
+       "unconditionally. Returns () if no clause matches."
        ""
        "Example:"
        "  (cond ((< x 0) 'neg)"
        "        ((= x 0) 'zero)"
-       "        (else    'pos))")
+       "        (else    'pos))"
+       ""
+       "See also: (match VAL ...), (if COND THEN ELSE).")
   (if (= clauses ())
       ()
       (if (= (car (car clauses)) 'else)
@@ -18,14 +21,18 @@
 
 (defmacro match (val . clauses)
   (doc "(match VAL (PRED EXPR) ... (else EXPR))"
-       "Like `cond`, but VAL is evaluated once and implicitly inserted as the"
-       "first argument of each clause's predicate call. (else EXPR) at the"
-       "tail matches unconditionally. Returns () if no clause matches."
+       ""
+       "Like (cond ...), but VAL is evaluated once and implicitly inserted"
+       "as the first argument of each clause's predicate call. (else EXPR)"
+       "at the tail matches unconditionally. Returns () if no clause"
+       "matches."
        ""
        "Example:"
        "  (match x ((is 'map)   'mapish)"
        "           ((is 'array) 'arrayish)"
-       "           (else        'other))")
+       "           (else        'other))"
+       ""
+       "See also: (cond ...), (is X TY).")
   `((fn __match-fn (__v) (__match-clauses __v ,@clauses)) ,val))
 
 (defmacro __match-clauses (v . clauses)
@@ -39,40 +46,52 @@
 
 (defmacro unless (cond . body)
   (doc "(unless COND BODY...)"
-       "Evaluates BODY when COND is falsy, returning the value of the last form."
-       "Returns () when COND is truthy."
+       ""
+       "Evaluates BODY when COND is falsy, returning the value of the last"
+       "form. Returns () when COND is truthy."
        ""
        "Example:"
-       "  (unless (= x 0) (println x))")
+       "  (unless (= x 0) (println x))"
+       ""
+       "See also: (if COND THEN ELSE).")
   `(if ,cond () (do ,@body)))
 
 (defmacro for (var seq . body)
   (doc "(for VAR SEQ BODY...)"
-       "Iterates over SEQ binding each element to VAR and evaluating BODY."
-       "Returns () (the final reduce accumulator)."
+       ""
+       "Iterates over SEQ, binding each element to VAR and evaluating"
+       "BODY. Returns ()."
        ""
        "Example:"
-       "  (for x [1 2 3] (println x))")
+       "  (for x [1 2 3] (println x))"
+       ""
+       "See also: (loop N BODY...), (while COND BODY...), (fmap F COLL).")
   `(reduce (fn __for-fn (__acc ,var) (do ,@body)) () ,seq))
 
 (defmacro loop (n . body)
   (doc "(loop N BODY...)"
-       "Evaluates BODY N times, with __i bound to the current iteration index (0..N)."
-       "Returns ()."
+       ""
+       "Evaluates BODY N times, with __i bound to the current iteration"
+       "index (0..N). Returns ()."
        ""
        "Example:"
-       "  (loop 3 (println __i))  ;; prints 0 1 2")
+       "  (loop 3 (println __i))  ;; prints 0 1 2"
+       ""
+       "See also: (for VAR SEQ BODY...), (while COND BODY...).")
   `(reduce (fn __loop-fn (__acc __i) (do ,@body)) () (range 0 ,n)))
 
 (defmacro while (cond . body)
   (doc "(while COND BODY...)"
-       "Repeatedly evaluates BODY while COND is truthy."
-       "Returns the value of the last BODY evaluation, or () if COND is false on entry."
+       ""
+       "Repeatedly evaluates BODY while COND is truthy. Returns the value"
+       "of the last BODY evaluation, or () if COND is falsy on entry."
        ""
        "Example:"
        "  (let! i 0)"
        "  (while (< (deref i) 5)"
-       "    (set! i (+ (deref i) 1)))")
+       "    (set! i (+ (deref i) 1)))"
+       ""
+       "See also: (for VAR SEQ BODY...), (loop N BODY...).")
   `(do
      (let! __last ())
      ((fn __while-iter ()
@@ -83,33 +102,46 @@
 
 (defmacro or (a b)
     (doc "(or A B)"
-         "Returns A if A is truthy, else B. B is only evaluated when A is falsy."
+         ""
+         "Returns A if A is truthy, else B. B is only evaluated when A is"
+         "falsy."
          ""
          "Example:"
          "  (or 0 1)   ;; => 1"
-         "  (or 0 ()) ;; => ()"
-         "  (or 5 9)   ;; => 5")
+         "  (or 0 ())  ;; => ()"
+         "  (or 5 9)   ;; => 5"
+         ""
+         "See also: (and A B), (! A).")
     `((fn __or (__a) (if __a __a ,b)) ,a))
 
 
 (defmacro and (a b)
     (doc "(and A B)"
-         "Returns B if A is truthy, else A. B is only evaluated when A is truthy."
+         ""
+         "Returns B if A is truthy, else A. B is only evaluated when A is"
+         "truthy."
          ""
          "Example:"
          "  (and 1 2)  ;; => 2"
          "  (and 0 9)  ;; => 0"
-         "  (and () 9) ;; => ()")
+         "  (and () 9) ;; => ()"
+         ""
+         "See also: (or A B), (! A).")
     `((fn __and (__a) (if __a ,b __a)) ,a))
 
 (defmacro compose fns
-  (doc "(compose F G H ...)"
-       "Returns a function equivalent to (fn _ (x) (F (G (H x))))."
-       "With no args returns id; with one arg returns that function unchanged."
+  (doc "(compose F...)"
+       ""
+       "Returns a function applying the given functions right to left:"
+       "(compose F G H) is equivalent to (fn _ (x) (F (G (H x)))). With"
+       "no args returns id; with one arg returns that function unchanged."
        ""
        "Example:"
-       "  (let inc-then-double (compose (fn _ (x) (* x 2)) (fn _ (x) (+ x 1))))"
-       "  (inc-then-double 3)  ;; => 8")
+       "  (let inc-then-double"
+       "    (compose (fn _ (x) (* x 2)) (fn _ (x) (+ x 1))))"
+       "  (inc-then-double 3)  ;; => 8"
+       ""
+       "See also: (pipe F...), (id V).")
   (if (= fns ())
       `id
       (if (= (cdr fns) ())
@@ -117,13 +149,18 @@
           `(fn __c (__x) (,(car fns) ((compose ,@(cdr fns)) __x))))))
 
 (defmacro pipe fns
-  (doc "(pipe F G H ...)"
-       "Returns a function equivalent to (fn _ (x) (H(G(F(x)))))."
-       "With no args returns id; with one arg returns that function unchanged."
+  (doc "(pipe F...)"
+       ""
+       "Returns a function applying the given functions left to right:"
+       "(pipe F G H) is equivalent to (fn _ (x) (H (G (F x)))). With no"
+       "args returns id; with one arg returns that function unchanged."
        ""
        "Example:"
-       "  (let inc-then-double (pipe (fn _ (x) (+ x 1)) (fn _ (x) (* x 2))))"
-       "  (inc-then-double 3)  ;; => 8")
+       "  (let inc-then-double"
+       "    (pipe (fn _ (x) (+ x 1)) (fn _ (x) (* x 2))))"
+       "  (inc-then-double 3)  ;; => 8"
+       ""
+       "See also: (compose F...), (id V).")
   (if (= fns ())
       `id
       (if (= (cdr fns) ())
