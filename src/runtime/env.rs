@@ -50,7 +50,7 @@ type Inner = HashMap<Rc<str>, Rc<Value>>;
 ///
 /// # Persistence
 ///
-/// All mutators (`update`, `union`, `filter`, `with_base_dir`,
+/// All mutators (`update`, `union`, `difference`, `with_base_dir`,
 /// `with_base_env`) consume `self` and return a new `Env`. Underneath, the
 /// binding map shares structure with the input — building up a long chain
 /// of `let`s does not copy the whole map each step.
@@ -136,15 +136,28 @@ impl Env {
         }
     }
 
-    /// Drop bindings for which `p` returns `false`. Used by `(open ...)`
-    /// to filter out module-private (`_`-prefixed) names before merging
-    /// the loaded module into the caller's env.
-    pub fn filter<P>(self, mut p: P) -> Self
-    where
-        P: FnMut(&Rc<str>, &Rc<Value>) -> bool,
-    {
+    /// Iterate over the name → value bindings (unspecified order).
+    /// `base_dir`/`base_env` are not bindings and are not yielded. Used by
+    /// `(load ...)` to reify a module's bindings as a map.
+    pub fn iter(&self) -> impl Iterator<Item = (&Rc<str>, &Rc<Value>)> {
+        self.bindings.iter()
+    }
+
+    /// The bindings `self` adds or changes relative to `other`: every entry
+    /// whose name is absent from `other` or bound there to a different value.
+    /// `base_dir` and `base_env` are preserved.
+    ///
+    /// This is how module loading isolates a module's *own* top-level
+    /// definitions: a loaded module's env is seeded with the prelude, so
+    /// diffing against that prelude drops the inherited builtins and keeps
+    /// only what the module defined (or shadowed).
+    pub fn difference(self, other: &Env) -> Self {
         Self {
-            bindings: self.bindings.into_iter().filter(|(k, v)| p(k, v)).collect(),
+            bindings: self
+                .bindings
+                .into_iter()
+                .filter(|(k, v)| other.bindings.get(k) != Some(v))
+                .collect(),
             base_dir: self.base_dir,
             base_env: self.base_env,
         }
@@ -212,5 +225,26 @@ mod tests {
 
         let merged = big.union(small);
         assert_eq!(**merged.get(&Rc::from("x")).unwrap(), Value::Int(1));
+    }
+
+    /// `difference` keeps names that are new or rebound to a different value,
+    /// and drops names that are unchanged from `other`.
+    #[test]
+    fn difference_keeps_added_and_changed_bindings() {
+        let base = Env::new()
+            .update("shared".into(), Rc::new(Value::Int(1)))
+            .update("rebound".into(), Rc::new(Value::Int(2)));
+        let derived = base
+            .clone()
+            .update("rebound".into(), Rc::new(Value::Int(99)))
+            .update("fresh".into(), Rc::new(Value::Int(3)));
+
+        let diff = derived.difference(&base);
+        // unchanged → dropped
+        assert!(diff.get(&Rc::from("shared")).is_none());
+        // rebound to a new value → kept (with the new value)
+        assert_eq!(**diff.get(&Rc::from("rebound")).unwrap(), Value::Int(99));
+        // newly introduced → kept
+        assert_eq!(**diff.get(&Rc::from("fresh")).unwrap(), Value::Int(3));
     }
 }

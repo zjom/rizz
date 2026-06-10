@@ -245,7 +245,7 @@ keywords. The complete set:
 ```
 let   let!   fn   defmacro   if   do   eval
 quote   quasi   unquote   unquote-splice
-open
+open   load  load-quoted
 ```
 
 `doc` is also reserved but only as the head of a `(doc ...)` slot inside a
@@ -426,10 +426,12 @@ caller's scope, just as with `do`.
 (eval three)         ;; => 3
 ```
 
-### 5.10 `open` — load a module
+### 5.10 `open` / `load` / `load-quoted` — modules
 
 `open` loads a sibling source file and merges its bindings into the caller's
-env. It is meaty enough to get its own section — see §8.
+env (optionally under a prefix); `load` returns those bindings as a map; and
+`load-quoted` returns the file's forms as unevaluated data. They are meaty
+enough to get their own section — see §8.
 
 ---
 
@@ -548,17 +550,30 @@ as itself.
 
 ```
 (open PATH)
+(open PATH PREFIX)
+(load PATH)
+(load-quoted PATH)
 ```
 
-Loads the rizz source file at `PATH`, evaluates its top-level forms in a
-fresh **module env**, and **merges the loaded module's bindings into the
-caller's env**. Returns the value of the loaded module's last form. `PATH`
-may be a string or a bare identifier (a symbol that spells a valid
-filename); other types raise a `TypeMismatch`.
+`open` and `load` load the rizz source file at `PATH` and evaluate its
+top-level forms in a fresh **module env**; `load-quoted` reads the file but
+does **not** evaluate it. `PATH` may be a string or a bare identifier (a
+symbol that spells a valid filename); other types raise a `TypeMismatch`.
+The three differ in **what they do with the result**:
 
-`open` is a special form rather than a native function precisely because
-function calls cannot leak bindings into their caller (§4.3); module loading
-is the one operation that must.
+- `open` **merges all** of the module's top-level bindings into the caller's
+  env — including `_`-prefixed names — and returns the value of the module's
+  last form. With an optional `PREFIX` ident, each merged name is rewritten
+  to `PREFIX.NAME` (e.g. `(open "math" math)` binds `math.sin`), keeping the
+  module namespaced. `PREFIX` is taken literally and is **not** evaluated.
+- `load` does **not** merge anything; it returns the module's top-level
+  bindings as a **map keyed by ident** (`{ sin : <fn>, ... }`). Use it to
+  inspect or destructure a module as a first-class value.
+- `load-quoted` returns the file's top-level forms as a **list of data** —
+  the parsed S-expressions, unevaluated — for metaprogramming.
+
+Path resolution, the fresh module env, and the preserved anchor are
+identical across all three.
 
 ### 8.1 Path resolution
 
@@ -581,15 +596,20 @@ the anchor, so a module can `(open "sibling")` portably.
   module — `open` always loads against a clean module-level scope, not the
   caller's accumulated bindings.
 
-### 8.3 What leaks back to the caller
+### 8.3 What `open` leaks back to the caller
 
-- Top-level `let`/`fn` bindings introduced by the loaded module become
-  visible in the caller's env, **except** those whose names start with `_`
-  — a `_` prefix is the convention for module-private items and is filtered
-  on merge.
-- On a name collision the caller's existing binding wins (the loaded
-  module does not overwrite).
+- **Every** top-level `let`/`fn` binding introduced by the loaded module
+  becomes visible in the caller's env — including `_`-prefixed ones (the `_`
+  prefix is a naming convention only; `open` does not filter on it).
+- With a `PREFIX` ident, each name is rewritten to `PREFIX.NAME` before
+  merging, so the bindings stay namespaced and cannot collide with the
+  caller's plain names.
+- On a name collision the loaded module's new binding wins (the loaded
+  module overwrites).
 - The caller's `base_dir` anchor is preserved across the call.
+
+`load` and `load-quoted` leak **nothing** into the caller's env; they hand
+back a value instead (a map and a list of forms, respectively).
 
 ```
 ;; mod.rz
@@ -597,13 +617,28 @@ the anchor, so a module can `(open "sibling")` portably.
 (let _secret 7)
 (fn dbl (x) (* x 2))
 
-;; caller.rz
+;; caller.rz — open merges all bindings into scope
 (open "mod")     ;; => 84 (last form of mod.rz, if it had one)
-(dbl answer)     ;; => 84 — `answer` and `dbl` leaked; `_secret` did not
+(dbl answer)     ;; => 84
+_secret          ;; => 7 — open leaks private bindings too
+
+;; open with a prefix namespaces every binding
+(open "mod" m)   ;; binds m.answer, m._secret, m.dbl
+(m.dbl m.answer) ;; => 84
+
+;; load returns the bindings as a map, merging nothing
+(let mod (load "mod"))   ;; => { answer : 42, _secret : 7, dbl : <fn> }
+(get mod 'answer)        ;; => 42
+
+;; load-quoted returns the file's forms as unevaluated data
+(load-quoted "mod")
+;; => ((let answer 42) (let _secret 7) (fn dbl (x) (* x 2)))
 ```
 
-Errors: arity ≠ 1; `PATH` not a string/ident; I/O failure opening the file
-(surfaced as `IOError`); any parse or runtime error from the loaded module.
+Errors: `open` accepts 1–2 args, `load`/`load-quoted` exactly 1 (other
+arities raise `ArityMismatch`); `PATH` not a string/ident raises
+`TypeMismatch`; I/O failure opening the file; any parse error (all three)
+or runtime error (`open`/`load`) from the loaded module.
 
 ---
 
@@ -798,23 +833,23 @@ results.
 
 ### 10.1 Arithmetic and comparison
 
-| Name        | Arity | Description                                                                                                             |
-| ----------- | ----- | ----------------------------------------------------------------------------------------------------------------------- |
-| `+`, `sum`  | 2     | Addition (`int×int` or `float×float`). Overflows error.                                                                 |
-| `-`, `sub`  | 2     | Subtraction.                                                                                                            |
-| `*`, `mul`  | 2     | Multiplication.                                                                                                         |
-| `/`, `div`  | 2     | Division. Integer divide-by-zero errors.                                                                                |
-| `mod`       | 2     | Least nonnegative remainder of A divided by B. Integer divide-by-zero errors.                                           |
-| `cmp`       | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors.                                                              |
-| `>`, `gt`   | 2     | Greater than.                                                                                                           |
-| `>=`, `gte` | 2     | Greater or equal.                                                                                                       |
-| `<`, `lt`   | 2     | Less than.                                                                                                              |
-| `<=`, `lte` | 2     | Less or equal.                                                                                                          |
-| `min`       | ≥ 1   | Minimum of numbers (all `int` or all `float`). Accepts `n` numbers of the same type, or a single array/list of numbers. |
-| `max`       | ≥ 1   | Maximum of numbers (same rules as `min`).                                                                               |
-| `clamp`     | 3     | Clamps a number to a `[low, high]` range.                                                                               |
+| Name        | Arity | Description                                                                                                                                                     |
+| ----------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `+`, `sum`  | 2     | Addition (`int×int` or `float×float`). Overflows error.                                                                                                         |
+| `-`, `sub`  | 2     | Subtraction.                                                                                                                                                    |
+| `*`, `mul`  | 2     | Multiplication.                                                                                                                                                 |
+| `/`, `div`  | 2     | Division. Integer divide-by-zero errors.                                                                                                                        |
+| `mod`       | 2     | Least nonnegative remainder of A divided by B. Integer divide-by-zero errors.                                                                                   |
+| `cmp`       | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors.                                                                                                      |
+| `>`, `gt`   | 2     | Greater than.                                                                                                                                                   |
+| `>=`, `gte` | 2     | Greater or equal.                                                                                                                                               |
+| `<`, `lt`   | 2     | Less than.                                                                                                                                                      |
+| `<=`, `lte` | 2     | Less or equal.                                                                                                                                                  |
+| `min`       | ≥ 1   | Minimum of numbers (all `int` or all `float`). Accepts `n` numbers of the same type, or a single array/list of numbers.                                         |
+| `max`       | ≥ 1   | Maximum of numbers (same rules as `min`).                                                                                                                       |
+| `clamp`     | 3     | Clamps a number to a `[low, high]` range.                                                                                                                       |
 | `int-of`    | 1     | Converts to int: rounds a float to the nearest int (ties to even), parses a str, returns an int unchanged. NaN, out-of-range floats, and unparsable strs error. |
-| `float-of`  | 1     | Converts to float: converts an int (rounding when no exact float exists), parses a str, returns a float unchanged. Unparsable strs error. |
+| `float-of`  | 1     | Converts to float: converts an int (rounding when no exact float exists), parses a str, returns a float unchanged. Unparsable strs error.                       |
 
 ### 10.2 Equality and boolean
 

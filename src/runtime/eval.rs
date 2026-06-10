@@ -9,14 +9,15 @@
 use crate::{
     consts::{
         FILE_EXTENSION, KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_FN, KW_IF, KW_LET, KW_LET_REF,
-        KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+        KW_LOAD, KW_LOAD_QUOTED, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+        MODULE_PREFIX_SEP,
     },
     runtime::{Arity, Closure, Env, RuntimeError, Value},
 };
 use im::{HashMap, Vector};
 use std::{
     cell::{Cell, RefCell},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -120,6 +121,8 @@ fn eval_inner(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
                     KW_DO => return eval_do(tail, ctx),
                     KW_EVAL => return eval_eval(tail, ctx),
                     KW_OPEN => return eval_open(tail, ctx),
+                    KW_LOAD => return eval_load(tail, ctx),
+                    KW_LOAD_QUOTED => return eval_load_quoted(tail, ctx),
                     _ => {}
                 }
             }
@@ -660,28 +663,109 @@ fn split_var_form(
     Ok((name.clone(), doc, value_form))
 }
 
-/// `(open path)`: loads and evaluates the file at `path` (extension `.rz` is
-/// appended if absent). Relative paths are resolved against the current source
-/// file's directory (see [`Env::base_dir`]), falling back to the process CWD.
-/// The loaded module's top-level bindings are merged into the caller's env
-/// — minus any whose names start with `_` (a convention for private items) —
-/// and the value of the loaded module's last form is returned. `open` is a
-/// special form rather than a native fn because native calls cannot leak
-/// bindings into the caller; module loading is precisely the operation that
+/// `(open PATH [PREFIX])`: loads and evaluates the file at `PATH` (extension
+/// `.rz` is appended if absent). Relative paths are resolved against the current
+/// source file's directory (see [`Env::base_dir`]), falling back to the process
+/// CWD. *All* of the loaded module's top-level bindings are merged into the
+/// caller's env (including `_`-prefixed names), and the value of the loaded
+/// module's last form is returned. With an optional `PREFIX` ident, every merged
+/// name is rewritten to `PREFIX.NAME` so the module's bindings stay namespaced.
+/// `open` is a special form rather than a native fn because native calls cannot
+/// leak bindings into the caller; module loading is precisely the operation that
 /// must.
 fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    if items.len() != 1 {
-        return Err(RuntimeError::ArityMismatch {
-            name: KW_OPEN.into(),
+    let (prefix, ctx) = match items.as_slice() {
+        [_] => (None, ctx.clone()),
+        [_, p] => {
+            // The prefix is a literal ident, not an evaluated expression.
+            let Value::Ident(name) = &**p else {
+                return Err(RuntimeError::type_mismatch(KW_OPEN, "ident", p));
+            };
+            (Some(name.clone()), ctx.clone())
+        }
+        _ => {
+            return Err(RuntimeError::ArityMismatch {
+                name: KW_OPEN.into(),
+                expected: Arity::Range(1, 2),
+                got: items.len(),
+            });
+        }
+    };
+    let (path, ctx) = resolve_module_path(&items[0], &ctx, KW_OPEN)?;
+    let (v, module) = load_module(&path, &ctx)?;
+    // Fold the module's own bindings into the caller (the module wins on a
+    // name collision), optionally under `PREFIX.`. Folding into `ctx` — rather
+    // than `module.union(ctx)` — keeps the caller's `base_dir`/`base_env`.
+    let env = module.iter().fold(ctx, |acc, (k, v)| {
+        let name = match &prefix {
+            Some(p) => format!("{p}{MODULE_PREFIX_SEP}{k}").into(),
+            None => k.clone(),
+        };
+        acc.update(name, v.clone())
+    });
+    Ok((v, env))
+}
+
+/// `(load PATH)`: loads and evaluates the file at `PATH` (see [`eval_open`] for
+/// path resolution) and returns the module's top-level bindings as a map keyed
+/// by ident. Unlike `open`, nothing is merged into the caller's env — the
+/// bindings are reified as a value the caller can inspect or destructure.
+fn eval_load(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let items = single_arg(tail, KW_LOAD)?;
+    let (path, ctx) = resolve_module_path(&items, ctx, KW_LOAD)?;
+    let (_, module) = load_module(&path, &ctx)?;
+    let map = module
+        .iter()
+        .map(|(k, v)| (Rc::new(Value::Ident(k.clone())), v.clone()))
+        .collect();
+    Ok((Rc::new(Value::Map(map)), ctx))
+}
+
+/// `(load-quoted PATH)`: reads the file at `PATH` (see [`eval_open`] for path
+/// resolution) and returns its top-level forms as data — a list of the parsed
+/// forms, without evaluating them.
+fn eval_load_quoted(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let items = single_arg(tail, KW_LOAD_QUOTED)?;
+    let (path, ctx) = resolve_module_path(&items, ctx, KW_LOAD_QUOTED)?;
+    let f = std::fs::File::open(&path)?;
+    let forms = crate::parser::Parser::new(f)
+        .parse()
+        .map_err(|e| RuntimeError::InModule {
+            path: path.clone(),
+            source: Box::new(e.into()),
+        })?;
+    let list = Value::list_of(forms.into_iter().map(|s| Rc::new(Value::from(s))));
+    Ok((Rc::new(list), ctx))
+}
+
+/// Extracts the single argument of `(KW ARG)`, erroring with `name` on any
+/// other arity.
+fn single_arg(tail: &Rc<Value>, name: &str) -> Result<Rc<Value>, RuntimeError> {
+    let items: Vec<_> = Value::iter(tail).collect();
+    match items.as_slice() {
+        [arg] => Ok(arg.clone()),
+        _ => Err(RuntimeError::ArityMismatch {
+            name: name.into(),
             expected: Arity::Exactly(1),
             got: items.len(),
-        });
+        }),
     }
-    let (arg, ctx) = eval(items[0].clone(), ctx)?;
+}
+
+/// Evaluates `arg` to a path, appends the `.rz` extension if absent, and
+/// resolves relative paths against the current [`Env::base_dir`] (falling back
+/// to the process CWD). Returns the resolved path and the env threaded through
+/// evaluating `arg`.
+fn resolve_module_path(
+    arg: &Rc<Value>,
+    ctx: &Env,
+    kw: &str,
+) -> Result<(PathBuf, Env), RuntimeError> {
+    let (arg, ctx) = eval(arg.clone(), ctx)?;
     let mut path = arg
         .as_str_or_ident()
-        .ok_or_else(|| RuntimeError::type_mismatch(KW_OPEN, "str", &arg))
+        .ok_or_else(|| RuntimeError::type_mismatch(kw, "str", &arg))
         .map(|s| PathBuf::from(s.as_ref()))?;
     if path.extension().is_none() {
         path.set_extension(FILE_EXTENSION);
@@ -691,8 +775,16 @@ fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
     {
         path = base.join(path);
     }
+    Ok((path, ctx))
+}
+
+/// Loads and evaluates the rizz file at `path` in a fresh module env seeded
+/// from the caller's [`Env::base_env`], returning the value of the module's
+/// last form together with the module's *own* top-level bindings (the seeded
+/// prelude is diffed back out, so only what the module defined remains).
+fn load_module(path: &Path, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let child_base = path.parent().map(PathBuf::from);
-    let f = std::fs::File::open(&path)?;
+    let f = std::fs::File::open(path)?;
     let child_env = match ctx.base_env() {
         Some(base) => (**base)
             .clone()
@@ -704,11 +796,16 @@ fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
     // matchable and keeps its position info, with the path for context.
     let (v, loaded) =
         crate::parse_and_run_with_env(f, &child_env).map_err(|e| RuntimeError::InModule {
-            path: path.clone(),
+            path: path.to_path_buf(),
             source: Box::new(e),
         })?;
-    let env = ctx.union(loaded.filter(|k, _| !k.starts_with('_')));
-    Ok((v, env))
+    // The child env starts as a copy of the prelude; diff it back out so only
+    // the module's own definitions (and any prelude names it shadowed) remain.
+    let module = match ctx.base_env() {
+        Some(base) => loaded.difference(base),
+        None => loaded,
+    };
+    Ok((v, module))
 }
 
 /// `(eval x)`: evaluates `x` to obtain a form, then evaluates that form.

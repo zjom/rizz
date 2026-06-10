@@ -1,6 +1,8 @@
-//! Tests for the `open` special form: file loading semantics — extension
-//! defaulting, relative-path anchoring against the caller's source directory,
-//! `_`-private filtering of leaked bindings, and the surfaced error shape.
+//! Tests for the `open` / `load` / `load-quoted` special forms: file loading
+//! semantics — extension defaulting, relative-path anchoring against the
+//! caller's source directory, full (unfiltered) binding merge, prefix
+//! namespacing, the map/list results of `load`/`load-quoted`, and the
+//! surfaced error shape.
 
 use rizz::runtime::{Arity, Value};
 use std::{
@@ -78,16 +80,113 @@ fn open_leaks_public_bindings_into_caller() {
 }
 
 #[test]
-fn open_filters_private_underscore_bindings() {
+fn open_merges_private_underscore_bindings() {
     let tmp = TempDir::new("private");
-    // `_secret` must not leak — referencing it after the open should error.
+    // `open` merges everything regardless of `_` — `_secret` leaks too.
     let m = tmp.write("m.rz", "(let _secret 7) (let public 1)");
-    let leaks = format!("(open {}) _secret", quote_path(&m));
-    assert!(rizz::parse_and_run(leaks.as_bytes()).is_err());
+    let secret = format!("(open {}) _secret", quote_path(&m));
+    assert_eq!(*run(&secret), Value::Int(7));
 
-    // The non-underscore binding is still visible.
     let visible = format!("(open {}) public", quote_path(&m));
     assert_eq!(*run(&visible), Value::Int(1));
+}
+
+// ----- open with a prefix ident namespaces the merged bindings -----
+
+#[test]
+fn open_with_prefix_namespaces_bindings() {
+    let tmp = TempDir::new("prefix");
+    let m = tmp.write("m.rz", "(let answer 42) (fn dbl (x) (* x 2))");
+    // `(open PATH PREFIX)` rewrites every name to `PREFIX.NAME`.
+    let src = format!("(open {} m) (m.dbl m.answer)", quote_path(&m));
+    assert_eq!(*run(&src), Value::Int(84));
+}
+
+#[test]
+fn open_with_prefix_does_not_bind_unprefixed_names() {
+    let tmp = TempDir::new("prefix-only");
+    let m = tmp.write("m.rz", "(let answer 42)");
+    // The bare `answer` must not be bound when a prefix is supplied.
+    let src = format!("(open {} m) answer", quote_path(&m));
+    assert!(rizz::parse_and_run(src.as_bytes()).is_err());
+}
+
+#[test]
+fn open_with_non_ident_prefix_is_type_error() {
+    let tmp = TempDir::new("prefix-bad");
+    let m = tmp.write("m.rz", "1");
+    // The prefix slot must be an ident, not a string.
+    let src = format!("(open {} \"m\")", quote_path(&m));
+    let err = rizz::parse_and_run(src.as_bytes()).expect_err("type error");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::TypeMismatch { .. })
+    ));
+}
+
+// ----- load returns the module's bindings as a map -----
+
+#[test]
+fn load_returns_bindings_as_map() {
+    let tmp = TempDir::new("load-map");
+    let m = tmp.write("m.rz", "(let answer 42) (let _secret 7)");
+    // `load` reifies the bindings; nothing leaks, so we look them up in the map.
+    let src = format!("(let mod (load {})) (get mod 'answer)", quote_path(&m));
+    assert_eq!(*run(&src), Value::Int(42));
+
+    // It includes `_`-prefixed names too.
+    let src = format!("(let mod (load {})) (get mod '_secret)", quote_path(&m));
+    assert_eq!(*run(&src), Value::Int(7));
+}
+
+#[test]
+fn load_map_holds_only_module_bindings_not_the_prelude() {
+    let tmp = TempDir::new("load-map-size");
+    let m = tmp.write("m.rz", "(let a 1) (let b 2) (let c 3)");
+    // The seeded prelude is diffed back out: only the module's own bindings
+    // remain, so the map has exactly three keys.
+    let src = format!("(len (keys (load {})))", quote_path(&m));
+    assert_eq!(*run(&src), Value::Int(3));
+}
+
+#[test]
+fn open_with_prefix_does_not_namespace_the_prelude() {
+    let tmp = TempDir::new("prefix-no-prelude");
+    let m = tmp.write("m.rz", "(fn dbl (x) (* x 2))");
+    // Only the module's `dbl` is prefixed; prelude names are not, so `m.+`
+    // is unbound.
+    let src = format!("(open {} m) m.+", quote_path(&m));
+    assert!(rizz::parse_and_run(src.as_bytes()).is_err());
+}
+
+#[test]
+fn load_does_not_leak_bindings_into_caller() {
+    let tmp = TempDir::new("load-noleak");
+    let m = tmp.write("m.rz", "(let answer 42)");
+    // Unlike `open`, `load` merges nothing — `answer` stays unbound.
+    let src = format!("(load {}) answer", quote_path(&m));
+    assert!(rizz::parse_and_run(src.as_bytes()).is_err());
+}
+
+// ----- load-quoted returns the file's forms as data -----
+
+#[test]
+fn load_quoted_returns_forms_as_data() {
+    let tmp = TempDir::new("load-quoted");
+    let m = tmp.write("m.rz", "(let x 1) (+ 41 1)");
+    // The forms come back unevaluated as a list; the second is `(+ 41 1)`,
+    // which we can pull out by index and `eval` to 42.
+    let src = format!("(eval (get (load-quoted {}) 1))", quote_path(&m));
+    assert_eq!(*run(&src), Value::Int(42));
+}
+
+#[test]
+fn load_quoted_does_not_evaluate() {
+    let tmp = TempDir::new("load-quoted-noeval");
+    // A file that would error if evaluated still loads fine as data.
+    let m = tmp.write("m.rz", "(car 5)");
+    let src = format!("(len (load-quoted {}))", quote_path(&m));
+    assert_eq!(*run(&src), Value::Int(1));
 }
 
 // ----- extension defaulting -----
@@ -150,7 +249,7 @@ fn open_with_no_args_is_arity_error() {
     assert!(matches!(
         err,
         rizz::RizzError::RuntimeError(rizz::RuntimeError::ArityMismatch {
-            expected: Arity::Exactly(1),
+            expected: Arity::Range(1, 2),
             got: 0,
             ..
         })
@@ -158,13 +257,13 @@ fn open_with_no_args_is_arity_error() {
 }
 
 #[test]
-fn open_with_two_args_is_arity_error() {
-    let err = rizz::parse_and_run("(open \"a\" \"b\")".as_bytes()).expect_err("arity error");
+fn open_with_three_args_is_arity_error() {
+    let err = rizz::parse_and_run("(open \"a\" b c)".as_bytes()).expect_err("arity error");
     assert!(matches!(
         err,
         rizz::RizzError::RuntimeError(rizz::RuntimeError::ArityMismatch {
-            expected: Arity::Exactly(1),
-            got: 2,
+            expected: Arity::Range(1, 2),
+            got: 3,
             ..
         })
     ));

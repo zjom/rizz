@@ -15,8 +15,8 @@
 use crate::{
     Env, RuntimeError,
     consts::{
-        KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_FN, KW_IF, KW_LET, KW_LET_REF, KW_OPEN,
-        KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+        KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_FN, KW_IF, KW_LET, KW_LET_REF, KW_LOAD,
+        KW_LOAD_QUOTED, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
     },
     runtime::{Closure, NativeFn, Value},
 };
@@ -351,17 +351,82 @@ See also: (quote X), (quasi DATUM)."
         KW_OPEN => {
             "\
 (open PATH)
+(open PATH PREFIX)
 
-Loads the rizz source file at PATH, evaluates its top-level forms
-in a fresh module env, and merges the module's top-level let/fn
-bindings into the caller's env. Returns the value of the loaded
-module's last form. Names starting with _ are treated as
-module-private and are not merged; on a name collision the
-caller's existing binding wins.
+Reads the rizz source file at PATH, evaluates its top-level forms
+in a fresh module env, and merges ALL of the module's top-level
+let/fn bindings into the caller's env (including names starting
+with _). Returns the value of the loaded module's last form. On a
+name collision the loaded module's binding wins.
+
+With an optional PREFIX ident, every merged name is rewritten to
+PREFIX.NAME, keeping the module's bindings namespaced.
+
+PATH   — path | ident: if PATH has no extension, .rz is appended.
+         Relative paths resolve against the caller's source-file
+         directory.
+PREFIX — an unevaluated ident; merged names become PREFIX.NAME.
+
+See also: (load PATH), (load-quoted PATH)
+
+Example:
+  ;; math.rz
+  (fn sin (x) ...)
+  (fn cos (x) ...)
+
+  ;; caller.rz
+  (open \"math\")          ;; binds `sin`, `cos`
+  (open \"math\" math)     ;; binds `math.sin`, `math.cos`
+  (math.sin 0)            ;; => 0"
+        }
+
+        KW_LOAD => {
+            "\
+(load PATH)
+
+Reads the rizz source file at PATH, evaluates its top-level forms
+in a fresh module env, and returns the module's top-level bindings
+as a map keyed by ident. Unlike `open`, nothing is merged into the
+caller's env — the bindings are reified as a value.
 
 PATH — path | ident: if PATH has no extension, .rz is appended.
        Relative paths resolve against the caller's source-file
-       directory."
+       directory.
+
+See also: (open PATH [PREFIX]), (load-quoted PATH)
+
+Example:
+  ;; math.rz
+  (fn sin (x) ...)
+  (fn cos (x) ...)
+
+  ;; caller.rz
+  (let m (load \"math\"))   ;; => { sin : <fn>, cos : <fn> }
+  ((get m 'sin) 0)         ;; => 0"
+        }
+
+        KW_LOAD_QUOTED => {
+            "\
+(load-quoted PATH)
+
+Reads the file at PATH and returns its top-level forms as data — a
+list of the parsed forms, WITHOUT evaluating them. Useful for
+metaprogramming: inspect, transform, or selectively `eval` the
+forms a file contains.
+
+PATH — path | ident: if PATH has no extension, .rz is appended.
+       Relative paths resolve against the caller's source-file
+       directory.
+
+See also: (open PATH [PREFIX]), (load PATH), (eval FORM)
+
+Example:
+  ;; mod.rz
+  (let answer 42)
+  (fn dbl (x) (* x 2))
+
+  ;; caller.rz
+  (load-quoted \"mod\")   ;; => ((let answer 42) (fn dbl (x) (* x 2)))"
         }
 
         KW_DOC => {

@@ -13,28 +13,50 @@ pub const FILE_EXTENSION: &str = "rz";
 
 /// `(let NAME VALUE)` — variable binding. See [`crate::runtime::eval`].
 pub const KW_LET: &str = "let";
+
 /// `(let! NAME VALUE)` — variable binding wrapped in a fresh ref.
 pub const KW_LET_REF: &str = "let!";
+
 /// `(fn NAME PARAMS BODY)` — function definition.
 pub const KW_FN: &str = "fn";
+
 /// `(defmacro NAME PARAMS BODY)` — user-defined macro.
 pub const KW_DEFMACRO: &str = "defmacro";
+
 /// `(quote X)` — return `X` unevaluated. Also: `'X`.
 pub const KW_QUOTE: &str = "quote";
+
 /// `(quasi X)` — quasiquote: literal except for `unquote` subforms. Also: `` `X ``.
 pub const KW_QUASIQUOTE: &str = "quasi";
+
 /// `(unquote X)` — within `quasi`, evaluate `X`. Also: `,X`.
 pub const KW_UNQUOTE: &str = "unquote";
+
 /// `(unquote-splice X)` — within `quasi`, splice the result of `X`. Also: `,@X`.
 pub const KW_UNQUOTE_SPLICE: &str = "unquote-splice";
+
 /// `(if COND THEN ELSE)` — conditional.
 pub const KW_IF: &str = "if";
+
 /// `(do FORM*)` — pure sequencing.
 pub const KW_DO: &str = "do";
+
 /// `(eval FORM)` — evaluate a runtime-built form.
 pub const KW_EVAL: &str = "eval";
-/// `(open PATH)` — load a module and merge its bindings.
+
+/// `(open PATH [PREFIX])` — load a module and merge all its bindings into the
+/// caller; with an optional `PREFIX` ident, merged names become `PREFIX.NAME`.
 pub const KW_OPEN: &str = "open";
+
+/// `(load PATH)` — load a module and return its bindings as a map keyed by ident.
+pub const KW_LOAD: &str = "load";
+
+/// `(load-quoted PATH)` — read a file and return its top-level forms as a list of data.
+pub const KW_LOAD_QUOTED: &str = "load-quoted";
+
+/// Separator joining a module `PREFIX` to a binding name in `(open PATH PREFIX)`.
+pub const MODULE_PREFIX_SEP: char = '.';
+
 /// `(doc ARG+)` — documentation slot for binding forms. Not a standalone
 /// special form; meaningful only in the optional doc position of `let`,
 /// `let!`, `fn`, `defmacro`.

@@ -12,6 +12,8 @@ pub enum Arity {
     Exactly(usize),
     /// At least `n` arguments (variadic callables, min-arity native fns).
     AtLeast(usize),
+    /// Between `lo` and `hi` arguments, inclusive (forms with optional args).
+    Range(usize, usize),
 }
 
 impl std::fmt::Display for Arity {
@@ -19,6 +21,7 @@ impl std::fmt::Display for Arity {
         match self {
             Arity::Exactly(n) => write!(f, "{n}"),
             Arity::AtLeast(n) => write!(f, "at least {n}"),
+            Arity::Range(lo, hi) => write!(f, "{lo} to {hi}"),
         }
     }
 }

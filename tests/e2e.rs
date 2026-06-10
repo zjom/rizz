@@ -1061,6 +1061,8 @@ fn show_on_quoted_special_form_returns_builtin_doc() {
         "unquote-splice",
         "eval",
         "open",
+        "load",
+        "load-quoted",
         "doc",
     ] {
         let src = format!("(show '{kw})");
