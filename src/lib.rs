@@ -252,11 +252,17 @@
 //! [`RizzError`]:
 //!
 //! - [`ParseError`] — surface-syntax problems (unbalanced parens, malformed
-//!   numbers, non-UTF-8 bytes, unexpected EOF). Every variant carries a
-//!   [`parser::Position`] so you can underline the offending byte.
+//!   numbers, non-UTF-8 bytes, unexpected end of input). Every variant
+//!   carries a [`parser::Position`] so you can underline the offending byte.
 //! - [`RuntimeError`] — evaluation problems (`UnknownIdent`, `NotCallable`,
-//!   `ArityMismatch`, `TypeMismatch`, `ArithmeticError`, plus passthrough
-//!   `IOError` from `open`).
+//!   `ArityMismatch`, `TypeMismatch`, `ArithmeticError`, `RecursionLimit`,
+//!   plus `IOError` from `open` and `InModule` wrapping any failure inside
+//!   an `(open ...)`d module).
+//!
+//! Runaway recursion in user scripts raises
+//! [`RuntimeError::RecursionLimit`](runtime::RuntimeError::RecursionLimit)
+//! instead of overflowing the host stack; tune the per-thread cap with
+//! [`runtime::set_recursion_limit`].
 //!
 //! Both implement [`std::error::Error`] via `thiserror`, so they compose with
 //! `anyhow::Result` or any other error-aggregation strategy without extra
@@ -274,14 +280,14 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rizz = "0.6"
+//! rizz = "0.7"
 //! ```
 //!
 //! Or with the CLI:
 //!
 //! ```toml
 //! [dependencies]
-//! rizz = { version = "0.6", features = ["cli"] }
+//! rizz = { version = "0.7", features = ["cli"] }
 //! ```
 //!
 //! ---

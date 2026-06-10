@@ -15,7 +15,7 @@
 use crate::{
     Env, RuntimeError,
     consts::{
-        KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_DOC, KW_EVAL, KW_IF, KW_OPEN,
+        KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_FN, KW_IF, KW_LET, KW_LET_REF, KW_OPEN,
         KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
     },
     runtime::{Closure, NativeFn, Value},
@@ -52,7 +52,7 @@ fn is() -> NativeFn {
     NativeFn::pure(name.clone(), 2, move |args| {
         let expected = args[1]
             .as_str_or_ident()
-            .ok_or_else(|| RuntimeError::type_mismatch("is", "ident", &args[0]))?;
+            .ok_or_else(|| RuntimeError::type_mismatch("is", "ident", &args[1]))?;
         let actual = Value::type_name(&args[0]);
         if expected.as_ref().trim() == actual {
             return Ok(args[0].clone());
@@ -161,7 +161,7 @@ fn doc_of(v: &Value) -> Option<Rc<str>> {
 
 fn special_form_doc(name: &str) -> Option<&'static str> {
     Some(match name {
-        KW_DEFVAR => {
+        KW_LET => {
             "\
 (let NAME VALUE)
 (let NAME (doc STR+) VALUE)
@@ -172,7 +172,7 @@ to callables (closure, macro, native fn) and silently dropped on non-callables. 
 Errors: arity \u{2260} 2 (or 3 with a doc slot); NAME not an ident."
         }
 
-        KW_DEFVAR_REF => {
+        KW_LET_REF => {
             "\
 (let! NAME VALUE)
 (let! NAME (doc STR+) VALUE)
@@ -183,7 +183,7 @@ underlying value (with the doc attached when callable). Equivalent to \
 the ref is built, so (show (deref NAME)) surfaces it."
         }
 
-        KW_DEFUN => {
+        KW_FN => {
             "\
 (fn NAME (PARAMS...) BODY)
 (fn NAME (PARAMS... . REST) BODY)   ;; variadic via dotted tail

@@ -2,10 +2,18 @@
 //!
 //! Every operator here is binary and works on two ints or two floats (never
 //! a mix — there is no implicit numeric coercion). They share the generic
-//! `binop` machinery, which dispatches on the argument type and turns
-//! Rust-level faults (overflow, divide-by-zero, NaN) into
-//! [`RuntimeError::ArithmeticError`]. Comparisons return `1` for true and
-//! `0` for false.
+//! `binop` machinery, which dispatches on the argument type. Comparisons
+//! return `1` for true and `0` for false.
+//!
+//! # Fault policy
+//!
+//! - **Int ops are checked**: overflow and division by zero raise
+//!   [`RuntimeError::ArithmeticError`].
+//! - **Float ops follow IEEE-754**: division by zero yields ±`inf`, and
+//!   `0.0 / 0.0` yields NaN, silently. NaN *propagates* through arithmetic
+//!   but is rejected wherever an ordering is required — `cmp`, `min`,
+//!   `max`, and `clamp` raise an [`ArithmeticError`] when they encounter
+//!   one ([`RuntimeError::ArithmeticError`]).
 //!
 //! Refs are transparently dereferenced for numeric ops, so e.g.
 //! `(+ (ref 5) 1)` evaluates to `6` without an explicit `deref`. See
@@ -15,7 +23,7 @@
 use crate::runtime::Numeric;
 use std::rc::Rc;
 
-use crate::runtime::{Env, NativeFn, RuntimeError, Value};
+use crate::runtime::{Arity, Env, NativeFn, RuntimeError, Value};
 
 /// The arithmetic/comparison builtins: `+ - * /`, `cmp`, and `> >= < <=`.
 pub fn env() -> Env {
@@ -61,9 +69,10 @@ pub fn env() -> Env {
     env
 }
 
-/// `ctx` extended with this module's builtins.
+/// `ctx` extended with this module's builtins. On key collision `ctx`
+/// wins, matching [`crate::prelude::install`].
 pub fn install(ctx: Env) -> Env {
-    env().union(ctx)
+    ctx.union(env())
 }
 
 fn add() -> NativeFn {
@@ -172,224 +181,104 @@ fn lte() -> NativeFn {
     )
 }
 
-fn min() -> NativeFn {
-    let name: Rc<str> = "min".into();
-    NativeFn::pure(name.clone(), 0, move |args| {
+/// Shared implementation for `min` / `max`: a simple scan that requires a
+/// homogeneous numeric type and rejects NaN (consistent with `cmp`).
+fn extremum(name: &'static str, pick_max: bool) -> NativeFn {
+    NativeFn::pure(name.into(), 0, move |args| {
         if args.is_empty() {
             return Err(RuntimeError::ArityMismatch {
-                name: name.clone(),
-                expected: 1,
+                name: name.into(),
+                expected: Arity::AtLeast(1),
                 got: 0,
             });
         }
 
-        // `collection` controls whether error strings are wrapped in brackets.
-        let min_of = |xs: &[Rc<Value>], collection: bool| -> Result<Rc<Value>, RuntimeError> {
-            let fmt = |s: &str| -> Rc<str> {
-                if collection {
-                    format!("[{s}]").into()
-                } else {
-                    s.into()
+        // Either one collection argument or variadic scalars.
+        let items: Vec<Rc<Value>> = match args[0].as_ref() {
+            Value::Array(_) | Value::Cons { .. } => {
+                if args.len() != 1 {
+                    return Err(RuntimeError::ArityMismatch {
+                        name: name.into(),
+                        expected: Arity::Exactly(1),
+                        got: args.len(),
+                    });
                 }
-            };
-
-            if xs.is_empty() {
-                return Err(RuntimeError::TypeMismatch {
-                    name: name.clone(),
-                    expected: "non-empty array".into(),
-                    got: "[]".into(),
-                });
+                match args[0].as_ref() {
+                    Value::Array(xs) => xs.iter().cloned().collect(),
+                    _ => Value::iter(&args[0]).collect(),
+                }
             }
-
-            match xs[0].as_ref() {
-                Value::Float(_) => {
-                    let (minimum, length) = xs
-                        .iter()
-                        .map_while(|x| x.as_float())
-                        .fold((f64::MAX, 0), |(min, len), x| (min.min(x), len + 1));
-                    if length != xs.len() {
-                        return Err(RuntimeError::TypeMismatch {
-                            name: name.clone(),
-                            expected: fmt("float*"),
-                            got: fmt("float* other"),
-                        });
-                    }
-                    Ok(Rc::new(Value::Float(minimum.into())))
-                }
-                Value::Int(_) => {
-                    let (minimum, length) = xs
-                        .iter()
-                        .map_while(|x| x.as_int())
-                        .fold((i64::MAX, 0), |(min, len), x| (min.min(x), len + 1));
-                    if length != xs.len() {
-                        return Err(RuntimeError::TypeMismatch {
-                            name: name.clone(),
-                            expected: fmt("int*"),
-                            got: fmt("int* other"),
-                        });
-                    }
-                    Ok(Rc::new(Value::Int(minimum)))
-                }
-                other => Err(RuntimeError::TypeMismatch {
-                    name: name.clone(),
-                    expected: fmt("number*"),
-                    got: if collection {
-                        format!("[{other}]")
-                    } else {
-                        other.to_string()
-                    }
-                    .into(),
-                }),
-            }
+            _ => args.to_vec(),
         };
 
-        match args[0].as_ref() {
-            Value::Array(xs) => {
-                if args.len() != 1 {
-                    return Err(RuntimeError::ArityMismatch {
-                        name: name.clone(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-                let xs: Vec<_> = xs.iter().cloned().collect();
-                min_of(xs.as_slice(), true)
-            }
-            Value::Cons { .. } => {
-                if args.len() != 1 {
-                    return Err(RuntimeError::ArityMismatch {
-                        name: name.clone(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
+        let type_err = || RuntimeError::TypeMismatch {
+            name: name.into(),
+            expected: "number* | [number*] | '(number*) (homogeneous)".into(),
+            got: items
+                .iter()
+                .map(|v| Value::type_name(v))
+                .collect::<Vec<_>>()
+                .join("*")
+                .into(),
+        };
 
-                let xs = Value::iter(&args[0]).collect::<Vec<_>>();
-                min_of(&xs, true)
-            }
-            Value::Float(_) | Value::Int(_) => min_of(args, false),
-            other => Err(RuntimeError::TypeMismatch {
-                name: name.clone(),
-                expected: "number * | [number *] | '(number *)".into(),
-                got: format!("{other}").into(),
+        match items.first().map(|v| v.as_ref()) {
+            None => Err(RuntimeError::TypeMismatch {
+                name: name.into(),
+                expected: "non-empty collection".into(),
+                got: "empty collection".into(),
             }),
+            Some(Value::Int(_)) => {
+                let mut best: Option<i64> = None;
+                for item in &items {
+                    let n = item.as_int().ok_or_else(type_err)?;
+                    best = Some(match best {
+                        None => n,
+                        Some(b) if pick_max => b.max(n),
+                        Some(b) => b.min(n),
+                    });
+                }
+                Ok(Rc::new(Value::Int(best.expect("items is non-empty"))))
+            }
+            Some(Value::Float(_)) => {
+                let mut best: Option<f64> = None;
+                for item in &items {
+                    let n = item.as_float().ok_or_else(type_err)?;
+                    if n.is_nan() {
+                        return Err(RuntimeError::ArithmeticError {
+                            name: name.into(),
+                            reason: "comparison with NaN".into(),
+                        });
+                    }
+                    best = Some(match best {
+                        None => n,
+                        Some(b) if pick_max => b.max(n),
+                        Some(b) => b.min(n),
+                    });
+                }
+                Ok(Rc::new(Value::Float(
+                    best.expect("items is non-empty").into(),
+                )))
+            }
+            Some(_) => Err(type_err()),
         }
     })
-    .with_doc(
+}
+
+fn min() -> NativeFn {
+    extremum("min", false).with_doc(
         "(min x y …) | (min [xs…]) | (min '(xs…)): smallest of the given numbers, \
          or smallest of a single array/list of numbers. All elements must share a \
-         numeric type (all ints or all floats)."
+         numeric type (all ints or all floats). Errors if a NaN is involved."
             .into(),
     )
 }
 
 fn max() -> NativeFn {
-    let name: Rc<str> = "max".into();
-    NativeFn::pure(name.clone(), 0, move |args| {
-        if args.is_empty() {
-            return Err(RuntimeError::ArityMismatch {
-                name: name.clone(),
-                expected: 1,
-                got: 0,
-            });
-        }
-
-        // `collection` controls whether error strings are wrapped in brackets.
-        let max_of = |xs: &[Rc<Value>], collection: bool| -> Result<Rc<Value>, RuntimeError> {
-            let fmt = |s: &str| -> Rc<str> {
-                if collection {
-                    format!("[{s}]").into()
-                } else {
-                    s.into()
-                }
-            };
-
-            if xs.is_empty() {
-                return Err(RuntimeError::TypeMismatch {
-                    name: name.clone(),
-                    expected: "non-empty array".into(),
-                    got: "[]".into(),
-                });
-            }
-
-            match xs[0].as_ref() {
-                Value::Float(_) => {
-                    let (maximum, length) = xs
-                        .iter()
-                        .map_while(|x| x.as_float())
-                        .fold((f64::MIN, 0), |(max, len), x| (max.max(x), len + 1));
-                    if length != xs.len() {
-                        return Err(RuntimeError::TypeMismatch {
-                            name: name.clone(),
-                            expected: fmt("float*"),
-                            got: fmt("float* other"),
-                        });
-                    }
-                    Ok(Rc::new(Value::Float(maximum.into())))
-                }
-                Value::Int(_) => {
-                    let (maximum, length) = xs
-                        .iter()
-                        .map_while(|x| x.as_int())
-                        .fold((i64::MIN, 0), |(max, len), x| (max.max(x), len + 1));
-                    if length != xs.len() {
-                        return Err(RuntimeError::TypeMismatch {
-                            name: name.clone(),
-                            expected: fmt("int*"),
-                            got: fmt("int* other"),
-                        });
-                    }
-                    Ok(Rc::new(Value::Int(maximum)))
-                }
-                other => Err(RuntimeError::TypeMismatch {
-                    name: name.clone(),
-                    expected: fmt("number*"),
-                    got: if collection {
-                        format!("[{other}]")
-                    } else {
-                        other.to_string()
-                    }
-                    .into(),
-                }),
-            }
-        };
-
-        match args[0].as_ref() {
-            Value::Array(xs) => {
-                if args.len() != 1 {
-                    return Err(RuntimeError::ArityMismatch {
-                        name: name.clone(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-                let xs: Vec<_> = xs.iter().cloned().collect();
-                max_of(xs.as_slice(), true)
-            }
-            Value::Cons { .. } => {
-                if args.len() != 1 {
-                    return Err(RuntimeError::ArityMismatch {
-                        name: name.clone(),
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-
-                let xs = Value::iter(&args[0]).collect::<Vec<_>>();
-                max_of(&xs, true)
-            }
-            Value::Float(_) | Value::Int(_) => max_of(args, false),
-            other => Err(RuntimeError::TypeMismatch {
-                name: name.clone(),
-                expected: "number * | [number *] | '(number *)".into(),
-                got: format!("{other}").into(),
-            }),
-        }
-    })
-    .with_doc(
+    extremum("max", true).with_doc(
         "(max x y …) | (max [xs…]) | (max '(xs…)): largest of the given numbers, \
          or largest of a single array/list of numbers. All elements must share a \
-         numeric type (all ints or all floats)."
+         numeric type (all ints or all floats). Errors if a NaN is involved."
             .into(),
     )
 }

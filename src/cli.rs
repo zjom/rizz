@@ -1,5 +1,5 @@
-use crate::{ParseError, Parser, Runtime};
-use anyhow::{anyhow, bail};
+use crate::{Parser, Runtime};
+use anyhow::bail;
 use clap::Parser as _;
 use std::io::IsTerminal;
 use std::{fs, io, path::PathBuf};
@@ -9,7 +9,8 @@ use crate::repl::{Repl, ReplConfig};
 #[derive(Debug, clap::Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// Path to file. Defaults to stdin
+    /// Path to file. When omitted, reads piped stdin (or starts the REPL
+    /// with --interactive).
     #[arg(short = 'f', long = "file", global = true)]
     file: Option<PathBuf>,
 
@@ -44,22 +45,31 @@ impl Default for Commands {
     }
 }
 
+/// Where source bytes come from: an explicit `--file`, or piped stdin.
+enum Input {
+    File(PathBuf),
+    Stdin,
+}
+
 pub fn run() -> anyhow::Result<()> {
     let opts = Cli::parse();
-    let Some(path) = opts.file else {
-        if io::stdin().is_terminal() && opts.interactive {
+    let input = match opts.file {
+        Some(path) => Input::File(path),
+        None if opts.interactive && io::stdin().is_terminal() => {
             return Repl::new()?.run();
-        } else {
-            bail!(
-                "no file specified and no content piped to stdin and interactive mode not enabled."
-            );
+        }
+        None if !io::stdin().is_terminal() => Input::Stdin,
+        None => {
+            bail!("no file specified and no content piped to stdin; pass -f FILE or -i for a REPL")
         }
     };
 
     match opts.command.unwrap_or_default() {
         Commands::Parse { pretty } => {
-            let f = fs::File::open(&path).map_err(|e| ParseError::from_io_error(e, None))?;
-            let sexp = Parser::new(f).parse()?;
+            let sexp = match &input {
+                Input::File(path) => Parser::new(fs::File::open(path)?).parse()?,
+                Input::Stdin => Parser::new(io::stdin().lock()).parse()?,
+            };
             if pretty {
                 println!("{sexp:#?}")
             } else {
@@ -68,7 +78,13 @@ pub fn run() -> anyhow::Result<()> {
         }
         Commands::Eval { repl: repl_cfg } => {
             let mut rt = Runtime::new();
-            let out = rt.eval_file(&path).map_err(|e| anyhow!(e.to_string()))?;
+            // RizzError holds `Rc`s and so isn't Send + Sync, which anyhow
+            // requires; render it here — the CLI only displays it anyway.
+            let result = match &input {
+                Input::File(path) => rt.eval_file(path),
+                Input::Stdin => rt.eval(io::stdin().lock()),
+            };
+            let out = result.map_err(|e| anyhow::anyhow!("{e}"))?;
             if opts.interactive {
                 Repl::with_config(repl_cfg, rt)?.run()?;
             } else {

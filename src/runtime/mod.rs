@@ -10,7 +10,9 @@
 //!   flavors (`Pure`, `WithEnv`, `Impure`, `Macro`). See the
 //!   [`native`](self) module docs for guidance on which to use.
 //! - [`eval`] — the heart of the interpreter. Dispatches special forms and
-//!   function applications, returning `(value, env')`.
+//!   function applications, returning `(value, env')`. Recursion depth is
+//!   capped per thread (see [`set_recursion_limit`]) so runaway scripts
+//!   error instead of overflowing the host stack.
 //! - [`apply`] — invokes a callable on already-evaluated args; used by
 //!   higher-order builtins.
 //! - [`Runtime`] — a stateful handle that owns an env across calls; what

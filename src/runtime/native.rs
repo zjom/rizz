@@ -389,7 +389,7 @@ fn validate_args(name: &Rc<str>, args: &[Rc<Value>], nargs: usize) -> Result<(),
     if args.len() < nargs {
         return Err(RuntimeError::ArityMismatch {
             name: name.clone(),
-            expected: nargs,
+            expected: crate::runtime::Arity::AtLeast(nargs),
             got: args.len(),
         });
     }

@@ -1,7 +1,7 @@
 //! End-to-end tests: source text -> parse -> eval -> value, through the public
 //! `parse_and_run` API. Emphasis on nested forms.
 
-use rizz::runtime::Value;
+use rizz::runtime::{Arity, Value};
 use std::{ops::Deref, rc::Rc};
 
 fn run(src: &str) -> Rc<Value> {
@@ -94,19 +94,13 @@ fn anonymous_fn_does_not_bind_in_env() {
     // The anonymous closure must not leak any binding; referencing `x` after
     // would error with UnknownIdent. Sequence its definition then a use of its
     // value to check no name was introduced for the closure itself.
-    assert_eq!(
-        *run("(let f (fn (x) (+ x 1))) (f 4)"),
-        Value::Int(5)
-    );
+    assert_eq!(*run("(let f (fn (x) (+ x 1))) (f 4)"), Value::Int(5));
 }
 
 #[test]
 fn anonymous_fn_with_variadic_rest() {
     // Bare-ident params: `xs` is the params name (fully variadic), not a fn name.
-    assert_eq!(
-        *run("((fn xs xs) 1 2 3)"),
-        int_list(&[1, 2, 3])
-    );
+    assert_eq!(*run("((fn xs xs) 1 2 3)"), int_list(&[1, 2, 3]));
 }
 
 #[test]
@@ -179,7 +173,7 @@ fn variadic_too_few_args_errors() {
     assert!(matches!(
         err,
         rizz::RizzError::RuntimeError(rizz::RuntimeError::ArityMismatch {
-            expected: 1,
+            expected: Arity::AtLeast(1),
             got: 0,
             ..
         })
@@ -1213,4 +1207,101 @@ fn pipe_is_reverse_of_compose() {
         }
         other => panic!("expected array, got {other:?}"),
     }
+}
+
+// ----- the eval special form -----
+
+#[test]
+fn eval_of_quoted_form_evaluates_it() {
+    assert_eq!(*run("(eval '(+ 1 2))"), Value::Int(3));
+    assert_eq!(*run("(eval (quote (* 6 7)))"), Value::Int(42));
+}
+
+#[test]
+fn eval_of_runtime_built_form_evaluates_it() {
+    // Build a form with cons at runtime, then eval it.
+    assert_eq!(*run("(eval (cons '+ (cons 1 (cons 2 ()))))"), Value::Int(3));
+}
+
+#[test]
+fn eval_of_self_evaluating_value_is_identity() {
+    assert_eq!(*run("(eval 5)"), Value::Int(5));
+    assert_eq!(*run("(eval \"hi\")"), Value::Str("hi".into()));
+}
+
+#[test]
+fn eval_threads_bindings_to_later_forms() {
+    // The evaluated form's bindings extend the caller's scope, like `do`.
+    assert_eq!(*run("(eval '(let x 9)) x"), Value::Int(9));
+}
+
+#[test]
+fn eval_with_wrong_arity_errors() {
+    let err = rizz::parse_and_run("(eval '(+ 1 2) 5)".as_bytes()).expect_err("arity error");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::ArityMismatch {
+            expected: Arity::Exactly(1),
+            got: 2,
+            ..
+        })
+    ));
+}
+
+// ----- recursion limit -----
+
+#[test]
+fn runaway_recursion_errors_instead_of_crashing() {
+    // Unbounded self-recursion must surface as RecursionLimit, not abort
+    // the process with a stack overflow.
+    let err = rizz::parse_and_run("(fn f (n) (f (+ n 1))) (f 0)".as_bytes())
+        .expect_err("expected recursion limit error");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::RecursionLimit { .. })
+    ));
+}
+
+#[test]
+fn bounded_recursion_within_limit_succeeds() {
+    assert_eq!(
+        *run("(fn f (n acc) (if (= n 0) acc (f (- n 1) (+ acc n)))) (f 100 0)"),
+        Value::Int(5050)
+    );
+}
+
+// ----- min/max NaN policy -----
+
+#[test]
+fn min_max_reject_nan() {
+    assert!(rizz::parse_and_run("(min (/ 0.0 0.0) 1.0)".as_bytes()).is_err());
+    assert!(rizz::parse_and_run("(max [1.0 (/ 0.0 0.0)])".as_bytes()).is_err());
+}
+
+// ----- is: error reporting -----
+
+#[test]
+fn is_with_non_ident_type_tag_blames_the_tag() {
+    let err = rizz::parse_and_run("(is 5 7)".as_bytes()).expect_err("type error");
+    match err {
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::TypeMismatch { got, .. }) => {
+            // The offending argument is the type tag (an int), not the value
+            // being tested.
+            assert_eq!(&*got, "int");
+        }
+        other => panic!("expected TypeMismatch, got {other:?}"),
+    }
+}
+
+// ----- prelude::install override semantics -----
+
+#[test]
+fn install_lets_host_bindings_override_prelude() {
+    use rizz::runtime::{NativeFn, Value as V};
+    let plus = NativeFn::pure("+".into(), 2, |_| Ok(Rc::new(V::Int(999))));
+    let env = rizz::prelude::install(
+        rizz::Env::new().update("+".into(), Rc::new(V::NativeFn(Rc::new(plus)))),
+    );
+    let (v, _) = rizz::parse_and_run_with_env(b"(+ 1 2)".as_ref(), &env).unwrap();
+    assert_eq!(*v, V::Int(999));
 }

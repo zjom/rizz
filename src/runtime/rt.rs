@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    ParseError, Parser, RizzError,
+    Parser, RizzError,
     runtime::{Env, RuntimeError, Value, eval},
 };
 
@@ -113,10 +113,11 @@ impl Runtime {
     /// resolve against it.
     ///
     /// I/O failures from opening the file are surfaced as
-    /// [`ParseError::IOError`].
+    /// [`RuntimeError::IOError`] — the same family `(open ...)` uses for a
+    /// missing module file.
     pub fn eval_file<P: AsRef<Path>>(&mut self, path: P) -> Result<Rc<Value>, RizzError> {
         let path = path.as_ref();
-        let file = std::fs::File::open(path).map_err(|e| ParseError::from_io_error(e, None))?;
+        let file = std::fs::File::open(path).map_err(RuntimeError::IOError)?;
         let env = std::mem::take(&mut self.env);
         self.env = env.with_base_dir(path.parent().map(PathBuf::from));
         self.eval(file)

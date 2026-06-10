@@ -168,6 +168,13 @@ There is **no implicit coercion** between `int` and `float`. Arithmetic and
 comparison are binary and require both operands to be the same numeric kind
 (`int×int` or `float×float`). Mixed types raise a `TypeMismatch`.
 
+Fault policy differs by kind. **Int ops are checked**: overflow and
+division by zero raise an `ArithmeticError`. **Float ops follow IEEE-754**:
+`(/ 1.0 0.0)` is `inf` and `(/ 0.0 0.0)` is NaN, silently. NaN propagates
+through float arithmetic but is rejected wherever an ordering is required —
+`cmp`, `min`, `max`, and `clamp` raise an `ArithmeticError` when they
+encounter one.
+
 Numeric ops do transparently see through a `Ref` whose contents are a number:
 `(+ (ref 5) 1) => 6`. Refs are similarly transparent to `<`, `>=`, etc. This
 is the one place values are read through a ref without an explicit `deref`
@@ -332,6 +339,11 @@ sites with the raw forms, and its result is then evaluated in the caller's
 env. Parameter lists support the same fixed/dotted/bare-ident variants as
 `fn` (so `(defmacro foo xs ...)` collects all argument forms into `xs`).
 
+Only the expansion's _value_ escapes the call site: any bindings introduced
+while evaluating the expansion are discarded, so a macro expanding to
+`(let x 1)` does **not** bind `x` in the caller's scope. Macros that need to
+carry state across forms should expand to `ref` mutations instead.
+
 Macros are the basis of the prelude's control-flow forms (§9). They cannot be
 invoked via `apply` — they have no value-level application.
 
@@ -404,8 +416,8 @@ Errors: arity ≠ 1 for `quasi`, `unquote`, and `unquote-splice`.
 ```
 
 Evaluates `FORM` once to get a datum, then evaluates that datum as code in
-the current env. The head of the resulting form must be callable, or a
-runtime error is raised.
+the current env. Bindings introduced by the evaluated datum extend the
+caller's scope, just as with `do`.
 
 ```
 (let three '(+ 1 2))
@@ -490,15 +502,15 @@ the expected inner type. They do not work on bare collections — for
 non-mutating updates use the unsuffixed forms (`push`, `pop`, `put`, `del`,
 `cons`).
 
-| Name    | Arity | Cell type | Description                        |
-| ------- | ----- | --------- | ---------------------------------- |
-| `push!`       | 2     | array     | Appends an element.                |
-| `pop!`        | 1     | array     | Removes the last element.          |
-| `array-set!`  | 3     | array     | Replaces the element at `idx`.     |
-| `put!`  | 3     | map       | Inserts `(k → v)`.                 |
-| `del!`  | 2     | map       | Removes a key; no-op if absent.    |
-| `car!`  | 2     | cons      | Replaces the head; tail preserved. |
-| `cdr!`  | 2     | cons      | Replaces the tail; head preserved. |
+| Name         | Arity | Cell type | Description                        |
+| ------------ | ----- | --------- | ---------------------------------- |
+| `push!`      | 2     | array     | Appends an element.                |
+| `pop!`       | 1     | array     | Removes the last element.          |
+| `array-set!` | 3     | array     | Replaces the element at `idx`.     |
+| `put!`       | 3     | map       | Inserts `(k → v)`.                 |
+| `del!`       | 2     | map       | Removes a key; no-op if absent.    |
+| `car!`       | 2     | cons      | Replaces the head; tail preserved. |
+| `cdr!`       | 2     | cons      | Replaces the tail; head preserved. |
 
 ### 7.3 Where refs are auto-peeled
 
@@ -810,15 +822,15 @@ These work uniformly across strings, arrays, maps, and cons lists.
 
 | Name         | Arity | Description                                                   |
 | ------------ | ----- | ------------------------------------------------------------- |
-| `push`        | 2     | Append an element (returns a new array).                      |
-| `push!`       | 2     | In-place append on a ref-of-array (§7.2).                     |
-| `pop`         | 1     | Remove the last element; empty array stays empty.             |
-| `pop!`        | 1     | In-place remove-last on a ref-of-array (§7.2).                |
-| `array-set`   | 3     | New array with element at `idx` replaced.                     |
-| `array-set!`  | 3     | In-place set on a ref-of-array (§7.2).                        |
-| `range`       | 2     | Array of ints in `[start, end)`.                              |
-| `array-of`    | 1     | Constructs an array with a single value.                      |
-| `array-from`  | 1     | Constructs an array from `xs`. Traverses if `xs` is iterable. |
+| `push`       | 2     | Append an element (returns a new array).                      |
+| `push!`      | 2     | In-place append on a ref-of-array (§7.2).                     |
+| `pop`        | 1     | Remove the last element; empty array stays empty.             |
+| `pop!`       | 1     | In-place remove-last on a ref-of-array (§7.2).                |
+| `array-set`  | 3     | New array with element at `idx` replaced.                     |
+| `array-set!` | 3     | In-place set on a ref-of-array (§7.2).                        |
+| `range`      | 2     | Array of ints in `[start, end)`.                              |
+| `array-of`   | 1     | Constructs an array with a single value.                      |
+| `array-from` | 1     | Constructs an array from `xs`. Traverses if `xs` is iterable. |
 
 ### 10.5 Maps
 
@@ -1037,6 +1049,11 @@ consumes a proportional amount of call-frame depth, and `while`, being a
 recursive macro, is subject to the same limit. Pure-iterative loops over
 very long sequences should use `reduce`, `for`, or `loop`, which iterate
 without recursion.
+
+Recursion depth is capped (10 000 nested evaluations per thread by
+default); exceeding the cap raises a `RecursionLimit` error rather than
+crashing the host process. Embedders can tune the cap with
+`rizz::runtime::set_recursion_limit`.
 
 ### 13.2 Persistent vs mutable data
 

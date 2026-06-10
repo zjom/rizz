@@ -115,8 +115,22 @@ impl Env {
     /// (`base_dir`) must outlive the call, and the caller's existing
     /// bindings shadow the module's.
     pub fn union(self, other: Self) -> Self {
+        // Not `im::HashMap::union`: that resolves collisions by relative
+        // map *size* (it folds the smaller map into the larger), so the
+        // documented "self wins" bias silently flips when `self` is the
+        // smaller env. Fold explicitly to keep the bias deterministic.
+        let bindings = other
+            .bindings
+            .into_iter()
+            .fold(self.bindings, |acc, (k, v)| {
+                if acc.contains_key(&k) {
+                    acc
+                } else {
+                    acc.update(k, v)
+                }
+            });
         Self {
-            bindings: self.bindings.union(other.bindings),
+            bindings,
             base_dir: self.base_dir,
             base_env: self.base_env,
         }
@@ -125,12 +139,12 @@ impl Env {
     /// Drop bindings for which `p` returns `false`. Used by `(open ...)`
     /// to filter out module-private (`_`-prefixed) names before merging
     /// the loaded module into the caller's env.
-    pub fn filter<P>(self, p: P) -> Self
+    pub fn filter<P>(self, mut p: P) -> Self
     where
-        P: FnMut(&(Rc<str>, Rc<Value>)) -> bool,
+        P: FnMut(&Rc<str>, &Rc<Value>) -> bool,
     {
         Self {
-            bindings: self.bindings.into_iter().filter(p).collect(),
+            bindings: self.bindings.into_iter().filter(|(k, v)| p(k, v)).collect(),
             base_dir: self.base_dir,
             base_env: self.base_env,
         }
@@ -173,5 +187,30 @@ impl Env {
 impl Default for Env {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: `im::HashMap::union` resolves collisions by relative map
+    /// size, so a naive delegation flips the winner when `self` is smaller.
+    /// `Env::union` must keep `self`'s binding no matter which side is
+    /// bigger.
+    #[test]
+    fn union_keeps_self_bindings_regardless_of_size() {
+        let mut big = Env::new();
+        for i in 0..100 {
+            big = big.update(format!("k{i}").into(), Rc::new(Value::Int(0)));
+        }
+        let big = big.update("x".into(), Rc::new(Value::Int(1)));
+        let small = Env::new().update("x".into(), Rc::new(Value::Int(2)));
+
+        let merged = small.clone().union(big.clone());
+        assert_eq!(**merged.get(&Rc::from("x")).unwrap(), Value::Int(2));
+
+        let merged = big.union(small);
+        assert_eq!(**merged.get(&Rc::from("x")).unwrap(), Value::Int(1));
     }
 }

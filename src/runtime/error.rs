@@ -1,5 +1,27 @@
 use crate::runtime::Value;
-use std::rc::Rc;
+use std::{path::PathBuf, rc::Rc};
+
+/// How many arguments a callable expected, for [`RuntimeError::ArityMismatch`].
+///
+/// Closures with a rest parameter and native fns check a lower bound only,
+/// so a bare count would over-promise; this type keeps the error message
+/// honest about which contract was violated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arity {
+    /// Exactly `n` arguments.
+    Exactly(usize),
+    /// At least `n` arguments (variadic callables, min-arity native fns).
+    AtLeast(usize),
+}
+
+impl std::fmt::Display for Arity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Arity::Exactly(n) => write!(f, "{n}"),
+            Arity::AtLeast(n) => write!(f, "at least {n}"),
+        }
+    }
+}
 
 /// A failure raised while evaluating a form.
 ///
@@ -15,29 +37,30 @@ pub enum RuntimeError {
 
     /// A non-callable value appeared in head position of a call. The
     /// offending value is included to aid diagnosis.
-    #[error("cannot call {:?}", value)]
+    #[error("cannot call {}", value.repr())]
     NotCallable { value: Rc<Value> },
 
-    /// A call had the wrong number of arguments. For variadic and
-    /// `nargs=0` builtins, this is only raised when the call has *fewer*
-    /// than the minimum required.
-    #[error("{name} failed due to arity mismatch, expected:{expected} got: {got}")]
+    /// A call had the wrong number of arguments. `expected` distinguishes
+    /// exact-arity callables from variadic / min-arity ones (see [`Arity`]).
+    #[error("{name} failed due to arity mismatch, expected: {expected}, got: {got}")]
     ArityMismatch {
         name: Rc<str>,
-        expected: usize,
+        expected: Arity,
         got: usize,
     },
 
     /// An argument was the wrong type (e.g. `(car 5)` — `car` expects a
     /// cons). `expected` is a human-readable description, `got` is the
     /// variant name from [`Value::type_name`].
-    #[error("{name} failed due to type mismatch, expected:{expected} got: {got}")]
+    #[error("{name} failed due to type mismatch, expected: {expected}, got: {got}")]
     TypeMismatch {
         name: Rc<str>,
         expected: Rc<str>,
         got: Rc<str>,
     },
 
+    /// An index was outside the valid range of the collection: `length` is
+    /// the collection's element count, `got` the offending index.
     #[error("{name} failed due to out of bounds error, length: {length}, idx: {got}")]
     IndexOob {
         name: Rc<str>,
@@ -50,6 +73,22 @@ pub enum RuntimeError {
     /// specific message from the failing op.
     #[error("{name} failed: {reason}")]
     ArithmeticError { name: Rc<str>, reason: Rc<str> },
+
+    /// Evaluation recursed past the configured limit (see
+    /// [`set_recursion_limit`](crate::runtime::set_recursion_limit)).
+    /// Raised instead of overflowing the host stack, so embedders survive
+    /// runaway recursion in user scripts.
+    #[error("recursion limit ({limit}) exceeded")]
+    RecursionLimit { limit: usize },
+
+    /// A failure inside a module loaded via `(open ...)`. Preserves the
+    /// module's path and the full structured error (parse or runtime) so
+    /// callers can still match on the underlying variant.
+    #[error("in module {}: {source}", path.display())]
+    InModule {
+        path: PathBuf,
+        source: Box<crate::RizzError>,
+    },
 
     /// An I/O failure from a builtin or `(open ...)` — typically a missing
     /// file or read failure.

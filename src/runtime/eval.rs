@@ -8,14 +8,69 @@
 
 use crate::{
     consts::{
-        FILE_EXTENSION, KW_DEFMACRO, KW_DEFUN, KW_DEFVAR, KW_DEFVAR_REF, KW_DO, KW_DOC, KW_EVAL,
-        KW_IF, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+        FILE_EXTENSION, KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_FN, KW_IF, KW_LET, KW_LET_REF,
+        KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
     },
-    runtime::{Closure, Env, RuntimeError, Value},
+    runtime::{Arity, Closure, Env, RuntimeError, Value},
 };
-use anyhow::anyhow;
 use im::{HashMap, Vector};
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    path::PathBuf,
+    rc::Rc,
+};
+
+/// Default cap on nested [`eval`] calls. Physical stack safety is handled
+/// separately ([`eval`] grows the stack in segments as recursion deepens),
+/// so this is a *semantic* ceiling: it bounds how much memory runaway
+/// recursion can consume before surfacing as a clean
+/// [`RuntimeError::RecursionLimit`]. Tune per thread with
+/// [`set_recursion_limit`].
+pub const DEFAULT_RECURSION_LIMIT: usize = 10_000;
+
+/// Grow the stack when fewer than this many bytes remain…
+const STACK_RED_ZONE: usize = 128 * 1024;
+/// …by allocating a fresh segment of this size.
+const STACK_GROW_BY: usize = 4 * 1024 * 1024;
+
+thread_local! {
+    static EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static RECURSION_LIMIT: Cell<usize> = const { Cell::new(DEFAULT_RECURSION_LIMIT) };
+}
+
+/// Sets this thread's recursion limit for [`eval`] (default
+/// [`DEFAULT_RECURSION_LIMIT`]). The limit counts nested `eval` calls.
+/// Stack space is not the constraint — [`eval`] grows the stack in heap
+/// segments as needed — so this only bounds memory consumed by runaway
+/// recursion; raise it freely for legitimately deep workloads. Values
+/// below 1 are clamped to 1.
+pub fn set_recursion_limit(limit: usize) {
+    RECURSION_LIMIT.with(|l| l.set(limit.max(1)));
+}
+
+/// RAII increment of the per-thread eval depth; errors out instead of
+/// letting runaway recursion overflow the host stack.
+struct DepthGuard;
+
+impl DepthGuard {
+    fn enter() -> Result<Self, RuntimeError> {
+        let limit = RECURSION_LIMIT.with(Cell::get);
+        EVAL_DEPTH.with(|d| {
+            if d.get() >= limit {
+                Err(RuntimeError::RecursionLimit { limit })
+            } else {
+                d.set(d.get() + 1);
+                Ok(DepthGuard)
+            }
+        })
+    }
+}
+
+impl Drop for DepthGuard {
+    fn drop(&mut self) {
+        EVAL_DEPTH.with(|d| d.set(d.get() - 1));
+    }
+}
 
 /// Evaluates `form` in environment `ctx`, returning the value and the resulting
 /// environment.
@@ -24,7 +79,19 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 /// whose head is a special-form keyword is dispatched accordingly, and any
 /// other `Cons` is a function application — the head is evaluated to a
 /// callable, which is then applied as a native function or closure.
+///
+/// Recursion is bounded two ways: a per-thread depth limit (see
+/// [`set_recursion_limit`]) turns runaway recursion into
+/// [`RuntimeError::RecursionLimit`], and the stack is grown in heap
+/// segments (via `stacker`) so that depths within the limit can never
+/// overflow the host thread's stack — important for embedders running on
+/// default 2 MiB threads.
 pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let _depth = DepthGuard::enter()?;
+    stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_BY, || eval_inner(form, ctx))
+}
+
+fn eval_inner(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     match &*form {
         Value::Int(_)
         | Value::Unit
@@ -43,15 +110,15 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
         Value::Cons { head, tail } => {
             if let Value::Ident(ident) = &**head {
                 match ident.as_ref() {
-                    KW_DEFVAR => return eval_defvar(tail, ctx),
-                    KW_DEFVAR_REF => return eval_defvar_ref(tail, ctx),
+                    KW_LET => return eval_let(tail, ctx),
+                    KW_LET_REF => return eval_let_ref(tail, ctx),
                     KW_QUOTE => return eval_quote(tail, ctx),
                     KW_QUASIQUOTE => return eval_quasiquote(tail, ctx),
-                    KW_DEFUN => return eval_defun(tail, ctx),
+                    KW_FN => return eval_fn(tail, ctx),
                     KW_DEFMACRO => return eval_defmacro(tail, ctx),
                     KW_IF => return eval_if(tail, ctx),
                     KW_DO => return eval_do(tail, ctx),
-                    KW_EVAL => return eval(tail.clone(), ctx),
+                    KW_EVAL => return eval_eval(tail, ctx),
                     KW_OPEN => return eval_open(tail, ctx),
                     _ => {}
                 }
@@ -76,6 +143,10 @@ pub fn eval(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError
                     // Bind unevaluated arguments to the macro's params,
                     // evaluate its body to produce an expansion form, then
                     // evaluate the expansion in the caller's environment.
+                    // Only the expansion's value escapes: the env produced
+                    // by evaluating the expansion is dropped, so a macro
+                    // expanding to `(let x 1)` does not bind `x` at the
+                    // call site (see the `Value::Macro` docs).
                     let args: Vec<_> = Value::iter(tail).collect();
                     let (expansion, _) = expand_macro(&args, macro_)?;
                     let (v, _) = eval(expansion, &ctx)?;
@@ -236,14 +307,14 @@ fn bind_and_eval(
         None if params.len() != args.len() => {
             return Err(RuntimeError::ArityMismatch {
                 name: name.clone(),
-                expected: params.len(),
+                expected: Arity::Exactly(params.len()),
                 got: args.len(),
             });
         }
         Some(_) if args.len() < params.len() => {
             return Err(RuntimeError::ArityMismatch {
                 name: name.clone(),
-                expected: params.len(),
+                expected: Arity::AtLeast(params.len()),
                 got: args.len(),
             });
         }
@@ -256,21 +327,10 @@ fn bind_and_eval(
     }
     if let Some(rest_name) = rest {
         let tail = args[params.len()..].iter().cloned();
-        let rest_list = cons_list_from(tail);
+        let rest_list = Rc::new(Value::list_of(tail));
         call_env = call_env.update(rest_name.clone(), rest_list);
     }
     eval(body.clone(), &call_env)
-}
-
-/// Builds a cons list from an iterator of values, terminated by `Unit`.
-fn cons_list_from<I>(items: I) -> Rc<Value>
-where
-    I: IntoIterator<Item = Rc<Value>>,
-    I::IntoIter: DoubleEndedIterator,
-{
-    items.into_iter().rfold(Rc::new(Value::Unit), |tail, head| {
-        Rc::new(Value::Cons { head, tail })
-    })
 }
 
 /// `(fn name (params...) body)`: builds a [`Closure`] capturing `env`, binds it
@@ -290,10 +350,10 @@ where
 /// `NAME` is optional: `(fn PARAMS BODY)` and `(fn PARAMS (doc ...) BODY)` build
 /// an anonymous closure that is not bound into the surrounding env. Anonymous
 /// closures cannot self-reference by name, so they cannot recurse.
-fn eval_defun(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+fn eval_fn(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
     let (name, params_form, doc, body) = split_fn_form(&items, env)?;
-    let (params, rest) = parse_param_list(KW_DEFUN, &params_form)?;
+    let (params, rest) = parse_param_list(KW_FN, &params_form)?;
 
     let closure = Rc::new(Value::Closure(Rc::new(Closure {
         name: name.clone().unwrap_or_else(|| "".into()),
@@ -325,47 +385,54 @@ fn split_fn_form(items: &[Rc<Value>], env: &Env) -> Result<CallableTail, Runtime
     match items.len() {
         2 => Ok((None, items[0].clone(), None, items[1].clone())),
         3 if is_doc_form(&items[1]) => {
-            let doc = parse_doc_form(KW_DEFUN, &items[1], env)?;
+            let doc = parse_doc_form(KW_FN, &items[1], env)?;
             Ok((None, items[0].clone(), Some(doc), items[2].clone()))
         }
         3 => {
-            let name = expect_name(&items[0])?;
+            let name = expect_name(KW_FN, &items[0])?;
             Ok((Some(name), items[1].clone(), None, items[2].clone()))
         }
         4 if is_doc_form(&items[2]) => {
-            let name = expect_name(&items[0])?;
-            let doc = parse_doc_form(KW_DEFUN, &items[2], env)?;
+            let name = expect_name(KW_FN, &items[0])?;
+            let doc = parse_doc_form(KW_FN, &items[2], env)?;
             Ok((Some(name), items[1].clone(), Some(doc), items[3].clone()))
         }
         _ => Err(RuntimeError::ArityMismatch {
-            name: KW_DEFUN.into(),
-            expected: 3,
+            name: KW_FN.into(),
+            expected: Arity::Exactly(3),
             got: items.len(),
         }),
     }
 }
 
-fn expect_name(form: &Rc<Value>) -> Result<Rc<str>, RuntimeError> {
+/// Requires `form` to be an ident, naming the binding being defined.
+/// `owner` is the special form reporting the error (`fn`, `defmacro`, …).
+fn expect_name(owner: &'static str, form: &Rc<Value>) -> Result<Rc<str>, RuntimeError> {
     match &**form {
         Value::Ident(name) => Ok(name.clone()),
         other => Err(RuntimeError::TypeMismatch {
-            name: KW_DEFUN.into(),
+            name: owner.into(),
             expected: "ident".into(),
             got: Value::type_name(other).into(),
         }),
     }
 }
 
-/// Splits the tail of a `fn` / `defmacro` form into `(name, params, doc, body)`.
-/// Accepts either the 3-element shape `(NAME PARAMS BODY)` or the 4-element
-/// shape `(NAME PARAMS (doc ...) BODY)` — the 4-element shape is only chosen
-/// when the third item is a `doc` form; otherwise it's an arity error so that
-/// `(fn f () x extra)` still surfaces a "too many args" message.
-fn split_callable_form(
+/// Like [`CallableTail`], but the name is mandatory.
+type NamedCallableTail = (Rc<str>, Rc<Value>, Option<Rc<str>>, Rc<Value>);
+
+/// Splits the tail of a `defmacro` form into `(name, params, doc, body)` —
+/// like [`split_fn_form`], but the name is mandatory (macros cannot be
+/// anonymous). Accepts the 3-element shape `(NAME PARAMS BODY)` or the
+/// 4-element shape `(NAME PARAMS (doc ...) BODY)` — the 4-element shape is
+/// only chosen when the third item is a `doc` form; otherwise it's an arity
+/// error so that `(defmacro m () x extra)` still surfaces a "too many args"
+/// message.
+fn split_named_form(
     form: &'static str,
     items: &[Rc<Value>],
     env: &Env,
-) -> Result<CallableTail, RuntimeError> {
+) -> Result<NamedCallableTail, RuntimeError> {
     let (name_form, params_form, doc, body) = match items.len() {
         3 => (&items[0], &items[1], None, items[2].clone()),
         4 if is_doc_form(&items[2]) => {
@@ -375,19 +442,13 @@ fn split_callable_form(
         _ => {
             return Err(RuntimeError::ArityMismatch {
                 name: form.into(),
-                expected: 3,
+                expected: Arity::Exactly(3),
                 got: items.len(),
             });
         }
     };
-    let Value::Ident(name) = &**name_form else {
-        return Err(RuntimeError::TypeMismatch {
-            name: form.into(),
-            expected: "ident".into(),
-            got: Value::type_name(name_form).into(),
-        });
-    };
-    Ok((Some(name.clone()), params_form.clone(), doc, body))
+    let name = expect_name(form, name_form)?;
+    Ok((name, params_form.clone(), doc, body))
 }
 
 /// Whether `v` is a `(doc ...)` list — used to decide whether an extra slot in
@@ -425,7 +486,7 @@ fn parse_doc_form(
     if args.is_empty() {
         return Err(RuntimeError::ArityMismatch {
             name: KW_DOC.into(),
-            expected: 1,
+            expected: Arity::Exactly(1),
             got: 0,
         });
     }
@@ -466,7 +527,7 @@ fn collect_doc_strings(v: &Rc<Value>, parts: &mut Vec<String>) -> Result<(), Run
 
 /// Applies `doc` to `value` if it carries a doc slot. Closures and macros are
 /// rebuilt with the doc field set; native fns are wrapped via [`NativeFn::with_doc`].
-/// Other value kinds silently drop the doc — see [`eval_defvar`].
+/// Other value kinds silently drop the doc — see [`eval_let`].
 fn attach_doc(value: Rc<Value>, doc: Option<Rc<str>>) -> Rc<Value> {
     let Some(doc) = doc else { return value };
     match &*value {
@@ -532,12 +593,11 @@ fn parse_param_list(
 /// caller's env (see the `Value::Macro` arm of [`eval`]).
 ///
 /// An optional `(doc "...")` form may sit between the params and the body
-/// (`(defmacro NAME PARAMS (doc "...") BODY)`); see [`eval_defun`].
+/// (`(defmacro NAME PARAMS (doc "...") BODY)`); see [`eval_fn`].
 fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, params_form, doc, body) = split_callable_form(KW_DEFMACRO, &items, env)?;
+    let (name, params_form, doc, body) = split_named_form(KW_DEFMACRO, &items, env)?;
     let (params, rest) = parse_param_list(KW_DEFMACRO, &params_form)?;
-    let name = name.expect("`split_callable_form` ensures we have name");
     let mac = Rc::new(Value::Macro(Rc::new(Closure {
         name: Rc::clone(&name),
         params,
@@ -557,9 +617,9 @@ fn eval_defmacro(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Runtim
 /// (`(let NAME (doc "...") VALUE)`). If the resulting value is a callable
 /// (closure, macro, or native fn) the doc is attached to it; otherwise the
 /// doc is silently dropped — non-callable values have no doc slot.
-fn eval_defvar(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+fn eval_let(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, doc, value_form) = split_var_form(KW_DEFVAR, &items, env)?;
+    let (name, doc, value_form) = split_var_form(KW_LET, &items, env)?;
     let (val, env) = eval(value_form, env)?;
     let val = attach_doc(val, doc);
     let env = env.update(name, val.clone());
@@ -585,7 +645,7 @@ fn split_var_form(
         _ => {
             return Err(RuntimeError::ArityMismatch {
                 name: form.into(),
-                expected: 2,
+                expected: Arity::Exactly(2),
                 got: items.len(),
             });
         }
@@ -614,7 +674,7 @@ fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
     if items.len() != 1 {
         return Err(RuntimeError::ArityMismatch {
             name: KW_OPEN.into(),
-            expected: 1,
+            expected: Arity::Exactly(1),
             got: items.len(),
         });
     }
@@ -640,21 +700,43 @@ fn eval_open(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
             .with_base_env(base.clone()),
         None => Env::new().with_base_dir(child_base),
     };
+    // Wrap rather than stringify: the module's parse/runtime error stays
+    // matchable and keeps its position info, with the path for context.
     let (v, loaded) =
-        crate::parse_and_run_with_env(f, &child_env).map_err(|e| anyhow!(e.to_string()))?;
-    let env = ctx.union(loaded.filter(|(k, _)| !k.starts_with('_')));
+        crate::parse_and_run_with_env(f, &child_env).map_err(|e| RuntimeError::InModule {
+            path: path.clone(),
+            source: Box::new(e),
+        })?;
+    let env = ctx.union(loaded.filter(|k, _| !k.starts_with('_')));
     Ok((v, env))
+}
+
+/// `(eval x)`: evaluates `x` to obtain a form, then evaluates that form.
+/// The second evaluation is the point: `(eval '(+ 1 2))` first yields the
+/// list `(+ 1 2)`, then evaluates it to `3`. The env threads through both
+/// steps, so a form that introduces bindings extends the caller's scope.
+fn eval_eval(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let items: Vec<_> = Value::iter(tail).collect();
+    if items.len() != 1 {
+        return Err(RuntimeError::ArityMismatch {
+            name: KW_EVAL.into(),
+            expected: Arity::Exactly(1),
+            got: items.len(),
+        });
+    }
+    let (form, env) = eval(items[0].clone(), ctx)?;
+    eval(form, &env)
 }
 
 /// `(let! name value)`: evaluates `value`, wraps it in a ref, binds it to
 /// `name`, and returns the value with the extended environment.
 ///
 /// An optional `(doc "...")` slot is accepted in the same position as for
-/// [`let`](eval_defvar); if the underlying value is callable the doc is
+/// [`let`](eval_let); if the underlying value is callable the doc is
 /// attached to it before the ref is built (so `(show (deref name))` works).
-fn eval_defvar_ref(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+fn eval_let_ref(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
     let items: Vec<_> = Value::iter(tail).collect();
-    let (name, doc, value_form) = split_var_form(KW_DEFVAR_REF, &items, env)?;
+    let (name, doc, value_form) = split_var_form(KW_LET_REF, &items, env)?;
     let (val, env) = eval(value_form, env)?;
     let val = attach_doc(val, doc);
     let env = env.update(
@@ -688,7 +770,7 @@ fn eval_if(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError
     if items.len() != 3 {
         return Err(RuntimeError::ArityMismatch {
             name: KW_IF.into(),
-            expected: 3,
+            expected: Arity::Exactly(3),
             got: items.len(),
         });
     }
@@ -708,7 +790,7 @@ fn eval_quote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeEr
     if items.len() != 1 {
         return Err(RuntimeError::ArityMismatch {
             name: KW_QUOTE.into(),
-            expected: 1,
+            expected: Arity::Exactly(1),
             got: items.len(),
         });
     }
@@ -723,7 +805,7 @@ fn eval_quasiquote(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), Runt
     if items.len() != 1 {
         return Err(RuntimeError::ArityMismatch {
             name: KW_QUASIQUOTE.into(),
-            expected: 1,
+            expected: Arity::Exactly(1),
             got: items.len(),
         });
     }
@@ -755,12 +837,7 @@ fn quasi(datum: &Rc<Value>, env: &Env) -> Result<Rc<Value>, RuntimeError> {
                     out.push(quasi(&elem, env)?);
                 }
             }
-            Ok(out
-                .into_iter()
-                .rev()
-                .fold(Rc::new(Value::Unit), |tail, head| {
-                    Rc::new(Value::Cons { head, tail })
-                }))
+            Ok(Rc::new(Value::list_of(out)))
         }
         Value::Array(xs) => {
             let mut out = Vector::new();
@@ -805,7 +882,7 @@ fn unquote_operand(name: &'static str, tail: &Rc<Value>) -> Result<Rc<Value>, Ru
     if items.len() != 1 {
         return Err(RuntimeError::ArityMismatch {
             name: name.into(),
-            expected: 1,
+            expected: Arity::Exactly(1),
             got: items.len(),
         });
     }
@@ -964,7 +1041,7 @@ mod tests {
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
-                expected: 2,
+                expected: Arity::Exactly(2),
                 got: 1,
                 ..
             }
@@ -978,7 +1055,7 @@ mod tests {
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
-                expected: 2,
+                expected: Arity::Exactly(2),
                 got: 3,
                 ..
             }
@@ -1048,7 +1125,7 @@ mod tests {
         // The head need not be a bare ident: any expression evaluating to a
         // callable works. `(let f plus)` evaluates to the `plus` builtin.
         let env = Env::new().update("plus".into(), add_builtin());
-        let head = list(vec![ident(KW_DEFVAR), ident("f"), ident("plus")]);
+        let head = list(vec![ident(KW_LET), ident("f"), ident("plus")]);
         let form = list(vec![head, int(1), int(2)]);
         let (v, _) = eval_ok(form, &env);
         assert_eq!(*v, Value::Int(3));
@@ -1073,7 +1150,7 @@ mod tests {
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
-                expected: 2,
+                expected: Arity::AtLeast(2),
                 got: 1,
                 ..
             }
@@ -1159,7 +1236,7 @@ mod tests {
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
-                expected: 1,
+                expected: Arity::Exactly(1),
                 got: 2,
                 ..
             }
@@ -1188,7 +1265,7 @@ mod tests {
     fn defun_returns_a_closure() {
         // (fn id (x) x)
         let form = list(vec![
-            ident(KW_DEFUN),
+            ident(KW_FN),
             ident("id"),
             list(vec![ident("x")]),
             ident("x"),
@@ -1204,7 +1281,7 @@ mod tests {
     fn defun_binds_name_and_is_callable() {
         // (fn id (x) x) then (id 5) -> 5
         let def = list(vec![
-            ident(KW_DEFUN),
+            ident(KW_FN),
             ident("id"),
             list(vec![ident("x")]),
             ident("x"),
@@ -1220,7 +1297,7 @@ mod tests {
     #[test]
     fn defun_zero_params() {
         // (fn answer () 42) then (answer) -> 42
-        let def = list(vec![ident(KW_DEFUN), ident("answer"), unit(), int(42)]);
+        let def = list(vec![ident(KW_FN), ident("answer"), unit(), int(42)]);
         let (_, env) = eval_ok(def, &Env::new());
         let (v, _) = eval_ok(list(vec![ident("answer")]), &env);
         assert_eq!(*v, Value::Int(42));
@@ -1230,7 +1307,7 @@ mod tests {
     fn defun_captures_definition_env() {
         // (fn get () z) with z bound at definition -> calling it yields z.
         let env = Env::new().update("z".into(), int(10));
-        let def = list(vec![ident(KW_DEFUN), ident("get"), unit(), ident("z")]);
+        let def = list(vec![ident(KW_FN), ident("get"), unit(), ident("z")]);
         let (_, env) = eval_ok(def, &env);
         let (v, _) = eval_ok(list(vec![ident("get")]), &env);
         assert_eq!(*v, Value::Int(10));
@@ -1242,7 +1319,7 @@ mod tests {
         // to its closure inside the body, which is what enables recursion. Without
         // the self-binding this would fail with UnknownIdent("loopy").
         let def = list(vec![
-            ident(KW_DEFUN),
+            ident(KW_FN),
             ident("loopy"),
             list(vec![ident("x")]),
             ident("loopy"),
@@ -1255,7 +1332,7 @@ mod tests {
     #[test]
     fn defun_non_ident_name_errors() {
         let form = list(vec![
-            ident(KW_DEFUN),
+            ident(KW_FN),
             int(5),
             list(vec![ident("x")]),
             ident("x"),
@@ -1271,7 +1348,7 @@ mod tests {
     #[test]
     fn defun_non_ident_param_errors() {
         let form = list(vec![
-            ident(KW_DEFUN),
+            ident(KW_FN),
             ident("f"),
             list(vec![int(1)]),
             ident("x"),
@@ -1287,12 +1364,12 @@ mod tests {
     #[test]
     fn defun_arity_error() {
         // (fn) is missing params and body — below even the anonymous min.
-        let form = list(vec![ident(KW_DEFUN)]);
+        let form = list(vec![ident(KW_FN)]);
         let err = eval_err(form, &Env::new());
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
-                expected: 3,
+                expected: Arity::Exactly(3),
                 got: 0,
                 ..
             }
@@ -1302,7 +1379,7 @@ mod tests {
     #[test]
     fn defun_anonymous_returns_closure_without_binding() {
         // (fn (x) x): no NAME slot — produces a closure but does not extend env.
-        let form = list(vec![ident(KW_DEFUN), list(vec![ident("x")]), ident("x")]);
+        let form = list(vec![ident(KW_FN), list(vec![ident("x")]), ident("x")]);
         let (v, env) = eval_ok(form, &Env::new());
         assert!(matches!(
             &*v,
@@ -1314,7 +1391,7 @@ mod tests {
     #[test]
     fn defun_anonymous_callable_inline() {
         // ((fn (x) x) 7) -> 7
-        let lambda = list(vec![ident(KW_DEFUN), list(vec![ident("x")]), ident("x")]);
+        let lambda = list(vec![ident(KW_FN), list(vec![ident("x")]), ident("x")]);
         let form = list(vec![lambda, int(7)]);
         let (v, _) = eval_ok(form, &Env::new());
         assert_eq!(*v, Value::Int(7));
@@ -1324,7 +1401,7 @@ mod tests {
     fn defun_anonymous_with_doc() {
         // (fn (x) (doc "id") x) -> doc attaches to the closure.
         let form = list(vec![
-            ident(KW_DEFUN),
+            ident(KW_FN),
             list(vec![ident("x")]),
             list(vec![ident(KW_DOC), string("id")]),
             ident("x"),
@@ -1344,7 +1421,7 @@ mod tests {
         // (fn xs xs) — bare ident params: fully variadic. Calling with (1 2 3)
         // bundles args into a list. Anonymous, so xs is the params name, not
         // the function name.
-        let lambda = list(vec![ident(KW_DEFUN), ident("xs"), ident("xs")]);
+        let lambda = list(vec![ident(KW_FN), ident("xs"), ident("xs")]);
         let form = list(vec![lambda, int(1), int(2), int(3)]);
         let (v, _) = eval_ok(form, &Env::new());
         assert_eq!(v, list(vec![int(1), int(2), int(3)]));
@@ -1401,7 +1478,7 @@ mod tests {
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
-                expected: 3,
+                expected: Arity::Exactly(3),
                 got: 2,
                 ..
             }
@@ -1431,7 +1508,7 @@ mod tests {
         // (do (let x 5) x) -> 5; later form sees the binding from the earlier.
         let form = list(vec![
             ident(KW_DO),
-            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            list(vec![ident(KW_LET), ident("x"), int(5)]),
             ident("x"),
         ]);
         let (v, _) = eval_ok(form, &Env::new());
@@ -1442,7 +1519,7 @@ mod tests {
     fn do_leaks_scope() {
         let form = list(vec![
             ident(KW_DO),
-            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            list(vec![ident(KW_LET), ident("x"), int(5)]),
         ]);
         let (_, env) = eval_ok(form, &Env::new());
         assert!(env.get(&Rc::from("x")).is_some_and(|x| *x == int(5)));
@@ -1454,7 +1531,7 @@ mod tests {
         let env = Env::new().update("plus".into(), add_builtin());
         let form = list(vec![
             ident("plus"),
-            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            list(vec![ident(KW_LET), ident("x"), int(5)]),
             int(1),
         ]);
         let (v, env) = eval_ok(form, &env);
@@ -1468,7 +1545,7 @@ mod tests {
         let form = list(vec![
             ident(KW_IF),
             int(1),
-            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
+            list(vec![ident(KW_LET), ident("x"), int(5)]),
             int(0),
         ]);
         let (v, env) = eval_ok(form, &Env::new());
@@ -1479,10 +1556,7 @@ mod tests {
     #[test]
     fn array_element_bindings_do_not_leak() {
         // [(let x 5) 1] evaluates to [5 1] but `x` does not leak outward.
-        let form = array(vec![
-            list(vec![ident(KW_DEFVAR), ident("x"), int(5)]),
-            int(1),
-        ]);
+        let form = array(vec![list(vec![ident(KW_LET), ident("x"), int(5)]), int(1)]);
         let (v, env) = eval_ok(form, &Env::new());
         match &*v {
             Value::Array(xs) => {
@@ -1594,7 +1668,7 @@ mod tests {
         assert!(matches!(
             err,
             RuntimeError::ArityMismatch {
-                expected: 1,
+                expected: Arity::Exactly(1),
                 got: 2,
                 ..
             }

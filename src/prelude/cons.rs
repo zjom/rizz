@@ -110,17 +110,13 @@ fn cdr_bang() -> NativeFn {
 }
 
 /// Builds a cons list from an iterator of values, terminated by `Unit`.
+/// Thin alias for [`Value::list_of`], the canonical constructor.
 pub fn cons_list<I>(items: I) -> Value
 where
     I: IntoIterator<Item = Rc<Value>>,
     I::IntoIter: DoubleEndedIterator,
 {
-    items
-        .into_iter()
-        .rfold(Value::Unit, |tail, head| Value::Cons {
-            head,
-            tail: Rc::new(tail),
-        })
+    Value::list_of(items)
 }
 
 /// Whether `v` is list-shaped: a `Cons` cell or the empty list `()`.

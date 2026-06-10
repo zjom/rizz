@@ -73,6 +73,11 @@ pub enum Value {
     /// A user-defined macro. Structurally a [`Closure`], but at a call
     /// site its arguments are passed **unevaluated**; the body produces a
     /// form that is then evaluated in the caller's environment.
+    ///
+    /// Note: only the expansion's *value* propagates — any env extension
+    /// from evaluating the expansion is discarded, so a macro expanding to
+    /// `(let x 1)` does **not** bind `x` at the call site. Macros that need
+    /// to introduce state should expand to `ref` mutations instead.
     Macro(Rc<Closure>),
     /// A persistent vector. Cheap to clone and update.
     Array(Vector<Rc<Value>>),
@@ -81,6 +86,28 @@ pub enum Value {
     /// A mutable cell — the only path to in-place mutation in rizz.
     /// Multiple bindings of the same ref share its cell.
     Ref(Rc<RefCell<Value>>),
+}
+
+impl Drop for Value {
+    /// Unlinks the cons spine iteratively so that dropping a long list does
+    /// not recurse once per element (the derived drop would overflow the
+    /// stack on lists tens of thousands of elements long). Nested heads and
+    /// other variants drop normally.
+    fn drop(&mut self) {
+        let Value::Cons { tail, .. } = self else {
+            return;
+        };
+        let mut cur = std::mem::replace(tail, Rc::new(Value::Unit));
+        // Each owned node has its tail snipped before it drops, so its own
+        // `drop` terminates immediately. A shared tail (`Err`) is left for
+        // its remaining owners.
+        while let Ok(mut node) = Rc::try_unwrap(cur) {
+            match &mut node {
+                Value::Cons { tail, .. } => cur = std::mem::replace(tail, Rc::new(Value::Unit)),
+                _ => break,
+            }
+        }
+    }
 }
 
 /// A user-defined function. Backs both [`Value::Closure`] and
@@ -143,24 +170,20 @@ impl Value {
         }
     }
 
-    /// Like [`type_name`](Self::type_name), but reserved for future
-    /// recursion into collection element types. Currently identical to
-    /// [`type_name`](Self::type_name).
-    pub fn type_name_full(v: &Value) -> &'static str {
-        match v {
-            Self::Str(_) => "str",
-            Self::Int(_) => "int",
-            Self::Float(_) => "float",
-            Self::Ident(_) => "ident",
-            Self::Unit => "()",
-            Self::Cons { .. } => "cons",
-            Self::NativeFn(_) => "native",
-            Self::Closure(_) => "closure",
-            Self::Macro(_) => "macro",
-            Self::Array(_) => "array",
-            Self::Map(_) => "map",
-            Self::Ref(_) => "ref",
-        }
+    /// Builds a cons list from already-wrapped values, terminated by `Unit`.
+    /// This is the canonical list constructor — the evaluator, `quasi`, and
+    /// the prelude all build lists through it.
+    pub fn list_of<I>(items: I) -> Value
+    where
+        I: IntoIterator<Item = Rc<Value>>,
+        I::IntoIter: DoubleEndedIterator,
+    {
+        items
+            .into_iter()
+            .rfold(Value::Unit, |tail, head| Value::Cons {
+                head,
+                tail: Rc::new(tail),
+            })
     }
 
     /// Build a cons list out of `xs`, terminated by `Unit`. Each element
@@ -177,10 +200,7 @@ impl Value {
     where
         T: Into<Value> + Clone,
     {
-        xs.into_iter().rfold(Value::Unit, |tail, item| Value::Cons {
-            head: Rc::new(item.into()),
-            tail: Rc::new(tail),
-        })
+        Self::list_of(xs.into_iter().map(|item| Rc::new(item.into())))
     }
 
     /// Whether the value counts as true in a condition. Everything is
@@ -588,31 +608,43 @@ impl IntoIterator for Value {
 // From conversions
 // ---------------------------------------------------------------------------
 
-impl From<Sexp> for Value {
-    fn from(sexp: Sexp) -> Self {
+impl From<&Sexp> for Value {
+    fn from(sexp: &Sexp) -> Self {
         match sexp {
             Sexp::Unit => Value::Unit,
-            Sexp::Atom(ref atm) => atm.into(),
-            Sexp::Exp { ref head, ref tail } => Value::Cons {
-                head: Rc::new(Value::from(head.clone())),
-                tail: Rc::new(Value::from(tail.clone())),
-            },
-            Sexp::Collection(ref c) => c.into(),
+            Sexp::Atom(atm) => atm.into(),
+            Sexp::Exp { .. } => {
+                // Walk the cons spine iteratively so converting a long list
+                // recurses per *nesting level* (bounded by the parser), not
+                // per element.
+                let mut heads: Vec<Rc<Value>> = Vec::new();
+                let mut cur = sexp;
+                while let Sexp::Exp { head, tail } = cur {
+                    heads.push(Rc::new(Value::from(&**head)));
+                    cur = tail;
+                }
+                let last_tail = Value::from(cur);
+                heads
+                    .into_iter()
+                    .rfold(last_tail, |tail, head| Value::Cons {
+                        head,
+                        tail: Rc::new(tail),
+                    })
+            }
+            Sexp::Collection(c) => c.into(),
         }
+    }
+}
+
+impl From<Sexp> for Value {
+    fn from(sexp: Sexp) -> Self {
+        (&sexp).into()
     }
 }
 
 impl From<Rc<Sexp>> for Value {
     fn from(sexp: Rc<Sexp>) -> Self {
-        match *sexp {
-            Sexp::Unit => Value::Unit,
-            Sexp::Atom(ref atm) => atm.into(),
-            Sexp::Exp { ref head, ref tail } => Value::Cons {
-                head: Rc::new(Value::from(head.clone())),
-                tail: Rc::new(Value::from(tail.clone())),
-            },
-            Sexp::Collection(ref c) => c.into(),
-        }
+        (&*sexp).into()
     }
 }
 

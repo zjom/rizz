@@ -71,6 +71,29 @@ pub enum Collection {
     Map(HashMap<Rc<Sexp>, Rc<Sexp>>),
 }
 
+impl Drop for Sexp {
+    /// Unlinks the cons spine iteratively so that dropping a long list does
+    /// not recurse once per element (the derived drop would overflow the
+    /// stack on lists tens of thousands of elements long). Nested *heads*
+    /// still drop recursively, but their depth is bounded by the parser's
+    /// nesting limit.
+    fn drop(&mut self) {
+        let Sexp::Exp { tail, .. } = self else {
+            return;
+        };
+        let mut cur = std::mem::replace(tail, Rc::new(Sexp::Unit));
+        // Each owned node has its tail snipped before it drops, so its own
+        // `drop` terminates immediately. A shared tail (`Err`) is left for
+        // its remaining owners.
+        while let Ok(mut node) = Rc::try_unwrap(cur) {
+            match &mut node {
+                Sexp::Exp { tail, .. } => cur = std::mem::replace(tail, Rc::new(Sexp::Unit)),
+                _ => break,
+            }
+        }
+    }
+}
+
 /// A streaming recursive-descent parser over any [`Read`] source.
 ///
 /// Reads one buffer at a time, so the source can be a file, a network
@@ -82,11 +105,19 @@ pub struct Parser<R: Read> {
     reader: BufReader<R>,
     pos: Position,
     list_depth: usize,
+    expr_depth: usize,
     idents: HashSet<Rc<str>>,
 }
 
 const WHITESPACE: &[u8] = b"\n\r\t ";
 const IDENT_SEPARATORS: &[u8] = b"\n\r\t ;()[]{}:";
+
+/// Maximum nesting depth of forms. Each list/array/map level recurses once
+/// in `parse_expr`; this cap turns pathological inputs (e.g. a million `(`s)
+/// into a [`ParseError::TooDeep`] instead of a stack overflow. Sized for
+/// the smallest common stack (2 MiB thread default) in debug builds, where
+/// each nesting level costs a few KiB of stack.
+const MAX_NESTING_DEPTH: usize = 256;
 
 impl<R> Parser<R>
 where
@@ -100,6 +131,7 @@ where
             pos: Position::new(),
             idents: HashSet::new(),
             list_depth: 0,
+            expr_depth: 0,
         }
     }
 
@@ -108,9 +140,9 @@ where
     /// Each form is an atom, list, collection (`[...]` / `{...}`), or
     /// reader-macro form (`'X`, `` `X ``, `,X`, `,@X`). Whitespace and `;;`
     /// line comments between forms are skipped. Empty (or comment-only)
-    /// input is a [`ParseError::IOError`]; otherwise the returned `Vec` is
-    /// non-empty and in source order, ready for the runtime to evaluate as
-    /// an implicitly sequenced program.
+    /// input is a [`ParseError::UnexpectedEof`]; otherwise the returned
+    /// `Vec` is non-empty and in source order, ready for the runtime to
+    /// evaluate as an implicitly sequenced program.
     ///
     /// # Examples
     ///
@@ -124,10 +156,7 @@ where
         let mut forms = Vec::new();
         self.skip_trivia()?;
         if self.peek_eof()?.is_none() {
-            return Err(ParseError::IOError {
-                source: std::io::ErrorKind::UnexpectedEof.into(),
-                at: self.at(),
-            });
+            return Err(ParseError::UnexpectedEof { at: self.at() });
         }
         loop {
             forms.push(self.parse_expr()?);
@@ -163,49 +192,46 @@ where
     /// a dotted (improper) list whose final tail is the form after the dot, so
     /// `(a b . c)` parses to `Cons(a, Cons(b, c))` rather than terminating in
     /// `Unit`.
+    ///
+    /// Elements are collected iteratively (not by recursing per element), so
+    /// list *length* never grows the stack — only nesting depth does, and
+    /// that is bounded by [`MAX_NESTING_DEPTH`].
     fn parse_list_tail(&mut self) -> Result<Sexp, ParseError> {
-        self.skip_trivia()?;
-        if self.peek_one()? == b')' {
-            self.read_byte()?;
-            return Ok(Sexp::Unit);
-        }
-
-        let head = self.parse_expr()?;
-        self.skip_trivia()?;
-
-        if self.peek_dotted_marker()? {
-            self.read_byte()?;
+        let mut elems: Vec<Sexp> = Vec::new();
+        let mut last_tail = Sexp::Unit;
+        loop {
             self.skip_trivia()?;
-            let tail = self.parse_expr()?;
+            if self.peek_one()? == b')' {
+                self.read_byte()?;
+                break;
+            }
+
+            elems.push(self.parse_expr()?);
             self.skip_trivia()?;
-            let at = self.at();
-            match self.read_byte()? {
-                b')' => {}
-                other => {
-                    return Err(ParseError::ExpectedToken {
-                        expected: ')',
-                        at,
-                        got: other.into(),
-                    });
+
+            if self.peek_dotted_marker()? {
+                self.read_byte()?;
+                self.skip_trivia()?;
+                last_tail = self.parse_expr()?;
+                self.skip_trivia()?;
+                let at = self.at();
+                match self.read_byte()? {
+                    b')' => break,
+                    other => {
+                        return Err(ParseError::ExpectedToken {
+                            expected: ')',
+                            at,
+                            got: other.into(),
+                        });
+                    }
                 }
             }
-            return Ok(Sexp::Exp {
-                head: Rc::new(head),
-                tail: Rc::new(tail),
-            });
         }
 
-        let tail = if self.peek_one()? == b')' {
-            self.read_byte()?;
-            Sexp::Unit
-        } else {
-            self.parse_list_tail()?
-        };
-
-        Ok(Sexp::Exp {
+        Ok(elems.into_iter().rfold(last_tail, |tail, head| Sexp::Exp {
             head: Rc::new(head),
             tail: Rc::new(tail),
-        })
+        }))
     }
 
     /// A `.` between list elements introduces a dotted tail iff it stands
@@ -218,6 +244,20 @@ where
         Ok(a == b'.' && (WHITESPACE.contains(&b) || b == b')'))
     }
     fn parse_expr(&mut self) -> Result<Sexp, ParseError> {
+        self.expr_depth += 1;
+        if self.expr_depth > MAX_NESTING_DEPTH {
+            self.expr_depth -= 1;
+            return Err(ParseError::TooDeep {
+                at: self.at(),
+                limit: MAX_NESTING_DEPTH,
+            });
+        }
+        let result = self.parse_expr_inner();
+        self.expr_depth -= 1;
+        result
+    }
+
+    fn parse_expr_inner(&mut self) -> Result<Sexp, ParseError> {
         self.skip_trivia()?;
         let sexp = match self.peek_one()? {
             b'(' => {
@@ -357,10 +397,9 @@ where
                         b'r' => buf.push(b'\r'),
                         b't' => buf.push(b'\t'),
                         other => {
-                            return Err(ParseError::ExpectedToken {
-                                expected: '"',
-                                at: self.at(),
+                            return Err(ParseError::InvalidEscape {
                                 got: other.into(),
+                                at: self.at(),
                             });
                         }
                     }
@@ -396,29 +435,30 @@ where
     /// does not consume closing `}`
     fn parse_map_inner(
         &mut self,
-        acc: HashMap<Rc<Sexp>, Rc<Sexp>>,
+        mut acc: HashMap<Rc<Sexp>, Rc<Sexp>>,
     ) -> Result<Collection, ParseError> {
-        self.skip_trivia()?;
-        let k = match self.peek_one()? {
-            b'}' => return Ok(Collection::Map(acc)),
-            _ => self.parse_expr()?,
-        };
-        self.skip_trivia()?;
+        loop {
+            self.skip_trivia()?;
+            let k = match self.peek_one()? {
+                b'}' => return Ok(Collection::Map(acc)),
+                _ => self.parse_expr()?,
+            };
+            self.skip_trivia()?;
 
-        match self.read_byte()? {
-            b':' => {}
-            other => {
-                return Err(ParseError::ExpectedToken {
-                    expected: ':',
-                    at: self.at(),
-                    got: other.into(),
-                });
+            match self.read_byte()? {
+                b':' => {}
+                other => {
+                    return Err(ParseError::ExpectedToken {
+                        expected: ':',
+                        at: self.at(),
+                        got: other.into(),
+                    });
+                }
             }
-        }
 
-        let v = self.parse_expr()?;
-        let acc = acc.update(Rc::new(k), Rc::new(v));
-        self.parse_map_inner(acc)
+            let v = self.parse_expr()?;
+            acc = acc.update(Rc::new(k), Rc::new(v));
+        }
     }
 
     /// parses array including the opening `[` and closing `]`
@@ -441,14 +481,14 @@ where
     /// first byte must NOT be `[`
     /// does not consume closing `]`
     fn parse_array_inner(&mut self, mut acc: Vec<Rc<Sexp>>) -> Result<Collection, ParseError> {
-        self.skip_trivia()?;
-
-        match self.peek_one()? {
-            b']' => Ok(Collection::Array(acc.into())),
-            _ => {
-                let expr = self.parse_expr()?;
-                acc.push(Rc::new(expr));
-                self.parse_array_inner(acc)
+        loop {
+            self.skip_trivia()?;
+            match self.peek_one()? {
+                b']' => return Ok(Collection::Array(acc.into())),
+                _ => {
+                    let expr = self.parse_expr()?;
+                    acc.push(Rc::new(expr));
+                }
             }
         }
     }
@@ -483,10 +523,17 @@ where
     }
 
     /// Peeks up to `buf.len()` bytes from the reader without consuming them.
-    /// On EOF (no bytes available) returns `ExpectedToken` or `IOError`
-    /// depending on whether we're inside a list. If fewer bytes are available
-    /// than `buf.len()`, fills the prefix and leaves the rest of `buf`
-    /// untouched.
+    /// On EOF (no bytes available) returns [`ParseError::UnexpectedEof`].
+    /// If fewer bytes are available than `buf.len()`, fills the prefix and
+    /// leaves the rest of `buf` untouched.
+    ///
+    /// Known limitation: "available" means *currently buffered*. `BufRead`
+    /// has no way to peek past the buffer without consuming, so when exactly
+    /// one byte remains before the internal 8 KiB buffer boundary, a 2-byte
+    /// lookahead (`,@`, the dotted-list marker) sees only its first byte and
+    /// can mis-lex. This needs a multi-byte token to straddle that exact
+    /// boundary; fixing it properly means an internal peek buffer in front
+    /// of the reader.
     fn peek_many(&mut self, buf: &mut [u8]) -> Result<(), ParseError> {
         let at = self.at();
         let avail = match self.reader.fill_buf() {
@@ -502,18 +549,7 @@ where
     }
 
     fn eof_err(&self) -> ParseError {
-        if self.list_depth > 0 {
-            ParseError::ExpectedToken {
-                expected: ')',
-                at: self.at(),
-                got: '\0',
-            }
-        } else {
-            ParseError::IOError {
-                source: std::io::ErrorKind::UnexpectedEof.into(),
-                at: self.at(),
-            }
-        }
+        ParseError::UnexpectedEof { at: self.at() }
     }
 
     fn read_until(&mut self, buf: &mut Vec<u8>, byte: u8) -> Result<usize, ParseError> {
@@ -531,7 +567,9 @@ where
         let mut buf = [0u8; 1];
         let at = self.at();
         if let Err(e) = self.reader.read_exact(&mut buf) {
-            return Err(ParseError::IOError { source: e, at });
+            // `read_exact` reports a clean end-of-input as UnexpectedEof;
+            // surface that as the dedicated variant rather than an I/O fault.
+            return Err(ParseError::from_io_error(e, Some(at)));
         }
         // `at` snapshots the position of the byte we just read; advance afterwards.
         self.advance(&buf);
@@ -598,19 +636,9 @@ where
     fn skip_trivia(&mut self) -> Result<(), ParseError> {
         let mut throwaway = Vec::new();
         loop {
-            if self
-                .read_while(&mut throwaway, |b| WHITESPACE.contains(b))
-                .is_err()
-            {
-                return if self.list_depth > 0 {
-                    Err(ParseError::UnexpectedCloseParen { at: self.at() })
-                } else {
-                    Err(ParseError::IOError {
-                        source: std::io::ErrorKind::UnexpectedEof.into(),
-                        at: self.at(),
-                    })
-                };
-            }
+            // `read_while` treats EOF as a clean stop, so an error here is a
+            // genuine I/O fault — propagate it untouched.
+            self.read_while(&mut throwaway, |b| WHITESPACE.contains(b))?;
 
             let starts_comment = match self.reader.fill_buf() {
                 Ok(avail) => avail.len() >= 2 && avail[0] == b';' && avail[1] == b';',
@@ -823,13 +851,13 @@ mod tests {
     fn repeated_identifiers_share_rc() {
         let parsed = parse_ok("(foo foo)");
         // Walk the structure and pull out the two Rc<str> values.
-        let (a, b) = match parsed {
+        let (a, b) = match &parsed {
             Sexp::Exp { head, tail } => {
-                let a = match &*head {
+                let a = match &**head {
                     Sexp::Atom(Atomic::Ident(s)) => s.clone(),
                     other => panic!("expected ident, got {:?}", other),
                 };
-                let b = match &*tail {
+                let b = match &**tail {
                     Sexp::Exp { head, .. } => match &**head {
                         Sexp::Atom(Atomic::Ident(s)) => s.clone(),
                         other => panic!("expected ident, got {:?}", other),
@@ -849,13 +877,13 @@ mod tests {
     #[test]
     fn distinct_identifiers_do_not_share_rc() {
         let parsed = parse_ok("(foo bar)");
-        let (a, b) = match parsed {
+        let (a, b) = match &parsed {
             Sexp::Exp { head, tail } => {
-                let a = match &*head {
+                let a = match &**head {
                     Sexp::Atom(Atomic::Ident(s)) => s.clone(),
                     _ => panic!(),
                 };
-                let b = match &*tail {
+                let b = match &**tail {
                     Sexp::Exp { head, .. } => match &**head {
                         Sexp::Atom(Atomic::Ident(s)) => s.clone(),
                         _ => panic!(),
@@ -1001,8 +1029,11 @@ mod tests {
     #[test]
     fn empty_input_is_error() {
         let err = parse_str("").unwrap_err();
-        // parse_expr -> skip_trivia -> peek_one -> UnexpectedEof
-        assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
+        assert!(
+            matches!(err, ParseError::UnexpectedEof { .. }),
+            "got {:?}",
+            err
+        );
     }
 
     // ----- multiple top-level forms -----
@@ -1044,10 +1075,10 @@ mod tests {
     }
 
     #[test]
-    fn unterminated_list_is_missing_close_brace_error() {
+    fn unterminated_list_is_eof_error() {
         let err = parse_str("(1 2").unwrap_err();
         assert!(
-            matches!(err, ParseError::ExpectedToken { expected: ')', .. }),
+            matches!(err, ParseError::UnexpectedEof { .. }),
             "got {:?}",
             err
         );
@@ -1056,7 +1087,43 @@ mod tests {
     #[test]
     fn unterminated_string_then_eof_errors() {
         let err = parse_str(r#"("abc"#).unwrap_err();
-        assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
+        assert!(
+            matches!(err, ParseError::UnexpectedEof { .. }),
+            "got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn invalid_escape_is_error() {
+        let err = parse_str(r#""a\qb""#).unwrap_err();
+        assert!(
+            matches!(err, ParseError::InvalidEscape { got: 'q', .. }),
+            "got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn nesting_past_depth_limit_is_too_deep_error() {
+        let src = "(".repeat(MAX_NESTING_DEPTH + 1);
+        let err = parse_str(&src).unwrap_err();
+        assert!(matches!(err, ParseError::TooDeep { .. }), "got {:?}", err);
+    }
+
+    #[test]
+    fn long_flat_list_parses_without_deep_recursion() {
+        // List *length* must not consume stack — neither in the parser
+        // (iterative element loop) nor when the result is dropped
+        // (`Sexp`'s iterative spine drop). Only nesting depth recurses.
+        let mut src = String::from("(");
+        for i in 0..100_000 {
+            src.push_str(&i.to_string());
+            src.push(' ');
+        }
+        src.push(')');
+        let forms = parse_all(&src).expect("long flat list should parse");
+        assert_eq!(forms.len(), 1);
     }
 
     // ----- pos tracking on error -----
@@ -1133,14 +1200,14 @@ mod tests {
 
     #[test]
     fn missing_close_brace_reports_line_and_col() {
-        // Unterminated list across two lines — EOF reached at line 2, col 3.
+        // Unterminated list across two lines — EOF reached at line 2, col 2.
         let err = parse_str("(1\n2").unwrap_err();
         match err {
-            ParseError::ExpectedToken { at, .. } => {
+            ParseError::UnexpectedEof { at } => {
                 assert_eq!(at.line, 2);
                 assert_eq!(at.col, 2);
             }
-            other => panic!("expected ExpectedToken, got {:?}", other),
+            other => panic!("expected UnexpectedEof, got {:?}", other),
         }
     }
 
@@ -1218,7 +1285,11 @@ mod tests {
     #[test]
     fn comment_only_input_is_error() {
         let err = parse_str(";; just a comment\n").unwrap_err();
-        assert!(matches!(err, ParseError::IOError { .. }), "got {:?}", err);
+        assert!(
+            matches!(err, ParseError::UnexpectedEof { .. }),
+            "got {:?}",
+            err
+        );
     }
 
     #[test]

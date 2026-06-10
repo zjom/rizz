@@ -45,6 +45,15 @@ use std::io::Cursor;
 
 use crate::runtime::Env;
 
+thread_local! {
+    /// The prelude built once per thread: constructing it parses and
+    /// evaluates `_.rz`, which is too much work to repeat on every
+    /// [`env()`] call (e.g. each [`crate::parse_and_run`]). `Env` values
+    /// are `Rc`-backed and not `Send`, so a per-thread cache is the
+    /// natural granularity.
+    static PRELUDE: Env = build_env();
+}
+
 /// Build a fresh default environment.
 ///
 /// The env contains every Rust-implemented builtin from this module's
@@ -52,10 +61,14 @@ use crate::runtime::Env;
 /// `unless`, `for`, `loop`, `while`, `and`, `or`, `compose`, `pipe`). This is the
 /// env [`crate::Runtime::new`] starts from.
 ///
-/// Successive calls return independent envs; cloning an [`Env`] is cheap
-/// (it's backed by [`im::HashMap`]), so callers usually want to build one
-/// here and clone-share it from there.
+/// The prelude is built once per thread and cloned out on each call —
+/// cloning an [`Env`] is cheap (it's backed by [`im::HashMap`]), and the
+/// returned env is independent: updates to it never affect the cache.
 pub fn env() -> Env {
+    PRELUDE.with(Env::clone)
+}
+
+fn build_env() -> Env {
     let builtins = Env::new()
         .union(numbers::env())
         .union(eq::env())
@@ -72,10 +85,10 @@ pub fn env() -> Env {
     env
 }
 
-/// Merge `e` into a fresh prelude env. On key collision the **prelude**
-/// binding wins (see [`Env::union`]) — meant for adding host builtins, not
-/// for overriding standard names. To override a name, build your own env
-/// where the override is added *after* unioning in [`env()`].
+/// Merge `e` into a fresh prelude env. On key collision **`e` wins** (see
+/// [`Env::union`]), so host builtins can both add new names and override
+/// standard ones — which is what "install" should mean. To get the old
+/// prelude-wins behavior, write `prelude::env().union(e)` yourself.
 pub fn install(e: Env) -> Env {
-    env().union(e)
+    e.union(env())
 }

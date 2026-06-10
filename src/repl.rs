@@ -1,4 +1,4 @@
-use std::io::{self, Cursor};
+use std::io::Cursor;
 use std::path::PathBuf;
 
 use rustyline::error::ReadlineError;
@@ -30,14 +30,9 @@ impl Validator for REPLHelper {
 
         match Parser::new(Cursor::new(input)).parse() {
             Ok(_) => Ok(ValidationResult::Valid(None)),
-            Err(ParseError::ExpectedToken { .. }) => Ok(ValidationResult::Incomplete),
-
-            Err(ParseError::IOError { source, .. })
-                if matches!(source.kind(), io::ErrorKind::UnexpectedEof) =>
-            {
-                Ok(ValidationResult::Incomplete)
-            }
-
+            // The input stopped mid-form (unterminated list/string/empty):
+            // keep reading. Any other parse error is a real syntax error.
+            Err(ParseError::UnexpectedEof { .. }) => Ok(ValidationResult::Incomplete),
             Err(e) => Ok(ValidationResult::Invalid(Some(e.to_string()))),
         }
     }
@@ -71,7 +66,7 @@ impl Repl {
         Ok(Self { cfg, rl, rt })
     }
     pub fn run(&mut self) -> anyhow::Result<()> {
-        println!("ff self — Ctrl-D to exit, blank line to submit/abort multi-line input");
+        println!("rizz — Ctrl-D to exit, blank line to submit/abort multi-line input");
         loop {
             let prompt = ">> ";
             let readline = self.rl.readline(prompt);
@@ -171,8 +166,8 @@ pub struct ReplConfig {
     #[builder(default = ColorMode::Enabled)]
     pub color_mode: ColorMode,
 
-    #[arg(long, default_value = ".ff_history")]
-    #[builder(default = ".ff_history", into)]
+    #[arg(long, default_value = ".rizz_history")]
+    #[builder(default = ".rizz_history", into)]
     pub history_path: PathBuf,
 
     #[arg(long, default_value_t = false)]

@@ -2,7 +2,7 @@
 //! defaulting, relative-path anchoring against the caller's source directory,
 //! `_`-private filtering of leaked bindings, and the surfaced error shape.
 
-use rizz::runtime::Value;
+use rizz::runtime::{Arity, Value};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -150,7 +150,7 @@ fn open_with_no_args_is_arity_error() {
     assert!(matches!(
         err,
         rizz::RizzError::RuntimeError(rizz::RuntimeError::ArityMismatch {
-            expected: 1,
+            expected: Arity::Exactly(1),
             got: 0,
             ..
         })
@@ -163,7 +163,7 @@ fn open_with_two_args_is_arity_error() {
     assert!(matches!(
         err,
         rizz::RizzError::RuntimeError(rizz::RuntimeError::ArityMismatch {
-            expected: 1,
+            expected: Arity::Exactly(1),
             got: 2,
             ..
         })
@@ -203,4 +203,42 @@ fn open_accepts_ident_path() {
     let env = rizz::prelude::env().with_base_dir(Some(tmp.path().to_path_buf()));
     let (v, _) = rizz::parse_and_run_with_env(b"(open 'modname) x" as &[u8], &env).expect("eval");
     assert_eq!(*v, Value::Int(9));
+}
+
+// ----- module errors stay structured -----
+
+#[test]
+fn runtime_error_inside_module_surfaces_as_in_module() {
+    let tmp = TempDir::new("inmodule-runtime");
+    let p = tmp.write("bad.rz", "(car 5)");
+    let src = format!("(open {})", quote_path(&p));
+    let err = rizz::parse_and_run(src.as_bytes()).expect_err("module error");
+    match err {
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::InModule { path, source }) => {
+            assert!(path.ends_with("bad.rz"), "path was {path:?}");
+            // The inner error is still matchable, not a stringified blob.
+            assert!(matches!(
+                *source,
+                rizz::RizzError::RuntimeError(rizz::RuntimeError::TypeMismatch { .. })
+            ));
+        }
+        other => panic!("expected InModule, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_error_inside_module_surfaces_as_in_module() {
+    let tmp = TempDir::new("inmodule-parse");
+    let p = tmp.write("bad.rz", "(let x"); // unterminated
+    let src = format!("(open {})", quote_path(&p));
+    let err = rizz::parse_and_run(src.as_bytes()).expect_err("module error");
+    match err {
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::InModule { source, .. }) => {
+            assert!(matches!(
+                *source,
+                rizz::RizzError::ParseError(rizz::ParseError::UnexpectedEof { .. })
+            ));
+        }
+        other => panic!("expected InModule, got {other:?}"),
+    }
 }
