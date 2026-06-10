@@ -530,7 +530,7 @@ where
     /// Known limitation: "available" means *currently buffered*. `BufRead`
     /// has no way to peek past the buffer without consuming, so when exactly
     /// one byte remains before the internal 8 KiB buffer boundary, a 2-byte
-    /// lookahead (`,@`, the dotted-list marker) sees only its first byte and
+    /// lookahead (`,@`, the dotted-list marker, `;;` comment) sees only its first byte and
     /// can mis-lex. This needs a multi-byte token to straddle that exact
     /// boundary; fixing it properly means an internal peek buffer in front
     /// of the reader.
