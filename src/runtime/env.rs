@@ -203,6 +203,30 @@ impl Default for Env {
     }
 }
 
+/// Consume the env, yielding owned name → value bindings (unspecified
+/// order). `base_dir`/`base_env` are not bindings and are not yielded.
+/// Delegates straight to [`im::HashMap`]'s consuming iterator.
+impl IntoIterator for Env {
+    type Item = (Rc<str>, Rc<Value>);
+    type IntoIter = im::hashmap::ConsumingIter<(Rc<str>, Rc<Value>)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.bindings.into_iter()
+    }
+}
+
+/// Borrowing counterpart to [`IntoIterator for Env`], so `&env` works in
+/// `for` loops and iterator adapters. Yields the same `(&Rc<str>,
+/// &Rc<Value>)` pairs as [`Env::iter`].
+impl<'a> IntoIterator for &'a Env {
+    type Item = (&'a Rc<str>, &'a Rc<Value>);
+    type IntoIter = im::hashmap::Iter<'a, Rc<str>, Rc<Value>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.bindings.iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
