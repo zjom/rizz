@@ -1,9 +1,10 @@
-//! Arithmetic and comparison builtins.
+//! Arithmetic, comparison, and numeric-conversion builtins.
 //!
 //! Every operator here is binary and works on two ints or two floats (never
-//! a mix — there is no implicit numeric coercion). They share the generic
-//! `binop` machinery, which dispatches on the argument type. Comparisons
-//! return `1` for true and `0` for false.
+//! a mix — there is no implicit numeric coercion; `int-of` and `float-of`
+//! are the explicit conversions). The operators share the generic `binop`
+//! machinery, which dispatches on the argument type. Comparisons return
+//! `1` for true and `0` for false.
 //!
 //! # Fault policy
 //!
@@ -22,10 +23,13 @@
 
 use crate::runtime::Numeric;
 use std::rc::Rc;
+use std::str::FromStr;
 
 use crate::runtime::{Arity, Env, NativeFn, RuntimeError, Value};
 
-/// The arithmetic/comparison builtins: `+ - * /`, `cmp`, and `> >= < <=`.
+/// The arithmetic/comparison builtins: `+ - * /`, `mod`, `cmp`,
+/// `> >= < <=`, `min`/`max`/`clamp`, and the conversions
+/// `int-of`/`float-of`.
 pub fn env() -> Env {
     let mut entries: Vec<(&str, NativeFn)> = Vec::new();
     let mut aliases: Vec<(&str, &str)> = Vec::new();
@@ -48,6 +52,9 @@ pub fn env() -> Env {
     alias!("*"=>"mul");
     b!("div", div);
     alias!("/"=>"div");
+    b!("mod", _mod);
+    b!("int-of", int_of);
+    b!("float-of", float_of);
     b!("cmp", cmp);
     b!("gt", gt);
     alias!(">" => "gt");
@@ -153,6 +160,26 @@ Float division follows IEEE-754: dividing by 0.0 yields ±inf, and
 Errors when dividing an int by zero.
 
 See also: (+ A B), (- A B), (* A B)."
+            .into(),
+    )
+}
+
+fn _mod() -> NativeFn {
+    binop(
+        "mod",
+        |a, b| a.checked_rem_euclid(b).ok_or("division by zero"),
+        |a, b| Ok(a.rem_euclid(b)),
+    )
+    .with_doc(
+        "\
+(mod A B)
+
+Returns the least nonnegative remainder of A divided by B — two
+ints or two floats (never mixed).
+
+Errors when dividing an int by zero.
+
+See also: (+ A B), (- A B), (* A B), (/ A B)."
             .into(),
     )
 }
@@ -423,6 +450,100 @@ See also: (min), (max)."
     )
 }
 
+fn int_of() -> NativeFn {
+    let name: Rc<str> = "int-of".into();
+    NativeFn::pure(name.clone(), 1, move |args| {
+        if let Some(n) = args[0].as_int() {
+            return Ok(Rc::new(n.into()));
+        }
+        if let Some(f) = args[0].as_float() {
+            let r = f.round_ties_even();
+            if r.is_nan() {
+                return Err(RuntimeError::ArithmeticError {
+                    name: name.clone(),
+                    reason: "NaN has no int value".into(),
+                });
+            }
+            // [i64::MIN, 2^63) is exactly the f64 range that casts losslessly;
+            // `i64::MAX as f64` rounds up to 2^63, so the comparison is strict.
+            if r < i64::MIN as f64 || r >= i64::MAX as f64 {
+                return Err(RuntimeError::ArithmeticError {
+                    name: name.clone(),
+                    reason: "integer overflow".into(),
+                });
+            }
+            return Ok(Rc::new((r as i64).into()));
+        }
+        if let Some(s) = args[0].as_str() {
+            return match i64::from_str(&s) {
+                Ok(n) => Ok(Rc::new(n.into())),
+                Err(e) => Err(RuntimeError::ParseError {
+                    name: name.clone(),
+                    reason: e.to_string().into(),
+                }),
+            };
+        }
+        Err(RuntimeError::type_mismatch(
+            &name,
+            "int or float or str",
+            &args[0],
+        ))
+    })
+    .with_doc(
+        "\
+(int-of VAL)
+
+Converts VAL to an int: a float is rounded to the nearest int
+(ties to even), a str is parsed as an int, and an int is returned
+unchanged.
+
+Errors when VAL is any other type, when a str fails to parse, or
+when a float is NaN or out of int range.
+
+See also: (float-of VAL), (str->int S)."
+            .into(),
+    )
+}
+
+fn float_of() -> NativeFn {
+    let name: Rc<str> = "float-of".into();
+    NativeFn::pure(name.clone(), 1, move |args| {
+        if let Some(f) = args[0].as_float() {
+            return Ok(Rc::new(f.into()));
+        }
+        if let Some(n) = args[0].as_int() {
+            return Ok(Rc::new((n as f64).into()));
+        }
+        if let Some(s) = args[0].as_str() {
+            return match f64::from_str(&s) {
+                Ok(f) => Ok(Rc::new(f.into())),
+                Err(e) => Err(RuntimeError::ParseError {
+                    name: name.clone(),
+                    reason: e.to_string().into(),
+                }),
+            };
+        }
+        Err(RuntimeError::type_mismatch(
+            &name,
+            "int or float or str",
+            &args[0],
+        ))
+    })
+    .with_doc(
+        "\
+(float-of VAL)
+
+Converts VAL to a float: an int is converted (rounding to the
+nearest float when it has no exact representation), a str is
+parsed as a float, and a float is returned unchanged.
+
+Errors when VAL is any other type or when a str fails to parse.
+
+See also: (int-of VAL)."
+            .into(),
+    )
+}
+
 /// Attempts `op` for the numeric type `N`. Returns `Ok(None)` if the first
 /// argument isn't an `N` (so the caller can try the other type), `Err` if the
 /// first is an `N` but the second isn't, or if `op` itself fails.
@@ -603,6 +724,44 @@ mod tests {
         assert!(run("(min 4 51 [123] 10))").is_err());
         assert!(run("(min 4 51 '(123) 10))").is_err());
         assert!(run("(min 4 51 0.2 10))").is_err());
+    }
+
+    #[test]
+    fn mod_op() {
+        // Least nonnegative remainder, regardless of operand signs.
+        assert_eq!(*run_ok("(mod 7 3)"), Value::Int(1));
+        assert_eq!(*run_ok("(mod -7 3)"), Value::Int(2));
+        assert_eq!(*run_ok("(mod 7 -3)"), Value::Int(1));
+        assert_eq!(*run_ok("(mod -7.5 3.0)"), Value::Float(1.5.into()));
+
+        assert!(run("(mod 1 0)").is_err());
+        assert!(run("(mod 1 2.0)").is_err());
+    }
+
+    #[test]
+    fn int_of_op() {
+        assert_eq!(*run_ok("(int-of 5)"), Value::Int(5));
+        assert_eq!(*run_ok("(int-of \"42\")"), Value::Int(42));
+        assert_eq!(*run_ok("(int-of 2.5)"), Value::Int(2)); // ties to even
+        assert_eq!(*run_ok("(int-of 3.5)"), Value::Int(4));
+        assert_eq!(*run_ok("(int-of -2.5)"), Value::Int(-2));
+        assert_eq!(*run_ok("(int-of (ref 2.4))"), Value::Int(2));
+
+        assert!(run("(int-of \"4.2\")").is_err());
+        assert!(run("(int-of (/ 0.0 0.0))").is_err()); // NaN
+        assert!(run("(int-of (/ 1.0 0.0))").is_err()); // out of int range
+        assert!(run("(int-of [1])").is_err());
+    }
+
+    #[test]
+    fn float_of_op() {
+        assert_eq!(*run_ok("(float-of 2)"), Value::Float(2.0.into()));
+        assert_eq!(*run_ok("(float-of 2.5)"), Value::Float(2.5.into()));
+        assert_eq!(*run_ok("(float-of \"2.5\")"), Value::Float(2.5.into()));
+        assert_eq!(*run_ok("(float-of (ref 2))"), Value::Float(2.0.into()));
+
+        assert!(run("(float-of \"abc\")").is_err());
+        assert!(run("(float-of [1])").is_err());
     }
 
     #[test]

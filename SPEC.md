@@ -166,7 +166,9 @@ two distinct `(ref 5)` cells are not equal. All NaN floats compare equal.
 
 There is **no implicit coercion** between `int` and `float`. Arithmetic and
 comparison are binary and require both operands to be the same numeric kind
-(`int×int` or `float×float`). Mixed types raise a `TypeMismatch`.
+(`int×int` or `float×float`). Mixed types raise a `TypeMismatch`. Conversion
+is explicit: `int-of` and `float-of` (§10.1) convert between the two kinds
+(and parse numeric strings).
 
 Fault policy differs by kind. **Int ops are checked**: overflow and
 division by zero raise an `ArithmeticError`. **Float ops follow IEEE-754**:
@@ -802,6 +804,7 @@ results.
 | `-`, `sub`  | 2     | Subtraction.                                                                                                            |
 | `*`, `mul`  | 2     | Multiplication.                                                                                                         |
 | `/`, `div`  | 2     | Division. Integer divide-by-zero errors.                                                                                |
+| `mod`       | 2     | Least nonnegative remainder of A divided by B. Integer divide-by-zero errors.                                           |
 | `cmp`       | 2     | -1, 0, or 1 (`-1.0`, `0.0`, `1.0` for floats). NaN errors.                                                              |
 | `>`, `gt`   | 2     | Greater than.                                                                                                           |
 | `>=`, `gte` | 2     | Greater or equal.                                                                                                       |
@@ -810,6 +813,8 @@ results.
 | `min`       | ≥ 1   | Minimum of numbers (all `int` or all `float`). Accepts `n` numbers of the same type, or a single array/list of numbers. |
 | `max`       | ≥ 1   | Maximum of numbers (same rules as `min`).                                                                               |
 | `clamp`     | 3     | Clamps a number to a `[low, high]` range.                                                                               |
+| `int-of`    | 1     | Converts to int: rounds a float to the nearest int (ties to even), parses a str, returns an int unchanged. NaN, out-of-range floats, and unparsable strs error. |
+| `float-of`  | 1     | Converts to float: converts an int (rounding when no exact float exists), parses a str, returns a float unchanged. Unparsable strs error. |
 
 ### 10.2 Equality and boolean
 
@@ -1032,7 +1037,8 @@ strings raises `TypeMismatch`.
 A running rizz program can fail in several ways: an unbound identifier, a
 call to a non-callable, the wrong number of arguments, the wrong argument
 type, an arithmetic fault (overflow, divide-by-zero, NaN comparison), a
-failed module load, and so on. Errors are reported with the name of the
+string that fails to parse as a number (`int-of` / `float-of`), a failed
+module load, and so on. Errors are reported with the name of the
 operation that raised them and enough detail to point at the problem.
 
 **rizz has no `try`/`catch`, no exceptions, and no condition system.** Any

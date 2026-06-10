@@ -43,9 +43,9 @@ pub mod numbers;
 pub mod ref_;
 pub mod str;
 
-use std::io::Cursor;
+use std::{io::Cursor, rc::Rc};
 
-use crate::runtime::Env;
+use crate::runtime::{Env, Value};
 
 thread_local! {
     /// The prelude built once per thread: constructing it parses and
@@ -94,4 +94,18 @@ fn build_env() -> Env {
 /// prelude-wins behavior, write `prelude::env().union(e)` yourself.
 pub fn install(e: Env) -> Env {
     e.union(env())
+}
+
+fn ok_tuple(v: Rc<Value>) -> Rc<Value> {
+    Rc::new(Value::Cons {
+        head: Rc::new(Value::Ident("ok".into())),
+        tail: v,
+    })
+}
+
+fn err_tuple(msg: &str) -> Rc<Value> {
+    Rc::new(Value::Cons {
+        head: Rc::new(Value::Ident("err".into())),
+        tail: Rc::new(Value::Str(msg.into())),
+    })
 }

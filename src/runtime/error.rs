@@ -74,6 +74,12 @@ pub enum RuntimeError {
     #[error("{name} failed: {reason}")]
     ArithmeticError { name: Rc<str>, reason: Rc<str> },
 
+    /// A runtime parse function failed. e.g., str to int
+    /// The `reason` field carries the
+    /// specific message from the failing op.
+    #[error("{name} failed: {reason}")]
+    ParseError { name: Rc<str>, reason: Rc<str> },
+
     /// Evaluation recursed past the configured limit (see
     /// [`set_recursion_limit`](crate::runtime::set_recursion_limit)).
     /// Raised instead of overflowing the host stack, so embedders survive
