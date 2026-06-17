@@ -15,15 +15,14 @@
 mod error;
 mod peeker;
 mod position;
+mod scanner;
 pub use error::*;
 use im::{HashMap, Vector};
 use ordered_float::OrderedFloat;
-use peeker::PeekReader;
 pub use position::Position;
-use std::{
-    collections::HashSet,
-    io::{BufRead, Read},
-};
+use scanner::Scanner;
+use std::collections::HashSet;
+use std::io::Read;
 
 use std::rc::Rc;
 
@@ -104,11 +103,8 @@ impl Drop for Sexp {
 /// interned via a private `HashSet`, so repeated names share one
 /// `Rc<str>` for the lifetime of the parse.
 pub struct Parser<R: Read> {
-    reader: PeekReader<R>,
-    pos: Position,
-    list_depth: usize,
+    scanner: Scanner<R>,
     expr_depth: usize,
-    idents: HashSet<Rc<str>>,
 }
 
 const WHITESPACE: &[u8] = b"\n\r\t ";
@@ -129,10 +125,7 @@ where
     /// internally, so passing an unbuffered `Read` is fine.
     pub fn new(r: R) -> Self {
         Self {
-            reader: PeekReader::new(r),
-            pos: Position::new(),
-            idents: HashSet::new(),
-            list_depth: 0,
+            scanner: Scanner::new(r),
             expr_depth: 0,
         }
     }
@@ -156,14 +149,14 @@ where
     /// ```
     pub fn parse(&mut self) -> Result<Vec<Sexp>, ParseError> {
         let mut forms = Vec::new();
-        self.skip_trivia()?;
-        if self.peek_eof()?.is_none() {
+        self.scanner.skip_trivia()?;
+        if self.scanner.peek_eof()?.is_none() {
             return Err(ParseError::UnexpectedEof { at: self.at() });
         }
         loop {
             forms.push(self.parse_expr()?);
-            self.skip_trivia()?;
-            if self.peek_eof()?.is_none() {
+            self.scanner.skip_trivia()?;
+            if self.scanner.peek_eof()?.is_none() {
                 return Ok(forms);
             }
         }
@@ -174,7 +167,7 @@ where
     /// useful for tools that want to enumerate all the names used in a
     /// program after a parse.
     pub fn idents(&self) -> &HashSet<Rc<str>> {
-        &self.idents
+        self.scanner.idents()
     }
 
     /// Current parser position — points at the next byte to be consumed.
@@ -185,7 +178,7 @@ where
     }
 
     fn at(&self) -> Position {
-        self.pos
+        self.scanner.at()
     }
 
     /// Parses the contents of a list after the opening `(` has been consumed,
@@ -202,22 +195,22 @@ where
         let mut elems: Vec<Sexp> = Vec::new();
         let mut last_tail = Sexp::Unit;
         loop {
-            self.skip_trivia()?;
-            if self.peek_one()? == b')' {
-                self.read_byte()?;
+            self.scanner.skip_trivia()?;
+            if self.scanner.peek_one()? == b')' {
+                self.scanner.read_byte()?;
                 break;
             }
 
             elems.push(self.parse_expr()?);
-            self.skip_trivia()?;
+            self.scanner.skip_trivia()?;
 
             if self.peek_dotted_marker()? {
-                self.read_byte()?;
-                self.skip_trivia()?;
+                self.scanner.read_byte()?;
+                self.scanner.skip_trivia()?;
                 last_tail = self.parse_expr()?;
-                self.skip_trivia()?;
+                self.scanner.skip_trivia()?;
                 let at = self.at();
-                match self.read_byte()? {
+                match self.scanner.read_byte()? {
                     b')' => break,
                     other => {
                         return Err(ParseError::ExpectedToken {
@@ -242,7 +235,7 @@ where
     /// path because they are consumed whole by `parse_expr` before the next
     /// inter-element peek.
     fn peek_dotted_marker(&mut self) -> Result<bool, ParseError> {
-        let [a, b] = self.peek_two()?;
+        let [a, b] = self.scanner.peek_two()?;
         Ok(a == b'.' && (WHITESPACE.contains(&b) || b == b')'))
     }
     fn parse_expr(&mut self) -> Result<Sexp, ParseError> {
@@ -260,10 +253,10 @@ where
     }
 
     fn parse_expr_inner(&mut self) -> Result<Sexp, ParseError> {
-        self.skip_trivia()?;
-        let sexp = match self.peek_one()? {
+        self.scanner.skip_trivia()?;
+        let sexp = match self.scanner.peek_one()? {
             b'(' => {
-                self.read_byte()?;
+                self.scanner.read_byte()?;
                 self.parse_list_tail()?
             }
             b'[' | b'{' => {
@@ -271,23 +264,23 @@ where
                 Sexp::Collection(xs)
             }
             b'\'' => {
-                self.read_byte()?;
+                self.scanner.read_byte()?;
                 self.wrap_prefix("quote")?
             }
 
             b'`' => {
-                self.read_byte()?;
+                self.scanner.read_byte()?;
                 self.wrap_prefix("quasi")?
             }
 
-            b',' => match self.peek_two()? {
+            b',' => match self.scanner.peek_two()? {
                 [b',', b'@'] => {
-                    self.read_byte()?;
-                    self.read_byte()?;
+                    self.scanner.read_byte()?;
+                    self.scanner.read_byte()?;
                     self.wrap_prefix("unquote-splice")?
                 }
                 [b',', _] => {
-                    self.read_byte()?;
+                    self.scanner.read_byte()?;
                     self.wrap_prefix("unquote")?
                 }
                 _ => unreachable!(),
@@ -303,7 +296,7 @@ where
             b';' => return Err(ParseError::StraySemicolon { at: self.at() }),
 
             _ => {
-                let t = self.parse_atomic()?;
+                let t = self.scanner.scan_atomic()?;
                 Sexp::Atom(t)
             }
         };
@@ -313,7 +306,7 @@ where
     /// Wraps the following expression as `(name operand)`.
     fn wrap_prefix(&mut self, name: &str) -> Result<Sexp, ParseError> {
         let operand = self.parse_expr()?;
-        let head = Sexp::Atom(Atomic::Ident(self.intern(name)));
+        let head = Sexp::Atom(Atomic::Ident(self.scanner.intern(name)));
         Ok(Sexp::Exp {
             head: Rc::new(head),
             tail: Rc::new(Sexp::Exp {
@@ -324,105 +317,20 @@ where
     }
 
     fn parse_collection(&mut self) -> Result<Collection, ParseError> {
-        match self.peek_one()? {
+        match self.scanner.peek_one()? {
             b'[' => self.parse_array(),
             b'{' => self.parse_map(),
             _ => unreachable!(),
         }
     }
 
-    fn parse_atomic(&mut self) -> Result<Atomic, ParseError> {
-        match self.peek_two()? {
-            [b'"', _] => self.parse_str(),
-            [b'0'..=b'9', _] | [b'-', b'0'..=b'9'] => self.parse_number(),
-            _ => self.parse_ident(),
-        }
-    }
-
-    fn parse_number(&mut self) -> Result<Atomic, ParseError> {
-        let mut buf = vec![self.read_byte()?]; // read the first byte in case it's `-`
-        self.read_while(&mut buf, |b| b.is_ascii_digit() || *b == b'.')?;
-
-        let at = self.at();
-        let s = str::from_utf8(&buf).map_err(|e| ParseError::UTF8Error { source: e, at })?;
-        if s.contains('.') {
-            let n: f64 = s
-                .parse()
-                .map_err(|e| ParseError::ParseFloatError { source: e, at })?;
-            Ok(Atomic::Float(n.into()))
-        } else {
-            let n: i64 = s
-                .parse()
-                .map_err(|e| ParseError::ParseIntError { source: e, at })?;
-            Ok(Atomic::Int(n))
-        }
-    }
-
-    fn parse_ident(&mut self) -> Result<Atomic, ParseError> {
-        let mut buf = Vec::new();
-        let n = self.read_while(&mut buf, |b| !IDENT_SEPARATORS.contains(b))?;
-        assert!(n > 0);
-
-        let at = self.at();
-        let s = str::from_utf8(&buf).map_err(|e| ParseError::UTF8Error { source: e, at })?;
-        Ok(Atomic::Ident(self.intern(s)))
-    }
-
-    /// Interns `s` into the shared identifier pool, returning the canonical
-    /// `Rc<str>` so equal names share one allocation.
-    fn intern(&mut self, s: &str) -> Rc<str> {
-        if let Some(found) = self.idents.get(s) {
-            return found.clone();
-        }
-        let rc: Rc<str> = s.into();
-        self.idents.insert(rc.clone());
-        rc
-    }
-
-    /// parses double quoted str including the opening `"` and closing `"`.
-    /// Recognises `\"`, `\\`, `\n`, `\r`, `\t` escape sequences.
-    /// panics if first byte isn't `"`
-    fn parse_str(&mut self) -> Result<Atomic, ParseError> {
-        let b = self.read_byte()?;
-        assert_eq!(b, b'"');
-
-        let mut buf: Vec<u8> = Vec::new();
-        loop {
-            let b = self.read_byte()?;
-            match b {
-                b'"' => break,
-                b'\\' => {
-                    let esc = self.read_byte()?;
-                    match esc {
-                        b'"' | b'\\' => buf.push(esc),
-                        b'n' => buf.push(b'\n'),
-                        b'r' => buf.push(b'\r'),
-                        b't' => buf.push(b'\t'),
-                        other => {
-                            return Err(ParseError::InvalidEscape {
-                                got: other.into(),
-                                at: self.at(),
-                            });
-                        }
-                    }
-                }
-                _ => buf.push(b),
-            }
-        }
-        let at = self.at();
-        let s: Rc<str> = str::from_utf8(&buf)
-            .map_err(|e| ParseError::UTF8Error { source: e, at })?
-            .into();
-        Ok(Atomic::Str(s))
-    }
-
     /// parses map including the opening `{` and closing `}`
     /// panics if first byte isn't `{`
     fn parse_map(&mut self) -> Result<Collection, ParseError> {
-        assert_eq!(b'{', self.read_byte()?);
+        assert_eq!(b'{', self.scanner.read_byte()?);
         let col = self.parse_map_inner(HashMap::new())?;
         let at = self.at();
-        match self.read_byte()? {
+        match self.scanner.read_byte()? {
             b'}' => Ok(col),
             other => Err(ParseError::ExpectedToken {
                 expected: '}',
@@ -440,14 +348,14 @@ where
         mut acc: HashMap<Rc<Sexp>, Rc<Sexp>>,
     ) -> Result<Collection, ParseError> {
         loop {
-            self.skip_trivia()?;
-            let k = match self.peek_one()? {
+            self.scanner.skip_trivia()?;
+            let k = match self.scanner.peek_one()? {
                 b'}' => return Ok(Collection::Map(acc)),
                 _ => self.parse_expr()?,
             };
-            self.skip_trivia()?;
+            self.scanner.skip_trivia()?;
 
-            match self.read_byte()? {
+            match self.scanner.read_byte()? {
                 b':' => {}
                 other => {
                     return Err(ParseError::ExpectedToken {
@@ -466,10 +374,10 @@ where
     /// parses array including the opening `[` and closing `]`
     /// panics if first byte isn't `[`
     fn parse_array(&mut self) -> Result<Collection, ParseError> {
-        assert_eq!(b'[', self.read_byte()?);
+        assert_eq!(b'[', self.scanner.read_byte()?);
         let col = self.parse_array_inner(vec![])?;
         let at = self.at();
-        match self.read_byte()? {
+        match self.scanner.read_byte()? {
             b']' => Ok(col),
             other => Err(ParseError::ExpectedToken {
                 expected: ']',
@@ -484,175 +392,14 @@ where
     /// does not consume closing `]`
     fn parse_array_inner(&mut self, mut acc: Vec<Rc<Sexp>>) -> Result<Collection, ParseError> {
         loop {
-            self.skip_trivia()?;
-            match self.peek_one()? {
+            self.scanner.skip_trivia()?;
+            match self.scanner.peek_one()? {
                 b']' => return Ok(Collection::Array(acc.into())),
                 _ => {
                     let expr = self.parse_expr()?;
                     acc.push(Rc::new(expr));
                 }
             }
-        }
-    }
-
-    fn peek_one(&mut self) -> Result<u8, ParseError> {
-        let at = self.at();
-        let avail = match self.reader.fill_buf() {
-            Ok(a) => a,
-            Err(e) => return Err(ParseError::IOError { source: e, at }),
-        };
-        if avail.is_empty() {
-            return Err(self.eof_err());
-        }
-        Ok(avail[0])
-    }
-
-    /// Peeks the next byte without consuming it, returning `None` at a clean
-    /// EOF. Unlike [`peek_one`], EOF is not an error — used to check that a
-    /// fully-parsed form is followed only by end-of-input.
-    fn peek_eof(&mut self) -> Result<Option<u8>, ParseError> {
-        let at = self.at();
-        match self.reader.fill_buf() {
-            Ok(avail) => Ok(avail.first().copied()),
-            Err(e) => Err(ParseError::IOError { source: e, at }),
-        }
-    }
-
-    fn peek_two(&mut self) -> Result<[u8; 2], ParseError> {
-        let mut buf = [0u8; 2];
-        self.peek_many(&mut buf)?;
-        Ok(buf)
-    }
-
-    /// Peeks up to `buf.len()` bytes from the reader without consuming them.
-    /// On EOF (no bytes available) returns [`ParseError::UnexpectedEof`].
-    /// If fewer bytes are available than `buf.len()`, fills the prefix and
-    /// leaves the rest of `buf` untouched.
-    ///
-    /// [`PeekReader::peek`] reads ahead as needed, so a short fill means a
-    /// genuine end-of-input — never an artefact of a refill boundary
-    /// splitting a multi-byte token.
-    fn peek_many(&mut self, buf: &mut [u8]) -> Result<(), ParseError> {
-        let at = self.at();
-        let avail = match self.reader.peek(buf.len()) {
-            Ok(a) => a,
-            Err(e) => return Err(ParseError::IOError { source: e, at }),
-        };
-        if avail.is_empty() {
-            return Err(self.eof_err());
-        }
-        let n = avail.len().min(buf.len());
-        buf[..n].copy_from_slice(&avail[..n]);
-        Ok(())
-    }
-
-    fn eof_err(&self) -> ParseError {
-        ParseError::UnexpectedEof { at: self.at() }
-    }
-
-    fn read_until(&mut self, buf: &mut Vec<u8>, byte: u8) -> Result<usize, ParseError> {
-        let start = buf.len();
-        let at = self.at();
-        let n = match self.reader.read_until(byte, buf) {
-            Ok(n) => n,
-            Err(e) => return Err(ParseError::IOError { source: e, at }),
-        };
-        self.advance(&buf[start..]);
-        Ok(n)
-    }
-
-    fn read_byte(&mut self) -> Result<u8, ParseError> {
-        let mut buf = [0u8; 1];
-        let at = self.at();
-        if let Err(e) = self.reader.read_exact(&mut buf) {
-            // `read_exact` reports a clean end-of-input as UnexpectedEof;
-            // surface that as the dedicated variant rather than an I/O fault.
-            return Err(ParseError::from_io_error(e, Some(at)));
-        }
-        // `at` snapshots the position of the byte we just read; advance afterwards.
-        self.advance(&buf);
-
-        match buf[0] {
-            b'(' => {
-                self.list_depth += 1;
-            }
-            b')' => {
-                self.list_depth = self
-                    .list_depth
-                    .checked_sub(1)
-                    .ok_or(ParseError::UnexpectedCloseParen { at })?;
-            }
-            _ => {}
-        }
-
-        Ok(buf[0])
-    }
-
-    /// Updates `pos`, `line`, `col` to reflect having consumed `bytes`.
-    /// `\n` increments `line` and resets `col` to 1; every other byte
-    /// increments `col` by 1.
-    fn advance(&mut self, bytes: &[u8]) {
-        self.pos.advance(bytes);
-    }
-
-    fn read_while<P: FnMut(&u8) -> bool>(
-        &mut self,
-        buf: &mut Vec<u8>,
-        mut p: P,
-    ) -> Result<usize, ParseError> {
-        let start = buf.len();
-        let mut read = 0;
-        loop {
-            let (used, total) = {
-                let available = match self.reader.fill_buf() {
-                    Ok(b) => b,
-                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(e) => {
-                        return Err(ParseError::IOError {
-                            source: e,
-                            at: self.at(),
-                        });
-                    }
-                };
-                if available.is_empty() {
-                    break;
-                }
-                let used = available.iter().take_while(|b| p(b)).count();
-                buf.extend_from_slice(&available[..used]);
-                (used, available.len())
-            };
-            self.reader.consume(used);
-            read += used;
-            if used < total {
-                break;
-            }
-        }
-        self.advance(&buf[start..]);
-        Ok(read)
-    }
-
-    fn skip_trivia(&mut self) -> Result<(), ParseError> {
-        let mut throwaway = Vec::new();
-        loop {
-            // `read_while` treats EOF as a clean stop, so an error here is a
-            // genuine I/O fault — propagate it untouched.
-            self.read_while(&mut throwaway, |b| WHITESPACE.contains(b))?;
-
-            let starts_comment = match self.reader.peek(2) {
-                Ok(avail) => avail.len() >= 2 && avail[0] == b';' && avail[1] == b';',
-                Err(e) => {
-                    return Err(ParseError::IOError {
-                        source: e,
-                        at: self.at(),
-                    });
-                }
-            };
-            if !starts_comment {
-                return Ok(());
-            }
-
-            throwaway.clear();
-            self.read_until(&mut throwaway, b'\n')?;
         }
     }
 }
