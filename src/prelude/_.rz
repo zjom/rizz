@@ -271,3 +271,65 @@
        ""
        "See also: (id V), (pipe F...).")
   (do (f x) x))
+
+(fn exn? (tag e)
+  (doc "(exn? TAG E)"
+       ""
+       "Returns true iff E is an exception tagged TAG — i.e. a cons whose"
+       "head equals TAG. TAG is the quoted constructor name, e.g."
+       "(exn? 'Not-found e). False for non-cons values, so it is safe to"
+       "test any caught value."
+       ""
+       "See also: (exception NAME), (try BODY (catch VAR ...)).")
+  (and (is e 'cons) (= (car e) tag)))
+
+(fn failwith (msg)
+  (doc "(failwith MSG)"
+       ""
+       "Raises the standard ('Failure MSG) exception. Shorthand for"
+       "(raise (cons 'Failure (cons MSG ())))."
+       ""
+       "Example:"
+       "  (try-with (failwith \"boom\")"
+       "    (with (Failure m) m))   ;; => \"boom\""
+       ""
+       "See also: (raise V), (exception NAME).")
+  (raise (cons 'Failure (cons msg ()))))
+
+(defmacro try-with (body . clauses)
+  (doc "(try-with BODY (with (CTOR PARAMS...) HANDLER...) ... (else VAR HANDLER...))"
+       ""
+       "OCaml-style exception handling. Evaluates BODY; if it raises, the"
+       "raised value is matched against each (with (CTOR PARAMS...) ...)"
+       "clause by its constructor tag, binding PARAMS to the payload"
+       "elements in order. A trailing (else VAR ...) binds the raw value"
+       "and matches anything; with no else clause an unmatched exception is"
+       "re-raised. Expands to the (try ...) special form."
+       ""
+       "Example:"
+       "  (exception Bad-input)"
+       "  (try-with (raise (Bad-input \"x\"))"
+       "    (with (Bad-input msg) (concat \"bad: \" msg))"
+       "    (else e (raise e)))     ;; => \"bad: x\""
+       ""
+       "See also: (try BODY (catch VAR ...)), (exception NAME), (raise V).")
+  `(try ,body
+     (catch __e (__exn-clauses __e ,@clauses))))
+
+(defmacro __exn-clauses (e . clauses)
+  (if (= clauses ())
+      `(raise ,e)
+      (if (= (car (car clauses)) 'else)
+          `(do (let ,(car (cdr (car clauses))) ,e)
+               ,@(cdr (cdr (car clauses))))
+          `(if (exn? ',(car (car (cdr (car clauses)))) ,e)
+               (__exn-with (cdr ,e)
+                           ,(cdr (car (cdr (car clauses))))
+                           (do ,@(cdr (cdr (car clauses)))))
+               (__exn-clauses ,e ,@(cdr clauses))))))
+
+(defmacro __exn-with (payload params body)
+  (if (= params ())
+      body
+      `(do (let ,(car params) (car ,payload))
+           (__exn-with (cdr ,payload) ,(cdr params) ,body))))

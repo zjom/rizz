@@ -44,6 +44,16 @@ pub const KW_DO: &str = "do";
 /// `(eval FORM)` — evaluate a runtime-built form.
 pub const KW_EVAL: &str = "eval";
 
+/// `(try BODY (catch VAR HANDLER...) [(finally CLEANUP...)])` — evaluate
+/// BODY, catching any value raised by `(raise ...)`. `catch`/`finally` are
+/// recognized only positionally inside `try`, so they are not reserved.
+pub const KW_TRY: &str = "try";
+
+/// `(exception NAME)` — bind NAME to an exception constructor that builds a
+/// tagged cons `('NAME arg...)`. A special form (not a macro) because it
+/// introduces a binding in the caller's env.
+pub const KW_EXCEPTION: &str = "exception";
+
 /// `(open PATH [PREFIX])` — load a module and merge all its bindings into the
 /// caller; with an optional `PREFIX` ident, merged names become `PREFIX.NAME`.
 pub const KW_OPEN: &str = "open";

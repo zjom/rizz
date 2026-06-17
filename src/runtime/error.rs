@@ -99,6 +99,16 @@ pub enum RuntimeError {
         source: Box<crate::RizzError>,
     },
 
+    /// A value raised by `(raise V)`, unwinding the evaluator until the
+    /// nearest enclosing `(try ...)` catches it. Unlike the structural
+    /// faults above, this is the one error a running program produces and
+    /// observes deliberately; an uncaught `Raised` aborts the program like
+    /// any other error. The raised value is carried verbatim (an exception
+    /// is conventionally a tagged cons `('Name arg...)`, but any value may
+    /// be raised).
+    #[error("uncaught exception: {}", value.repr())]
+    Raised { value: Rc<Value> },
+
     /// An I/O failure from a builtin or `(open ...)` — typically a missing
     /// file or read failure.
     #[error(transparent)]

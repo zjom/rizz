@@ -433,6 +433,50 @@ env (optionally under a prefix); `load` returns those bindings as a map; and
 `load-quoted` returns the file's forms as unevaluated data. They are meaty
 enough to get their own section — see §8.
 
+### 5.11 `try` — catch a raised value
+
+```
+(try BODY (catch VAR HANDLER...))
+(try BODY (catch VAR HANDLER...) (finally CLEANUP...))
+(try BODY (finally CLEANUP...))
+```
+
+Evaluates `BODY`. If `BODY` raises a value with `(raise V)` (§12.2), `try`
+binds `V` to `VAR` and evaluates the `catch` handler in its place; otherwise
+it returns `BODY`'s value. An optional `(finally CLEANUP...)` clause runs on
+every exit path — normal return, caught raise, or a re-propagated error — and
+if `CLEANUP` itself raises, that error wins. Both clauses are optional and
+order-independent.
+
+Only values from `(raise ...)` are catchable: the structural faults of §12
+(arity, type, unbound ident, recursion limit, …) propagate past `catch`
+unchanged, so a `try` can never silently swallow a bug. Like `if`, `try` is
+not a scope boundary's escape hatch — bindings made while evaluating `BODY`
+or a handler do not leak out.
+
+```
+(exception Bad-input)
+(try (raise (Bad-input "x"))
+  (catch e (if (exn? 'Bad-input e) (car (cdr e)) (raise e))))  ;; => "x"
+```
+
+Errors: `BODY` absent (arity 0); a clause that is not `(catch ...)` or
+`(finally ...)`; `catch`'s `VAR` not an ident.
+
+### 5.12 `exception` — declare an exception constructor
+
+```
+(exception NAME)
+```
+
+Binds `NAME` to an exception constructor: a variadic function equivalent to
+`(fn NAME args (cons 'NAME args))`. Calling it builds a tagged cons whose head
+is the quoted name — `(NAME)` ⇒ `('NAME)`, `(NAME a b)` ⇒ `('NAME a b)` — the
+conventional shape for a raised value (§12.2). It is a special form rather
+than a prelude macro because it must introduce a binding in the caller's env.
+
+Errors: arity ≠ 1; `NAME` not an ident.
+
 ---
 
 ## 6. Functions
@@ -1076,11 +1120,11 @@ string that fails to parse as a number (`int-of` / `float-of`), a failed
 module load, and so on. Errors are reported with the name of the
 operation that raised them and enough detail to point at the problem.
 
-**rizz has no `try`/`catch`, no exceptions, and no condition system.** Any
-runtime error aborts the program — there is no language construct that
-lets a program observe a fault and continue.
-
-When writing programs, prefer to use errors as values.
+These structural faults are **not** catchable: they always abort the
+program. rizz has no condition system and no way to resume a fault — a bug is
+a bug. For a _deliberate_, recoverable non-local exit, use the exception
+system (§12.2). For ordinary expected outcomes, prefer errors as values
+(§12.1).
 
 ### 12.1 Errors as values
 
@@ -1103,8 +1147,50 @@ with its payload:
 The convention is one of taste, not enforcement — `'ok` / `'err`, `'some`
 / `'none`, or any other set of quoted idents work equally well. The point
 is that the caller inspects the tag with `=` and branches with `if` or
-`cond` instead of relying on a recovery mechanism the language does not
-provide.
+`cond`.
+
+### 12.2 Exceptions
+
+For a failure that must unwind across many call frames, rizz provides an
+OCaml-inspired exception system layered on the errors-as-values idiom: an
+exception is just a tagged cons `('Name arg...)`, and `raise` carries one up
+the stack until a `try` catches it.
+
+| Form / fn                     | Role                                                   |
+| ----------------------------- | ------------------------------------------------------ |
+| `(exception NAME)`            | Special form (§5.12): bind `NAME` to a constructor.    |
+| `(raise V)`                   | Abort evaluation, raising `V` to the nearest `try`.    |
+| `(try BODY (catch VAR H...))` | Special form (§5.11): catch a raised value, bind it.   |
+| `(try-with BODY CLAUSES...)`  | Prelude macro: catch and match by constructor (below). |
+| `(exn? TAG E)`                | True iff `E` is a cons tagged `TAG` (a quoted name).   |
+| `(failwith MSG)`              | Raise the standard `('Failure MSG)`.                   |
+
+`raise` accepts _any_ value, not only constructor-built ones — the tagged-cons
+shape is convention, not enforcement. An uncaught `raise` aborts the program
+like any §12 fault. Only `raise`d values are catchable; `try` never intercepts
+a structural fault.
+
+```
+(exception Not-found)
+(exception Bad-input)
+
+(try-with (lookup k)
+  (with (Not-found)     'missing)              ;; match by constructor
+  (with (Bad-input msg) (concat "bad: " msg))  ;; bind the payload to msg
+  (else  e              (raise e)))            ;; catch-all; re-raise
+```
+
+`try-with` expands to the `try`/`catch` special form: it binds the raised
+value, dispatches each `(with (CTOR PARAMS...) HANDLER...)` clause by
+comparing the value's tag (`exn?`) and binds `PARAMS` to the payload elements
+in order. A trailing `(else VAR HANDLER...)` matches anything; with no `else`,
+an unmatched exception is re-raised. The lower-level `try`/`catch` special
+form (§5.11) binds the raw value and leaves matching to you — reach for it
+when you want full control, and `try-with` for the common case.
+
+An exception raised while a module is being loaded (§8) surfaces wrapped as an
+`InModule` error and is **not** caught by a `try` in the importing file:
+catching is limited to a raise within the same evaluation.
 
 ---
 

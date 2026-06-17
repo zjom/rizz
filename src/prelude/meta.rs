@@ -15,8 +15,9 @@
 use crate::{
     Env, RuntimeError,
     consts::{
-        KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_FN, KW_IF, KW_LET, KW_LET_REF, KW_LOAD,
-        KW_LOAD_QUOTED, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
+        KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_EXCEPTION, KW_FN, KW_IF, KW_LET, KW_LET_REF,
+        KW_LOAD, KW_LOAD_QUOTED, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_TRY, KW_UNQUOTE,
+        KW_UNQUOTE_SPLICE,
     },
     runtime::{Closure, NativeFn, Value},
 };
@@ -443,6 +444,41 @@ on the bound callable.
 Errors when given zero arguments.
 
 See also: (show V)."
+        }
+
+        KW_TRY => {
+            "\
+(try BODY (catch VAR HANDLER...))
+(try BODY (catch VAR HANDLER...) (finally CLEANUP...))
+(try BODY (finally CLEANUP...))
+
+Evaluates BODY. If BODY raises a value via (raise ...), binds it to
+VAR and evaluates the catch handler instead; otherwise returns
+BODY's value. An optional (finally CLEANUP...) clause runs on every
+exit — normal, caught, or re-propagated — and a raise inside it
+supersedes. Only values from (raise ...) are catchable: structural
+faults (arity, type, recursion limit) still abort. Like (if ...),
+bindings made while evaluating BODY or a handler do not leak out.
+
+Errors when BODY is absent or a clause is not (catch ...) /
+(finally ...), or when catch's VAR is not an ident.
+
+See also: (raise V), (exception NAME), (try-with BODY ...)."
+        }
+
+        KW_EXCEPTION => {
+            "\
+(exception NAME)
+
+Binds NAME to an exception constructor — a variadic function
+equivalent to (fn NAME args (cons 'NAME args)). Calling it builds a
+tagged cons: (NAME) => ('NAME), (NAME a b) => ('NAME a b). Raise the
+result with (raise ...) and catch it with (try-with ...) or by hand
+with (exn? 'NAME e) inside a (try ... (catch ...)).
+
+Errors when called with arity \u{2260} 1 or when NAME is not an ident.
+
+See also: (raise V), (try-with BODY ...), (exn? TAG E)."
         }
 
         _ => return None,

@@ -3,9 +3,10 @@
 //! Each submodule contributes one group of builtins as a free-standing
 //! [`Env`]. [`env()`] unions them together and then folds in the
 //! rizz-defined forms from `_.rz`: the control-flow macros (`cond`,
-//! `match`, `unless`, `for`, `loop`, `while`, `and`, `or`) and the
-//! function combinators (`compose`, `pipe`, `const`, `flip`, `partial`,
-//! `complement`, `on`, `juxt`, `tap`). The resulting env is what
+//! `match`, `unless`, `for`, `loop`, `while`, `and`, `or`), the function
+//! combinators (`compose`, `pipe`, `const`, `flip`, `partial`,
+//! `complement`, `on`, `juxt`, `tap`), and the exception helpers
+//! (`exn?`, `failwith`, `try-with`). The resulting env is what
 //! [`crate::Runtime::new`] and [`crate::parse_and_run`] start from.
 //!
 //! | Submodule        | Provides                                                    |
@@ -19,6 +20,7 @@
 //! | [`cons`]         | `cons`, `car`, `cdr`, `car!`, `cdr!`                        |
 //! | [`ref_`]         | `ref`, `deref`, `set!`                                      |
 //! | [`meta`]         | `typeof`, `show`, `id`                                      |
+//! | [`exn`]          | `raise`                                                     |
 //!
 //! To add custom Rust builtins without losing the prelude, use [`install`]:
 //!
@@ -37,6 +39,7 @@ pub mod array;
 pub mod collections;
 pub mod cons;
 pub mod eq;
+pub mod exn;
 pub mod map;
 pub mod meta;
 pub mod numbers;
@@ -75,6 +78,7 @@ fn build_env() -> Env {
     let builtins = Env::new()
         .union(numbers::env())
         .union(eq::env())
+        .union(exn::env())
         .union(map::env())
         .union(collections::env())
         .union(str::env())

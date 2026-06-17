@@ -1393,3 +1393,131 @@ fn install_lets_host_bindings_override_prelude() {
     let (v, _) = rizz::parse_and_run_with_env(b"(+ 1 2)".as_ref(), &env).unwrap();
     assert_eq!(*v, V::Int(999));
 }
+
+// ----- exceptions: raise / try / catch / finally -----
+
+#[test]
+fn try_catches_raised_value_and_binds_it() {
+    assert_eq!(*run("(try (raise 7) (catch e e))"), Value::Int(7));
+    // an inner raise inside a deeper form still unwinds to the catch
+    assert_eq!(
+        *run("(try (+ 1 (raise 41)) (catch e (+ e 1)))"),
+        Value::Int(42)
+    );
+}
+
+#[test]
+fn try_returns_body_when_nothing_raised() {
+    assert_eq!(*run("(try 42 (catch e 0))"), Value::Int(42));
+    // catch bindings do not leak out of the try
+    let err = rizz::parse_and_run("(try 1 (catch e e)) e".as_bytes())
+        .expect_err("e should be unbound outside the try");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::UnknownIdent(_))
+    ));
+}
+
+#[test]
+fn try_does_not_catch_structural_faults() {
+    // (car 5) is a TypeMismatch, not a raise — a catch must not swallow it.
+    let err = rizz::parse_and_run("(try (car 5) (catch e 'nope))".as_bytes())
+        .expect_err("structural fault should propagate past catch");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::TypeMismatch { .. })
+    ));
+}
+
+#[test]
+fn raise_can_be_caught_and_reraised() {
+    let src = "\
+(exception Bad-input)
+(try (try (raise (Bad-input \"x\")) (catch e (raise e)))
+     (catch e (car e)))";
+    assert_eq!(*run(src), Value::Ident("Bad-input".into()));
+}
+
+#[test]
+fn uncaught_raise_surfaces_as_raised_error() {
+    let err = rizz::parse_and_run("(raise (cons 'Failure (cons \"boom\" ())))".as_bytes())
+        .expect_err("uncaught raise should abort");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::Raised { .. })
+    ));
+}
+
+#[test]
+fn finally_runs_on_both_normal_and_exceptional_exit() {
+    // normal exit: finally still fires (observed through a ref)
+    let ok = "(let! log 0) (try 5 (catch e e) (finally (set! log 1))) (deref log)";
+    assert_eq!(*run(ok), Value::Int(1));
+    // exceptional exit: finally fires, catch value is returned
+    let raised = "\
+(let! log 0)
+(let r (try (raise 9) (catch e e) (finally (set! log 2))))
+(+ (* r 10) (deref log))";
+    assert_eq!(*run(raised), Value::Int(92));
+}
+
+// ----- exceptions: exception / exn? / failwith / try-with -----
+
+#[test]
+fn exception_constructor_builds_tagged_cons() {
+    assert_eq!(
+        *run("(exception E) (E)"),
+        Value::cons_of(vec![Value::Ident("E".into())])
+    );
+    assert_eq!(*run("(exception E) (exn? 'E (E 1 2))"), Value::Int(1));
+    // exn? is falsy for the wrong tag and for non-cons values
+    assert_eq!(*run("(exception E) (exn? 'Other (E 1))"), Value::Int(0));
+    assert_eq!(*run("(exception E) (exn? 'E 5)"), Value::Unit);
+}
+
+#[test]
+fn try_with_matches_constructor_and_binds_payload() {
+    let src = "\
+(exception Bad-input)
+(try-with (raise (Bad-input \"x\"))
+  (with (Bad-input msg) (concat \"bad: \" msg))
+  (else e (raise e)))";
+    assert_eq!(*run(src), Value::Str("bad: x".into()));
+}
+
+#[test]
+fn try_with_binds_multiple_payload_params_in_order() {
+    let src = "\
+(exception P)
+(try-with (raise (P 1 2 3)) (with (P a b c) (+ a (+ b c))))";
+    assert_eq!(*run(src), Value::Int(6));
+}
+
+#[test]
+fn try_with_else_catches_anything_and_unmatched_reraises() {
+    // else binds the raw raised value
+    let with_else = "\
+(exception A)
+(try-with (raise (A 1 2)) (with (Z) 0) (else e (car e)))";
+    assert_eq!(*run(with_else), Value::Ident("A".into()));
+
+    // no matching clause and no else -> the exception is re-raised
+    let no_match = "\
+(exception A)
+(exception B)
+(try-with (raise (B)) (with (A) 1))";
+    let err =
+        rizz::parse_and_run(no_match.as_bytes()).expect_err("unmatched try-with should re-raise");
+    assert!(matches!(
+        err,
+        rizz::RizzError::RuntimeError(rizz::RuntimeError::Raised { .. })
+    ));
+}
+
+#[test]
+fn failwith_raises_failure_tagged_exception() {
+    assert_eq!(
+        *run("(try-with (failwith \"boom\") (with (Failure m) m))"),
+        Value::Str("boom".into())
+    );
+}

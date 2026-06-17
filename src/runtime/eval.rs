@@ -8,9 +8,9 @@
 
 use crate::{
     consts::{
-        FILE_EXTENSION, KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_FN, KW_IF, KW_LET, KW_LET_REF,
-        KW_LOAD, KW_LOAD_QUOTED, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_UNQUOTE, KW_UNQUOTE_SPLICE,
-        MODULE_PREFIX_SEP,
+        FILE_EXTENSION, KW_DEFMACRO, KW_DO, KW_DOC, KW_EVAL, KW_EXCEPTION, KW_FN, KW_IF, KW_LET,
+        KW_LET_REF, KW_LOAD, KW_LOAD_QUOTED, KW_OPEN, KW_QUASIQUOTE, KW_QUOTE, KW_TRY, KW_UNQUOTE,
+        KW_UNQUOTE_SPLICE, MODULE_PREFIX_SEP,
     },
     runtime::{Arity, Closure, Env, RuntimeError, Value},
 };
@@ -120,6 +120,8 @@ fn eval_inner(form: Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
                     KW_IF => return eval_if(tail, ctx),
                     KW_DO => return eval_do(tail, ctx),
                     KW_EVAL => return eval_eval(tail, ctx),
+                    KW_TRY => return eval_try(tail, ctx),
+                    KW_EXCEPTION => return eval_exception(tail, ctx),
                     KW_OPEN => return eval_open(tail, ctx),
                     KW_LOAD => return eval_load(tail, ctx),
                     KW_LOAD_QUOTED => return eval_load_quoted(tail, ctx),
@@ -823,6 +825,124 @@ fn eval_eval(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeErr
     }
     let (form, env) = eval(items[0].clone(), ctx)?;
     eval(form, &env)
+}
+
+/// `(try BODY (catch VAR HANDLER...) (finally CLEANUP...))`: evaluates
+/// BODY; if it raises (via [`raise`](crate::prelude::exn)), binds the raised
+/// value to VAR and evaluates the catch handler instead. A trailing
+/// `(finally ...)` clause runs on every exit — normal, caught, or
+/// re-propagated. Both clauses are optional and order-independent; only a
+/// [`RuntimeError::Raised`] is catchable, so structural faults (arity, type,
+/// recursion limit) still abort even with a catch present. Like `if`, the
+/// env threaded through BODY/handlers is discarded — `try` returns the
+/// caller's `ctx`.
+fn eval_try(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    const CATCH: &str = "catch";
+    const FINALLY: &str = "finally";
+
+    let items: Vec<_> = Value::iter(tail).collect();
+    let Some((body, clauses)) = items.split_first() else {
+        return Err(RuntimeError::ArityMismatch {
+            name: KW_TRY.into(),
+            expected: Arity::AtLeast(1),
+            got: 0,
+        });
+    };
+
+    // (catch VAR HANDLER...) -> (var, (do HANDLER...));  (finally CLEANUP...)
+    let mut catch: Option<(Rc<str>, Rc<Value>)> = None;
+    let mut finally: Option<Rc<Value>> = None;
+    for clause in clauses {
+        let parts: Vec<_> = Value::iter(clause).collect();
+        match parts.first().map(|p| &**p) {
+            Some(Value::Ident(head)) if head.as_ref() == CATCH => {
+                let var = match parts.get(1).map(|p| &**p) {
+                    Some(Value::Ident(v)) => v.clone(),
+                    other => {
+                        return Err(RuntimeError::type_mismatch(
+                            CATCH,
+                            "ident",
+                            other.unwrap_or(&Value::Unit),
+                        ));
+                    }
+                };
+                catch = Some((var, do_form(&parts[2..])));
+            }
+            Some(Value::Ident(head)) if head.as_ref() == FINALLY => {
+                finally = Some(do_form(&parts[1..]));
+            }
+            _ => {
+                return Err(RuntimeError::type_mismatch(
+                    KW_TRY,
+                    "(catch ...) or (finally ...) clause",
+                    clause,
+                ));
+            }
+        }
+    }
+
+    let outcome = match eval(body.clone(), ctx) {
+        Ok((v, _)) => Ok(v),
+        Err(RuntimeError::Raised { value }) => match &catch {
+            Some((var, handler)) => {
+                let henv = ctx.clone().update(var.clone(), value);
+                eval(handler.clone(), &henv).map(|(v, _)| v)
+            }
+            None => Err(RuntimeError::Raised { value }),
+        },
+        Err(other) => Err(other),
+    };
+
+    // `finally` runs on every path; if it raises, that error supersedes.
+    if let Some(cleanup) = &finally {
+        eval(cleanup.clone(), ctx)?;
+    }
+    outcome.map(|v| (v, ctx.clone()))
+}
+
+/// Wraps a slice of forms in a `(do ...)` form so it can be evaluated as a
+/// single sequencing expression (used for `try` catch/finally bodies).
+fn do_form(forms: &[Rc<Value>]) -> Rc<Value> {
+    let items = std::iter::once(Rc::new(Value::Ident(KW_DO.into())))
+        .chain(forms.iter().cloned())
+        .collect::<Vec<_>>();
+    Rc::new(Value::list_of(items))
+}
+
+/// `(exception NAME)`: binds NAME to an exception constructor. The
+/// constructor is a variadic closure equivalent to
+/// `(fn NAME args (cons 'NAME args))`, so `(NAME a b)` builds the tagged
+/// cons `('NAME a b)`. Implemented as a special form (rather than a macro)
+/// because the binding must reach the caller's env — a macro's expansion
+/// env is discarded. The returned env (carrying the new binding) is
+/// propagated, exactly as for `fn`/`let`.
+fn eval_exception(tail: &Rc<Value>, ctx: &Env) -> Result<(Rc<Value>, Env), RuntimeError> {
+    let name_form = single_arg(tail, KW_EXCEPTION)?;
+    let Value::Ident(name) = &*name_form else {
+        return Err(RuntimeError::type_mismatch(
+            KW_EXCEPTION,
+            "ident",
+            &name_form,
+        ));
+    };
+    let args: Rc<str> = "args".into();
+    // Build (fn NAME args (cons 'NAME args)) and evaluate it: eval_fn binds
+    // the closure under NAME in the returned env, which we hand straight back.
+    let body = Rc::new(Value::list_of([
+        Rc::new(Value::Ident("cons".into())),
+        Rc::new(Value::list_of([
+            Rc::new(Value::Ident(KW_QUOTE.into())),
+            Rc::new(Value::Ident(name.clone())),
+        ])),
+        Rc::new(Value::Ident(args.clone())),
+    ]));
+    let form = Rc::new(Value::list_of([
+        Rc::new(Value::Ident(KW_FN.into())),
+        Rc::new(Value::Ident(name.clone())),
+        Rc::new(Value::Ident(args)),
+        body,
+    ]));
+    eval(form, ctx)
 }
 
 /// `(let! name value)`: evaluates `value`, wraps it in a ref, binds it to
