@@ -198,6 +198,34 @@ fn variadic_rest_passes_through_reduce() {
     );
 }
 
+// ----- multi-form function bodies (implicit do) -----
+
+#[test]
+fn fn_named_multi_form_body() {
+    // Several body forms evaluate in order, threading bindings, last returned —
+    // no explicit `do` needed. (fn run (x) (let y (* x 2)) (let z (+ y 1)) (+ y z))
+    assert_eq!(
+        *run("((fn run (x) (let y (* x 2)) (let z (+ y 1)) (+ y z)) 3)"),
+        Value::Int(13)
+    );
+}
+
+#[test]
+fn fn_anonymous_multi_form_body() {
+    assert_eq!(*run("((fn (x) (let y (* x 2)) (+ y 1)) 5)"), Value::Int(11));
+}
+
+#[test]
+fn fn_multi_form_body_with_doc() {
+    // A doc slot still precedes a multi-form body, and is not part of it.
+    let src = "(fn inc (n) (doc \"adds one\") (let m (+ n 1)) m) (show inc)";
+    assert_eq!(*run(src), Value::Str("adds one".into()));
+    assert_eq!(
+        *run("((fn (n) (doc \"d\") (let m n) (+ m 1)) 4)"),
+        Value::Int(5)
+    );
+}
+
 // ----- quote / quasiquote with nesting -----
 
 #[test]
@@ -225,6 +253,22 @@ fn quasiquote_unquote_splicing() {
         int_list(&[1, 2, 3, 4])
     );
     assert_eq!(*run("`(1 ,@(quote (2 3)) 4)"), int_list(&[1, 2, 3, 4]));
+}
+
+#[test]
+fn quasiquote_splice_flattens_an_array() {
+    // An array operand splices element-wise, not as a single element. `range`
+    // returns an array, so this is the canonical SPEC §14 example.
+    assert_eq!(*run("`(1 ,@[2 3] 4)"), int_list(&[1, 2, 3, 4]));
+    assert_eq!(
+        *run("`(1 ,(+ 1 1) ,@(range 3 6))"),
+        int_list(&[1, 2, 3, 4, 5])
+    );
+    // An empty array contributes nothing.
+    assert_eq!(
+        *run("`(a ,@[] b)"),
+        Value::cons_of(vec![Value::Ident("a".into()), Value::Ident("b".into())])
+    );
 }
 
 #[test]

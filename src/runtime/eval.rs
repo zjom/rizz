@@ -352,6 +352,9 @@ fn bind_and_eval(
 /// (`(fn NAME PARAMS (doc "...") BODY)`); the doc is attached to the closure
 /// and retrievable via the `show` builtin.
 ///
+/// The body may be one or more forms: several forms are evaluated in order and
+/// the last is returned, as if wrapped in `do` (`(fn f (x) a b c)`).
+///
 /// `NAME` is optional: `(fn PARAMS BODY)` and `(fn PARAMS (doc ...) BODY)` build
 /// an anonymous closure that is not bound into the surrounding env. Anonymous
 /// closures cannot self-reference by name, so they cannot recurse.
@@ -376,38 +379,74 @@ fn eval_fn(tail: &Rc<Value>, env: &Env) -> Result<(Rc<Value>, Env), RuntimeError
 }
 
 /// The tail of a `fn` form: `(name, params, doc, body)`. Accepts:
-/// - `(PARAMS BODY)` — anonymous.
-/// - `(PARAMS (doc ...) BODY)` — anonymous with doc.
-/// - `(NAME PARAMS BODY)` — named.
-/// - `(NAME PARAMS (doc ...) BODY)` — named with doc.
+/// - `(PARAMS BODY+)` — anonymous.
+/// - `(PARAMS (doc ...) BODY+)` — anonymous with doc.
+/// - `(NAME PARAMS BODY+)` — named.
+/// - `(NAME PARAMS (doc ...) BODY+)` — named with doc.
+///
+/// Several body forms are wrapped into a single `(do ...)` (see [`make_body`]).
 type CallableTail = (Option<Rc<str>>, Rc<Value>, Option<Rc<str>>, Rc<Value>);
 
-/// The 3-element shape disambiguates on whether the middle item is a `(doc ...)`
-/// form: if yes, it's the anonymous-with-doc shape; otherwise it's the named
-/// shape. This means a 3-element call with a non-ident first slot still falls
-/// into the named path and surfaces a "name must be ident" error.
+/// Splits a `fn` form's tail into `(name, params, doc, body)`.
+///
+/// A `NAME` is present only when the first item is an ident that is *not*
+/// immediately followed by a `(doc ...)` form — that exception keeps the
+/// bare-ident variadic shape `(fn xs (doc ...) BODY)` reading as anonymous
+/// (params `xs`) rather than as a function named `xs`. A non-ident first item
+/// (e.g. a `(params)` list) is therefore always the params of an anonymous
+/// closure. Everything after the params and the optional doc is the body; a
+/// single form is used as-is, several are wrapped in `do`.
 fn split_fn_form(items: &[Rc<Value>], env: &Env) -> Result<CallableTail, RuntimeError> {
-    match items.len() {
-        2 => Ok((None, items[0].clone(), None, items[1].clone())),
-        3 if is_doc_form(&items[1]) => {
-            let doc = parse_doc_form(KW_FN, &items[1], env)?;
-            Ok((None, items[0].clone(), Some(doc), items[2].clone()))
+    let has_name = items.len() >= 3
+        && matches!(&**items.first().unwrap(), Value::Ident(_))
+        && !is_doc_form(&items[1]);
+
+    let (name, rest) = if has_name {
+        (Some(expect_name(KW_FN, &items[0])?), &items[1..])
+    } else {
+        (None, items)
+    };
+
+    // `rest` is `(PARAMS (doc ...)? BODY+)`: params plus at least one body form.
+    let params = rest.first().ok_or_else(|| fn_arity_error(items.len()))?;
+
+    let (doc, body_forms) = match rest.get(1) {
+        Some(second) if is_doc_form(second) => {
+            (Some(parse_doc_form(KW_FN, second, env)?), &rest[2..])
         }
-        3 => {
-            let name = expect_name(KW_FN, &items[0])?;
-            Ok((Some(name), items[1].clone(), None, items[2].clone()))
-        }
-        4 if is_doc_form(&items[2]) => {
-            let name = expect_name(KW_FN, &items[0])?;
-            let doc = parse_doc_form(KW_FN, &items[2], env)?;
-            Ok((Some(name), items[1].clone(), Some(doc), items[3].clone()))
-        }
-        _ => Err(RuntimeError::ArityMismatch {
-            name: KW_FN.into(),
-            expected: Arity::Exactly(3),
-            got: items.len(),
-        }),
+        _ => (None, &rest[1..]),
+    };
+
+    if body_forms.is_empty() {
+        return Err(fn_arity_error(items.len()));
     }
+
+    Ok((name, params.clone(), doc, make_body(body_forms)))
+}
+
+/// The arity error for a malformed `fn` form. The minimum is `(fn PARAMS BODY)`
+/// (anonymous), but the reported bound stays `Exactly(3)` — the named shape —
+/// to keep the message stable and the common case honest.
+fn fn_arity_error(got: usize) -> RuntimeError {
+    RuntimeError::ArityMismatch {
+        name: KW_FN.into(),
+        expected: Arity::Exactly(3),
+        got,
+    }
+}
+
+/// Assembles a closure body from one or more forms. A single form is used
+/// verbatim; several are spliced into a `(do FORM...)` so they evaluate in
+/// order with bindings threading between them and the last value returned —
+/// exactly as if the author had written the `do` themselves.
+fn make_body(forms: &[Rc<Value>]) -> Rc<Value> {
+    if let [single] = forms {
+        return single.clone();
+    }
+    let mut items = Vec::with_capacity(forms.len() + 1);
+    items.push(Rc::new(Value::Ident(KW_DO.into())));
+    items.extend(forms.iter().cloned());
+    Rc::new(Value::list_of(items))
 }
 
 /// Requires `form` to be an ident, naming the binding being defined.
@@ -1049,7 +1088,7 @@ fn quasi(datum: &Rc<Value>, env: &Env) -> Result<Rc<Value>, RuntimeError> {
             for elem in Value::iter(datum) {
                 if let Some(tail) = tagged(&elem, KW_UNQUOTE_SPLICE) {
                     let (spliced, _) = eval(unquote_operand(KW_UNQUOTE_SPLICE, tail)?, env)?;
-                    out.extend(Value::iter(&spliced));
+                    out.extend(splice_items(&spliced));
                 } else {
                     out.push(quasi(&elem, env)?);
                 }
@@ -1061,9 +1100,7 @@ fn quasi(datum: &Rc<Value>, env: &Env) -> Result<Rc<Value>, RuntimeError> {
             for x in xs.iter() {
                 if let Some(tail) = tagged(x, KW_UNQUOTE_SPLICE) {
                     let (spliced, _) = eval(unquote_operand(KW_UNQUOTE_SPLICE, tail)?, env)?;
-                    for e in Value::iter(&spliced) {
-                        out.push_back(e);
-                    }
+                    out.extend(splice_items(&spliced));
                 } else {
                     out.push_back(quasi(x, env)?);
                 }
@@ -1078,6 +1115,18 @@ fn quasi(datum: &Rc<Value>, env: &Env) -> Result<Rc<Value>, RuntimeError> {
             Ok(Rc::new(Value::Map(out)))
         }
         _ => Ok(datum.clone()),
+    }
+}
+
+/// The elements an `unquote-splice` operand contributes to its surrounding
+/// list. Cons lists *and* arrays are flattened element-wise (so both
+/// `` `(,@'(1 2)) `` and `` `(,@[1 2]) `` splice their elements); `()`
+/// contributes nothing. Any other value contributes itself once, matching
+/// [`Value::iter`]'s leaf behavior.
+fn splice_items(spliced: &Rc<Value>) -> Vec<Rc<Value>> {
+    match &**spliced {
+        Value::Array(xs) => xs.iter().cloned().collect(),
+        _ => Value::iter(spliced).collect(),
     }
 }
 

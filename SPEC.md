@@ -294,12 +294,12 @@ a name that will be mutated with `set!`, `push!`, etc. (§7).
 ### 5.3 `fn` — define a function
 
 ```
-(fn NAME (PARAMS...) BODY)
-(fn NAME (PARAMS... . REST) BODY)   ;; variadic via dotted tail
-(fn NAME REST BODY)                 ;; variadic via bare ident — all args bundled
-(fn NAME PARAMS (doc STR+) BODY)    ;; optional doc slot
-(fn PARAMS BODY)                    ;; anonymous — no env binding
-(fn PARAMS (doc STR+) BODY)         ;; anonymous with doc slot
+(fn NAME (PARAMS...) BODY+)         ;; one or more body forms
+(fn NAME (PARAMS... . REST) BODY+)  ;; variadic via dotted tail
+(fn NAME REST BODY+)                ;; variadic via bare ident — all args bundled
+(fn NAME PARAMS (doc STR+) BODY+)   ;; optional doc slot
+(fn PARAMS BODY+)                   ;; anonymous — no env binding
+(fn PARAMS (doc STR+) BODY+)        ;; anonymous with doc slot
 ```
 
 Creates a closure capturing the current env (lexical scope) and returns the
@@ -308,11 +308,13 @@ surrounding env _and_ bound under its own name inside the body — that
 self-binding is what enables recursion. `PARAMS` is a list of identifiers
 (use `()` for zero parameters).
 
-The 3-element shape is disambiguated by whether the middle item is a
-`(doc ...)` form: `(fn xs (doc "hi") body)` is anonymous-with-doc, while
-`(fn xs (a b) body)` is named (`xs` is the name, `(a b)` the params). An
-anonymous closure is not introduced into the surrounding env and cannot
-self-reference by name — use a named `fn` for recursion.
+A `NAME` is present exactly when the first item is an identifier that is **not**
+immediately followed by a `(doc ...)` form. So `(fn xs (a b) body)` is named
+(`xs` is the name, `(a b)` the params), while `(fn xs (doc "hi") body)` is
+anonymous-with-doc (`xs` is the bare-ident params). A first item that is not an
+identifier — e.g. a `(params)` list — is therefore always the params of an
+anonymous closure. An anonymous closure is not introduced into the surrounding
+env and cannot self-reference by name — use a named `fn` for recursion.
 
 A dotted-tail param list `(a b . rest)` makes the function **variadic**: `a`
 and `b` are required positional parameters, and any further arguments at the
@@ -322,11 +324,13 @@ position is shorthand for `(. ident)` — zero positional params, all
 arguments go to the rest list. Calling a variadic function with fewer than
 the positional count is an `ArityMismatch`.
 
-The body is a single form; for multi-step bodies wrap with `do`.
+The body is one or more forms. Multiple forms are evaluated in order, with
+bindings threading between them, and the value of the last is returned —
+equivalent to wrapping them in `do`. A single body form is used as-is.
 
-Errors: arity outside `2..=4`; param (positional or rest) not an ident; a
-3-element form whose first slot is not an ident when the middle slot is not
-a `(doc ...)` form.
+Errors: too few items to form `(PARAMS BODY)` (an anonymous closure needs at
+least a params form and one body form); param (positional or rest) not an
+ident.
 
 ### 5.4 `defmacro` — define a macro
 
@@ -339,7 +343,8 @@ Defines a user macro and binds it to `NAME`. The shape mirrors `fn`, except
 the body receives its arguments **unevaluated**: the macro is invoked at call
 sites with the raw forms, and its result is then evaluated in the caller's
 env. Parameter lists support the same fixed/dotted/bare-ident variants as
-`fn` (so `(defmacro foo xs ...)` collects all argument forms into `xs`).
+`fn` (so `(defmacro foo xs ...)` collects all argument forms into `xs`). Unlike
+`fn`, a macro takes exactly one body form (wrap multiple steps in `do`).
 
 Only the expansion's _value_ escapes the call site: any bindings introduced
 while evaluating the expansion are discarded, so a macro expanding to
@@ -401,7 +406,9 @@ Errors: arity ≠ 1.
 
 - An `(unquote X)` subform is replaced by the evaluation of `X`.
 - An `(unquote-splice X)` **element** of a list has `X` evaluated and its
-  resulting sequence spliced into the surrounding list.
+  resulting sequence spliced into the surrounding list. A cons list or an array
+  is flattened element-wise (so `` `(,@'(1 2)) `` and `` `(,@[1 2]) `` both
+  yield `(1 2)`); `()` contributes nothing. Any other value splices as itself.
 
 Splicing outside of a surrounding list (e.g. `` `,@xs ``) is a
 `TypeMismatch`. `quasi` recurses into nested lists.
@@ -490,7 +497,8 @@ Errors: arity ≠ 1; `NAME` not an ident.
 - `params` — a list of positional identifier names.
 - `rest` — an optional identifier for the rest parameter (variadic closures
   only; see §5.3).
-- `body` — a single form.
+- `body` — a single form. When `fn` is written with several body forms they are
+  wrapped into one `(do ...)`, so the closure always holds a single body form.
 - `env` — a snapshot of the lexical env at the point of definition.
 
 Calling a closure binds each positional parameter to its argument in the
