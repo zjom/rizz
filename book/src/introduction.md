@@ -38,10 +38,10 @@ that is partly written in Rust and partly written in rizz itself.
 Three things make a rizz program tick:
 
 - **Forms** — the data the program is made of. Source text parses into
-  S-expressions, and those S-expressions *are* the program. Code and data
+  S-expressions, and those S-expressions _are_ the program. Code and data
   share one representation, which is what makes the macro system possible.
 - **An environment** — a set of name bindings. Evaluation always happens
-  *against* an environment.
+  _against_ an environment.
 - **Evaluation** — the rule that transforms a form against an environment into
   a value (and a possibly-extended environment).
 
@@ -67,7 +67,7 @@ again and again, so they are worth stating up front:
 
 - **Value-oriented by default.** Bindings, closures, arrays, and maps are
   immutable. "Modifying" a collection returns a new, structurally-shared copy.
-  The *only* way to mutate in place is a [`ref`](language/refs.md).
+  The _only_ way to mutate in place is a [`ref`](language/refs.md).
 - **No implicit number coercion.** `int` and `float` never mix silently;
   `(+ 1 2.0)` is a type error. Convert explicitly with `int-of` / `float-of`.
 - **Booleans are integers.** There is no boolean type — `1` is true and `0` is

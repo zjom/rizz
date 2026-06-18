@@ -5,7 +5,7 @@ Beyond the `if` special form, rizz's control-flow constructs — `cond`, `match`
 prelude**, written in rizz itself. That has two practical consequences:
 
 - They behave like syntax (e.g. `and`/`or` short-circuit, `for` binds a name),
-  but they are *ordinary bindings*, not reserved keywords. You can shadow them.
+  but they are _ordinary bindings_, not reserved keywords. You can shadow them.
 - Because they expand to `if`, `reduce`, and closures, they inherit those
   semantics — including the absence of a built-in accumulator in the looping
   forms (use a [ref](refs.md)).
@@ -34,7 +34,7 @@ clause and no `else`, the result is `()`.
 ```
 
 `match` evaluates `VAL` once, then tries each clause. The clause's predicate is a
-*call form* with the matched value inserted as its **first argument** — so
+_call form_ with the matched value inserted as its **first argument** — so
 `(< 10)` becomes `(< VAL 10)`. The first truthy predicate wins.
 
 ```clojure
@@ -113,7 +113,7 @@ returning the body's most recent value (or `()` if it never ran).
 (deref sum)        ;; => 10
 ```
 
-> `while` is a *recursive* macro, so a `while` loop that runs an enormous number
+> `while` is a _recursive_ macro, so a `while` loop that runs an enormous number
 > of times can hit the recursion limit. For iterating a known sequence, prefer
 > `for` or `reduce`, which do not recurse. See
 > [Performance](../idioms/performance.md).
@@ -125,7 +125,7 @@ returning the body's most recent value (or `()` if it never ran).
 (or A B)
 ```
 
-These follow Lua-style *value* semantics rather than returning a boolean:
+These follow Lua-style _value_ semantics rather than returning a boolean:
 
 - `or` returns `A` if `A` is truthy, otherwise `B`.
 - `and` returns `B` if `A` is truthy, otherwise `A`.
@@ -146,6 +146,6 @@ only does the lookup when `x` really is a map.
 
 ---
 
-*See also:* [Special Forms](special-forms.md) · [Refs and Mutability](refs.md) ·
+_See also:_ [Special Forms](special-forms.md) · [Refs and Mutability](refs.md) ·
 [Collections](collections.md) · [Macros and Metaprogramming](macros.md) ·
-*SPEC.md* §9
+_SPEC.md_ §9

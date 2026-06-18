@@ -71,7 +71,7 @@ visible and local:
   (else        "something else"))
 ```
 
-(Keep the tag *bare* inside the quasiquote — `` `(ok ,x) ``, not `` `('ok ,x) ``
+(Keep the tag _bare_ inside the quasiquote — `` `(ok ,x) ``, not `` `('ok ,x) ``
 — so the list's head is the symbol `ok`. See the gotcha in
 [Errors and Exceptions](../language/errors.md).)
 
@@ -149,6 +149,6 @@ library pleasant to explore interactively.
 
 ---
 
-*See also:* [Patterns and Anti-patterns](patterns.md) ·
+_See also:_ [Patterns and Anti-patterns](patterns.md) ·
 [Performance](performance.md) · [The Standard Library](../language/stdlib.md) ·
-*SPEC.md* §14
+_SPEC.md_ §14

@@ -24,11 +24,11 @@ adds the `rizz` binary and REPL; library consumers don't need it.
 The library is organized around the three-stage pipeline from the
 [Introduction](../introduction.md), each in its own module:
 
-| Stage        | Module           | Output                                  |
-| ------------ | ---------------- | --------------------------------------- |
-| **Parse**    | `rizz::parser`   | `Sexp` forms, each with a `Position`    |
-| **Evaluate** | `rizz::runtime`  | `Value` + an updated `Env`              |
-| **Builtins** | `rizz::prelude`  | The default `Env`                       |
+| Stage        | Module          | Output                               |
+| ------------ | --------------- | ------------------------------------ |
+| **Parse**    | `rizz::parser`  | `Sexp` forms, each with a `Position` |
+| **Evaluate** | `rizz::runtime` | `Value` + an updated `Env`           |
+| **Builtins** | `rizz::prelude` | The default `Env`                    |
 
 For convenience the most-used types are re-exported at the crate root: `Parser`,
 `ParseError`, `Env`, `Runtime`, and `RuntimeError`.
@@ -38,14 +38,14 @@ Most embedders never touch the stages directly — the helpers `parse_and_run` a
 
 ## Choosing an entry point
 
-| Use case                                            | Entry point                  |
-| --------------------------------------------------- | ---------------------------- |
-| Run a string, get the last value back               | `parse_and_run`              |
-| Run a string against caller-supplied bindings       | `parse_and_run_with_env`     |
-| Evaluate already-parsed forms                       | `eval_forms`                 |
-| Repeated calls that share state (REPL, file load)   | `Runtime`                    |
-| Load and evaluate a `.rz` file                      | `Runtime::eval_file`         |
-| Just parse, no evaluation                           | `Parser`                     |
+| Use case                                          | Entry point              |
+| ------------------------------------------------- | ------------------------ |
+| Run a string, get the last value back             | `parse_and_run`          |
+| Run a string against caller-supplied bindings     | `parse_and_run_with_env` |
+| Evaluate already-parsed forms                     | `eval_forms`             |
+| Repeated calls that share state (REPL, file load) | `Runtime`                |
+| Load and evaluate a `.rz` file                    | `Runtime::eval_file`     |
+| Just parse, no evaluation                         | `Parser`                 |
 
 The next chapter, [Driving the Interpreter](driving.md), works through each of
 these. The short version: use `parse_and_run` for a one-shot, and a `Runtime`
@@ -97,5 +97,5 @@ Empty (or comment-only) input is a `ParseError`.
 
 ---
 
-*See also:* [Driving the Interpreter](driving.md) ·
+_See also:_ [Driving the Interpreter](driving.md) ·
 [Working with Values](values.md) · [Custom Builtins](builtins.md)

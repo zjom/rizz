@@ -27,16 +27,15 @@ are catchable.
 
 ## Errors as values
 
-For *expected* failures — a parse that might not succeed, a lookup that might
+For _expected_ failures — a parse that might not succeed, a lookup that might
 miss — return a value that encodes the outcome. A symbol makes a convenient
 **tag**, and a two-element list pairs a tag with its payload:
 
 ```clojure
 (fn parse (s)
-  (do
-    (let n (str->int s))
-    (if (= n ()) '(err "not a number")
-                 `(ok ,n))))
+  (let n (str->int s))
+  (if (= n ()) '(err "not a number")
+               `(ok ,n)))
 
 (let result (parse "42"))
 (if (= (car result) 'ok)
@@ -50,31 +49,31 @@ branches with `if` or [`cond`](control-flow.md). Many standard functions already
 use this idea: `get` and `str->int` return `()` on a miss, which is falsy and
 slots straight into `if`.
 
-> **Gotcha — tags inside quasiquote.** Notice the tag is a *bare* `ok`, not
+> **Gotcha — tags inside quasiquote.** Notice the tag is a _bare_ `ok`, not
 > `'ok`, inside the `` ` `` template. Within a quasiquote a leading quote is
 > kept literally, so `` `('ok ,n) `` would build the list `((quote ok) 42)` —
 > whose head is `(quote ok)`, not the symbol `ok` — and `(= (car result) 'ok)`
 > would then be false. Write the tag bare in a quasiquote (`` `(ok ,n) ``); use
-> `'ok` only when you're *reading* the tag back out, as in the `=` test above.
+> `'ok` only when you're _reading_ the tag back out, as in the `=` test above.
 
 This is the idiom to prefer for ordinary control flow. It keeps failure explicit
 and local, with no hidden unwinding.
 
 ## Exceptions
 
-When a failure needs to unwind across *many* frames — past functions that have no
+When a failure needs to unwind across _many_ frames — past functions that have no
 business handling it — reach for the exception system. It is layered on the
 errors-as-values idea: an exception is just a tagged cons `('Name arg...)`, and
 `raise` carries one up the stack until a `try` catches it.
 
-| Form / function                 | Role                                                  |
-| ------------------------------- | ----------------------------------------------------- |
-| `(exception NAME)`              | Bind `NAME` to a constructor.                         |
-| `(raise V)`                     | Abort evaluation, raising `V` to the nearest `try`.   |
-| `(try BODY (catch VAR H...))`   | Catch a raised value, bind it to `VAR`.               |
-| `(try-with BODY CLAUSES...)`    | Catch and dispatch by constructor (prelude macro).    |
-| `(exn? TAG E)`                  | True iff `E` is a cons tagged `TAG`.                  |
-| `(failwith MSG)`                | Raise the standard `('Failure MSG)`.                  |
+| Form / function               | Role                                                |
+| ----------------------------- | --------------------------------------------------- |
+| `(exception NAME)`            | Bind `NAME` to a constructor.                       |
+| `(raise V)`                   | Abort evaluation, raising `V` to the nearest `try`. |
+| `(try BODY (catch VAR H...))` | Catch a raised value, bind it to `VAR`.             |
+| `(try-with BODY CLAUSES...)`  | Catch and dispatch by constructor (prelude macro).  |
+| `(exn? TAG E)`                | True iff `E` is a cons tagged `TAG`.                |
+| `(failwith MSG)`              | Raise the standard `('Failure MSG)`.                |
 
 ### Declaring and raising
 
@@ -89,7 +88,7 @@ tagged cons:
 (raise (Bad-input "x"))   ;; unwinds to the nearest try
 ```
 
-`raise` accepts *any* value, not only constructor-built ones — the tagged-cons
+`raise` accepts _any_ value, not only constructor-built ones — the tagged-cons
 shape is convention, not enforcement. An uncaught `raise` aborts the program
 like any structural fault.
 
@@ -102,7 +101,7 @@ like any structural fault.
 
 `try` evaluates `BODY`. If it raises, the raised value is bound to `VAR` and the
 `catch` handler runs in its place; otherwise `try` returns the body's value. An
-optional `(finally CLEANUP...)` clause runs on *every* exit path — normal
+optional `(finally CLEANUP...)` clause runs on _every_ exit path — normal
 return, caught raise, or re-propagated error:
 
 ```clojure
@@ -112,7 +111,7 @@ return, caught raise, or re-propagated error:
 ```
 
 `exn?` tests a value's tag, so the handler can decide whether this is its
-exception and re-`raise` if not. `try` is *not* a scope escape hatch — bindings
+exception and re-`raise` if not. `try` is _not_ a scope escape hatch — bindings
 made inside `BODY` or a handler do not leak out.
 
 ### `try-with` — match by constructor
@@ -161,6 +160,6 @@ Catching is limited to a raise within the same evaluation.
 
 ---
 
-*See also:* [Collections](collections.md) · [Modules](modules.md) ·
+_See also:_ [Collections](collections.md) · [Modules](modules.md) ·
 [Control Flow](control-flow.md) · [Idioms](../idioms/idioms.md) ·
-*SPEC.md* §12
+_SPEC.md_ §12

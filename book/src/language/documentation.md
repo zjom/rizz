@@ -71,7 +71,7 @@ is the right tool.
 
 ## `doc` is context-sensitive
 
-`doc` is special *only* as the head of the documentation slot inside a binding
+`doc` is special _only_ as the head of the documentation slot inside a binding
 form. It is not a general special form, and it is not in the reserved-identifier
 list. Anywhere else, `(doc ...)` is read as an ordinary function call — which
 fails with `UnknownIdent("doc")` unless you have bound `doc` to a callable
@@ -107,6 +107,6 @@ multi-line help when surfaced by `show`.
 
 ---
 
-*See also:* [Bindings and Functions](functions.md) ·
+_See also:_ [Bindings and Functions](functions.md) ·
 [Macros and Metaprogramming](macros.md) · [The Standard Library](stdlib.md) ·
-*SPEC.md* §11
+_SPEC.md_ §11

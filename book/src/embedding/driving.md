@@ -134,11 +134,11 @@ into the runtime `Value` the evaluator walks.
 
 `Runtime::env()` returns the current top-level `Env`, useful for inspecting
 bindings after a run or handing the env to `parse_and_run_with_env`. The runtime
-also pins a *base env* (a snapshot taken at construction) that seeds every
+also pins a _base env_ (a snapshot taken at construction) that seeds every
 `(open ...)`d module — which is how host builtins reach loaded modules. That
 mechanism is the subject of [Custom Builtins](builtins.md).
 
 ---
 
-*See also:* [Overview](overview.md) · [Working with Values](values.md) ·
+_See also:_ [Overview](overview.md) · [Working with Values](values.md) ·
 [Custom Builtins](builtins.md) · [A Worked Example](worked-example.md)

@@ -41,14 +41,14 @@ When a `Value` comes back from evaluation, these accessors get you to the Rust
 data inside. The `as_*` family returns `Option`, yielding `None` when the value
 is a different kind:
 
-| Method               | Returns                       | Notes                                |
-| -------------------- | ----------------------------- | ------------------------------------ |
-| `as_int()`           | `Option<i64>`                 | `Some` for `Int`.                    |
-| `as_float()`         | `Option<f64>`                 | `Some` for `Float`.                  |
-| `as_str()`           | `Option<Rc<str>>`             | `Some` for `Str`.                    |
-| `as_str_or_ident()`  | `Option<Rc<str>>`             | Accepts a `Str` *or* an `Ident`.     |
-| `as_array()`         | `Option<im::Vector<Rc<Value>>>` | `Some` for `Array`.                |
-| `as_map()`           | `Option<im::HashMap<…>>`      | `Some` for `Map`.                    |
+| Method              | Returns                         | Notes                            |
+| ------------------- | ------------------------------- | -------------------------------- |
+| `as_int()`          | `Option<i64>`                   | `Some` for `Int`.                |
+| `as_float()`        | `Option<f64>`                   | `Some` for `Float`.              |
+| `as_str()`          | `Option<Rc<str>>`               | `Some` for `Str`.                |
+| `as_str_or_ident()` | `Option<Rc<str>>`               | Accepts a `Str` _or_ an `Ident`. |
+| `as_array()`        | `Option<im::Vector<Rc<Value>>>` | `Some` for `Array`.              |
+| `as_map()`          | `Option<im::HashMap<…>>`        | `Some` for `Map`.                |
 
 ```rust,ignore
 use rizz::runtime::Value;
@@ -123,5 +123,5 @@ your copy, the value inside the interpreter is unaffected.
 
 ---
 
-*See also:* [Driving the Interpreter](driving.md) · [Custom Builtins](builtins.md) ·
+_See also:_ [Driving the Interpreter](driving.md) · [Custom Builtins](builtins.md) ·
 [Values and Types](../language/values.md) · [A Worked Example](worked-example.md)

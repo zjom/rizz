@@ -1,7 +1,7 @@
 # Grammar
 
 An informal summary of rizz's surface syntax. For the full prose, see
-[Syntax](../language/syntax.md) and *SPEC.md* §2.
+[Syntax](../language/syntax.md) and _SPEC.md_ §2.
 
 ## Tokens
 
@@ -58,6 +58,6 @@ quoted   =  "'"  form                     ; (quote form)
 
 ---
 
-*See also:* [Syntax](../language/syntax.md) ·
+_See also:_ [Syntax](../language/syntax.md) ·
 [Reserved Identifiers](reserved.md) ·
 [Standard Library Reference](stdlib-reference.md)

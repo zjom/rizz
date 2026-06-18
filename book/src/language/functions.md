@@ -41,18 +41,23 @@ The common shape is a name, a parameter list, and a body:
 (square 5)         ;; => 25
 ```
 
-`fn` returns the closure, *and* (when named) binds it under that name in the
-surrounding environment. The body is a **single form** — use [`do`](special-forms.md)
-to sequence several steps:
+`fn` returns the closure, _and_ (when named) binds it under that name in the
+surrounding environment. The body is **one or more forms**: several forms are
+evaluated in order, bindings thread between them, and the value of the last is
+returned.
 
 ```clojure
 (fn stats (n)
-  (do
-    (let sq (* n n))
-    (let cube (* sq n))
-    [sq cube]))
+  (let sq (* n n))
+  (let cube (* sq n))
+  [sq cube])
 (stats 3)          ;; => [9 27]
 ```
+
+This is exactly equivalent to wrapping the body in a single
+[`do`](special-forms.md) — a multi-form body _is_ an implicit `do` — so reach
+for explicit `do` only when you want to sequence forms somewhere a single form
+is expected (an `if` branch, a `for` body).
 
 ### Parameters
 
@@ -85,7 +90,7 @@ if there were no extra arguments). Calling with fewer than the required
 positional count is still an `ArityMismatch`.
 
 **Bare-ident params.** If the parameter "list" is a single identifier rather
-than a parenthesized list, *all* arguments are bundled into it:
+than a parenthesized list, _all_ arguments are bundled into it:
 
 ```clojure
 (fn sum xs (reduce + 0 xs))
@@ -113,13 +118,13 @@ By convention, anonymous closures are often written with a throwaway name like
 ```
 
 > **Disambiguation.** A three-element `fn` form is read by whether its middle
-> item is a `(doc ...)` form. `(fn xs (a b) body)` is *named* — `xs` is the
-> name, `(a b)` the params. `(fn xs (doc "…") body)` is *anonymous with a doc
-> slot*. When in doubt, give the params explicit parentheses.
+> item is a `(doc ...)` form. `(fn xs (a b) body)` is _named_ — `xs` is the
+> name, `(a b)` the params. `(fn xs (doc "…") body)` is _anonymous with a doc
+> slot_. When in doubt, give the params explicit parentheses.
 
 ### Recursion
 
-A named function is bound under its own name *inside its body*, which is what
+A named function is bound under its own name _inside its body_, which is what
 lets it call itself:
 
 ```clojure
@@ -151,10 +156,10 @@ closure, capture a [ref](refs.md):
 (deref c)          ;; => 3
 ```
 
-The closure captured the *cell* `c`, so every call mutates the same counter.
+The closure captured the _cell_ `c`, so every call mutates the same counter.
 
 ---
 
-*See also:* [Special Forms](special-forms.md) · [Refs and Mutability](refs.md) ·
+_See also:_ [Special Forms](special-forms.md) · [Refs and Mutability](refs.md) ·
 [Control Flow](control-flow.md) · [The Standard Library](stdlib.md) ·
-*SPEC.md* §5–§6
+_SPEC.md_ §5–§6

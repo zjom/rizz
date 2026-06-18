@@ -121,7 +121,7 @@ a session feel stateful (see [Driving the Interpreter](driving.md)).
   a builtin must call a rizz callable you were handed.
 - Split user scripts into [modules](../language/modules.md) and let them
   `(open ...)` each other — your host builtins ride along via the base env.
-- Sandbox by *omission*: a script can only do what your installed builtins
+- Sandbox by _omission_: a script can only do what your installed builtins
   permit, so simply not exposing file or network functions keeps scripts pure.
 
 That is the whole embedding story — a small language, your functions, and values
@@ -129,5 +129,5 @@ flowing cleanly across the boundary.
 
 ---
 
-*See also:* [Driving the Interpreter](driving.md) · [Custom Builtins](builtins.md) ·
+_See also:_ [Driving the Interpreter](driving.md) · [Custom Builtins](builtins.md) ·
 [Working with Values](values.md) · [Error Handling](errors.md)

@@ -16,7 +16,7 @@ A comment starts with `;;` and runs to the end of the line:
 (+ 1 2)   ;; a trailing comment
 ```
 
-> **Trap:** a single `;` that is *not* followed by another `;` is a syntax
+> **Trap:** a single `;` that is _not_ followed by another `;` is a syntax
 > error (the parser calls it `StraySemicolon`). Comments are always `;;`.
 
 ## Atoms
@@ -120,27 +120,27 @@ Insertion order is **not** preserved.
 ## Quoting
 
 Four reader-macro prefixes expand into ordinary forms. They are how you write
-*data* that looks like *code* without it being evaluated.
+_data_ that looks like _code_ without it being evaluated.
 
-| Prefix | Expands to              | Name             |
-| ------ | ----------------------- | ---------------- |
-| `'X`   | `(quote X)`             | quote            |
-| `` `X ``| `(quasi X)`            | quasiquote       |
-| `,X`   | `(unquote X)`           | unquote          |
-| `,@X`  | `(unquote-splice X)`    | unquote-splicing |
+| Prefix   | Expands to           | Name             |
+| -------- | -------------------- | ---------------- |
+| `'X`     | `(quote X)`          | quote            |
+| `` `X `` | `(quasi X)`          | quasiquote       |
+| `,X`     | `(unquote X)`        | unquote          |
+| `,@X`    | `(unquote-splice X)` | unquote-splicing |
 
-`'x` gives you the *identifier* `x` rather than its value; `'(a b c)` gives you
+`'x` gives you the _identifier_ `x` rather than its value; `'(a b c)` gives you
 a three-element list as data. Quasiquote lets you build data with holes punched
 in it:
 
 ```clojure
 'foo                          ;; => the ident foo
 '(1 2 3)                      ;; => the list (1 2 3)
-`(1 ,(+ 1 1) ,@'(3 4 5))      ;; => (1 2 3 4 5)
+`(1 ,(+ 1 1) ,@(range 3 6))   ;; => (1 2 3 4 5)
 ```
 
-(Splicing flattens a **cons list**; an array would be inserted as a single
-element — see [Special Forms](special-forms.md).)
+(`,@` splices the elements of a cons list or array into the surrounding list —
+see [Special Forms](special-forms.md).)
 
 The semantics are covered in [Special Forms](special-forms.md); the macro use
 cases in [Macros and Metaprogramming](macros.md).
@@ -165,7 +165,7 @@ You will mostly meet dotted lists in **variadic parameter lists** — `(fn f (a 
 
 ## Parse errors
 
-Malformed source is rejected *before* any evaluation begins, and every error
+Malformed source is rejected _before_ any evaluation begins, and every error
 points at the line and column of the offending byte. Stray closing brackets,
 unterminated lists, a lone `;`, malformed numbers, and invalid string escapes
 are all parse errors.
@@ -180,6 +180,6 @@ part of it runs.
 
 ---
 
-*See also:* [Values and Types](values.md) ·
+_See also:_ [Values and Types](values.md) ·
 [The Evaluation Model](evaluation.md) · [Grammar](../appendix/grammar.md) ·
-*SPEC.md* §2
+_SPEC.md_ §2

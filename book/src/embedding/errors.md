@@ -27,7 +27,7 @@ and `Display` delegates to the inner error — you can print a `RizzError`
 directly without matching the variant.
 
 Note the split by entry point: `parse_and_run` and `Runtime::eval`/`eval_file`
-return `RizzError` (they parse *and* evaluate), while `eval_forms` and
+return `RizzError` (they parse _and_ evaluate), while `eval_forms` and
 `Runtime::eval_form` already have parsed input and return `RuntimeError`.
 
 ## `ParseError`
@@ -37,27 +37,27 @@ number, an invalid string escape, a stray `;`, non-UTF-8 bytes, or unexpected
 end of input. Every variant carries a `parser::Position` (line, column, byte
 offset), so you can underline the offending token in a host editor or REPL.
 
-Because parsing happens entirely before evaluation, a `ParseError` means *nothing
-ran*.
+Because parsing happens entirely before evaluation, a `ParseError` means _nothing
+ran_.
 
 ## `RuntimeError`
 
 The evaluation-time failures. The variants you'll encounter most:
 
-| Variant            | Meaning                                                        |
-| ------------------ | -------------------------------------------------------------- |
-| `UnknownIdent`     | A name was looked up and not bound.                            |
-| `NotCallable`      | A non-callable value appeared in head position.               |
-| `ArityMismatch`    | Wrong number of arguments (carries an `Arity` describing the contract). |
-| `TypeMismatch`     | An argument was the wrong type (`expected` vs `got`).         |
-| `IndexOob`         | An index outside a collection's bounds.                       |
-| `ArithmeticError`  | Integer overflow, divide-by-zero, or a NaN comparison.        |
-| `ParseError`       | A runtime parse, e.g. `int-of` on a non-numeric string.      |
-| `RecursionLimit`   | Evaluation recursed past the configured cap.                  |
-| `InModule`         | A failure inside an `(open ...)`d module (wraps the inner error + path). |
-| `Raised`           | A value raised by `(raise ...)` that no `try` caught.        |
-| `IOError`          | An I/O failure (a missing file for `open`/`eval_file`).      |
-| `Other`            | A host-side error injected via `anyhow`.                     |
+| Variant           | Meaning                                                                  |
+| ----------------- | ------------------------------------------------------------------------ |
+| `UnknownIdent`    | A name was looked up and not bound.                                      |
+| `NotCallable`     | A non-callable value appeared in head position.                          |
+| `ArityMismatch`   | Wrong number of arguments (carries an `Arity` describing the contract).  |
+| `TypeMismatch`    | An argument was the wrong type (`expected` vs `got`).                    |
+| `IndexOob`        | An index outside a collection's bounds.                                  |
+| `ArithmeticError` | Integer overflow, divide-by-zero, or a NaN comparison.                   |
+| `ParseError`      | A runtime parse, e.g. `int-of` on a non-numeric string.                  |
+| `RecursionLimit`  | Evaluation recursed past the configured cap.                             |
+| `InModule`        | A failure inside an `(open ...)`d module (wraps the inner error + path). |
+| `Raised`          | A value raised by `(raise ...)` that no `try` caught.                    |
+| `IOError`         | An I/O failure (a missing file for `open`/`eval_file`).                  |
+| `Other`           | A host-side error injected via `anyhow`.                                 |
 
 These map directly onto the language's [error story](../language/errors.md):
 everything except `Raised` is a structural fault that a rizz `try` cannot catch;
@@ -136,6 +136,6 @@ requires), render it to a `String` first — `anyhow::anyhow!("{e}")`.
 
 ---
 
-*See also:* [Custom Builtins](builtins.md) ·
+_See also:_ [Custom Builtins](builtins.md) ·
 [Errors and Exceptions](../language/errors.md) ·
 [Performance](../idioms/performance.md) · [A Worked Example](worked-example.md)

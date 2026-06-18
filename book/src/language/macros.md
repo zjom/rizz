@@ -1,6 +1,6 @@
 # Macros and Metaprogramming
 
-Macros are functions that run at the *call site* on **unevaluated** argument
+Macros are functions that run at the _call site_ on **unevaluated** argument
 forms, and whose result is then evaluated in the caller's environment. Because
 rizz code is just data (cons lists and idents), a macro is a program that
 transforms one chunk of code into another. Every control-flow form you met in
@@ -15,7 +15,7 @@ transforms one chunk of code into another. Every control-flow form you met in
 The shape mirrors [`fn`](functions.md) — including fixed, dotted-rest, and
 bare-ident parameter lists — with one essential difference: the arguments arrive
 **unevaluated**. The body computes a new form (typically with
-[quasiquote](special-forms.md)), and *that* form is evaluated in the caller's
+[quasiquote](special-forms.md)), and _that_ form is evaluated in the caller's
 scope.
 
 Here is `unless`, essentially as the prelude defines it:
@@ -28,7 +28,7 @@ Here is `unless`, essentially as the prelude defines it:
 ```
 
 When you write `(unless (> 1 2) 'ok)`, the macro receives `cond = (> 1 2)` and
-`body = ('ok)` as *data*. It builds `(if (> 1 2) () (do 'ok))`, which is then
+`body = ('ok)` as _data_. It builds `(if (> 1 2) () (do 'ok))`, which is then
 evaluated. Note the body forms were never evaluated by the macro itself — only
 the expansion is.
 
@@ -37,8 +37,8 @@ the expansion is.
 Macros are mostly quasiquote with the macro's parameters spliced in:
 
 - `` ` `` starts a template that is literal by default.
-- `,x` drops in the *value* of `x` (here, the argument form the macro received).
-- `,@xs` splices a *sequence* of forms into the surrounding list.
+- `,x` drops in the _value_ of `x` (here, the argument form the macro received).
+- `,@xs` splices a _sequence_ of forms into the surrounding list.
 
 ```clojure
 (defmacro swap-args (f a b)
@@ -55,7 +55,7 @@ friends.
 
 A macro's expansion is evaluated, but **any bindings it introduces while
 expanding are discarded** — they do not leak into the caller. A macro that
-expands to `(let x 1)` does *not* bind `x` in the surrounding scope:
+expands to `(let x 1)` does _not_ bind `x` in the surrounding scope:
 
 ```clojure
 (defmacro def-x () `(let x 1))
@@ -111,7 +111,7 @@ logic:
 So `(cond (A x) (B y) (else z))` expands to
 `(if A x (if B y z))`. The macro pulls apart each clause with `car`/`cdr`,
 emits an `if`, and recursively expands the remaining clauses by splicing
-`,@(cdr clauses)` back into a `cond`. The recursion happens at *expansion* time;
+`,@(cdr clauses)` back into a `cond`. The recursion happens at _expansion_ time;
 the final code is a plain `if` ladder.
 
 `match`, `try-with`, and `while` are built the same way — small recursive macros
@@ -120,8 +120,8 @@ idiomatic macro style.
 
 ## `eval` — the other half of metaprogramming
 
-Where macros transform code *before* it runs, [`eval`](special-forms.md) runs
-data *as* code at runtime:
+Where macros transform code _before_ it runs, [`eval`](special-forms.md) runs
+data _as_ code at runtime:
 
 ```clojure
 (let program '(+ 1 2))
@@ -135,7 +135,7 @@ you write by hand.
 
 ## When to use a macro
 
-Reach for a macro only when you need to control *evaluation* — to leave
+Reach for a macro only when you need to control _evaluation_ — to leave
 something unevaluated, to introduce binding syntax, or to build new control
 flow. If a plain function would do (because all its arguments should be
 evaluated anyway), write the function: functions compose, can be passed around,
@@ -144,6 +144,6 @@ being second-class (they cannot be `apply`'d or stored as ordinary callables).
 
 ---
 
-*See also:* [Special Forms](special-forms.md) · [Control Flow](control-flow.md) ·
+_See also:_ [Special Forms](special-forms.md) · [Control Flow](control-flow.md) ·
 [Refs and Mutability](refs.md) · [Errors and Exceptions](errors.md) ·
-*SPEC.md* §5.4, §5.9
+_SPEC.md_ §5.4, §5.9

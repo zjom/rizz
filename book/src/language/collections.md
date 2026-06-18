@@ -2,7 +2,7 @@
 
 rizz has three built-in collection kinds — **arrays**, **maps**, and **cons
 lists** — plus **strings**, which behave like sequences of characters. A large
-family of functions works *polymorphically* across all of them, so once you
+family of functions works _polymorphically_ across all of them, so once you
 learn `len`, `get`, `fmap`, and `reduce`, you know them for every collection.
 
 All collections are **persistent**: operations like `push` and `put` return a
@@ -26,25 +26,25 @@ sequence containing itself, which is occasionally convenient.
 
 These work uniformly across strings, arrays, maps, and cons lists.
 
-| Operation              | Works on        | Description                                                       |
-| ---------------------- | --------------- | ---------------------------------------------------------------- |
-| `(len c)`              | all             | Element count (string by character).                             |
-| `(get c k)`            | all             | Index/key lookup; miss → `()`.                                   |
-| `(contains? c x)`      | all             | Substring / element / key test.                                  |
-| `(concat a b)`         | matching kinds  | Join two of the same kind (right map wins on key clash).         |
-| `(fmap f c)`           | all             | Map `f` over elements, returning the same kind.                  |
-| `(fmapi f c)`          | all             | Like `fmap`, but `f` also receives the index.                    |
-| `(filter pred c)`      | all             | Keep elements where `pred` is truthy.                            |
-| `(reduce f init c)`    | all             | Left fold from `init`.                                           |
-| `(all pred c)`         | all             | True if `pred` holds for every element.                          |
-| `(any pred c)`         | all             | True if `pred` holds for any element.                            |
-| `(zip a b)`            | all             | List of pairs; length is `min(len a, len b)`.                    |
-| `(slice c start end)`  | str/array/list  | Half-open `[start, end)`, clamped to bounds.                     |
-| `(reverse c)`          | str/array/list  | Reversed copy.                                                   |
-| `(first c)`            | str/array/list  | Head, or `()` if empty.                                          |
-| `(last c)`             | str/array/list  | Last element, or `()` if empty.                                  |
-| `(rest c)`             | str/array/list  | Everything but the first.                                        |
-| `(find pred c)`        | str/array/list  | Index of the first match, or `()`.                               |
+| Operation             | Works on       | Description                                              |
+| --------------------- | -------------- | -------------------------------------------------------- |
+| `(len c)`             | all            | Element count (string by character).                     |
+| `(get c k)`           | all            | Index/key lookup; miss → `()`.                           |
+| `(contains? c x)`     | all            | Substring / element / key test.                          |
+| `(concat a b)`        | matching kinds | Join two of the same kind (right map wins on key clash). |
+| `(fmap f c)`          | all            | Map `f` over elements, returning the same kind.          |
+| `(fmapi f c)`         | all            | Like `fmap`, but `f` also receives the index.            |
+| `(filter pred c)`     | all            | Keep elements where `pred` is truthy.                    |
+| `(reduce f init c)`   | all            | Left fold from `init`.                                   |
+| `(all pred c)`        | all            | True if `pred` holds for every element.                  |
+| `(any pred c)`        | all            | True if `pred` holds for any element.                    |
+| `(zip a b)`           | all            | List of pairs; length is `min(len a, len b)`.            |
+| `(slice c start end)` | str/array/list | Half-open `[start, end)`, clamped to bounds.             |
+| `(reverse c)`         | str/array/list | Reversed copy.                                           |
+| `(first c)`           | str/array/list | Head, or `()` if empty.                                  |
+| `(last c)`            | str/array/list | Last element, or `()` if empty.                          |
+| `(rest c)`            | str/array/list | Everything but the first.                                |
+| `(find pred c)`       | str/array/list | Index of the first match, or `()`.                       |
 
 ```clojure
 (len [1 2 3])              ;; => 3
@@ -97,14 +97,14 @@ callback receives the key and value (and index, for `fmapi`):
 
 Integer-indexed persistent vectors.
 
-| Operation             | Description                                          |
-| --------------------- | ---------------------------------------------------- |
-| `(push xs x)`         | New array with `x` appended.                         |
-| `(pop xs)`            | New array without the last element.                  |
-| `(array-set xs i x)`  | New array with index `i` replaced.                   |
-| `(range start end)`   | Array of ints in `[start, end)`.                     |
-| `(array-of x)`        | Single-element array `[x]`.                          |
-| `(array-from xs)`     | Build an array from `xs` (traverses if iterable).    |
+| Operation            | Description                                       |
+| -------------------- | ------------------------------------------------- |
+| `(push xs x)`        | New array with `x` appended.                      |
+| `(pop xs)`           | New array without the last element.               |
+| `(array-set xs i x)` | New array with index `i` replaced.                |
+| `(range start end)`  | Array of ints in `[start, end)`.                  |
+| `(array-of x)`       | Single-element array `[x]`.                       |
+| `(array-from xs)`    | Build an array from `xs` (traverses if iterable). |
 
 ```clojure
 (push [1 2] 3)         ;; => [1 2 3]
@@ -121,12 +121,12 @@ The in-place variants `push!`, `pop!`, `array-set!` operate on a
 
 Persistent hash maps. Keys may be any value; insertion order is not preserved.
 
-| Operation         | Description                                  |
-| ----------------- | -------------------------------------------- |
-| `(put m k v)`     | New map with `k → v` inserted.               |
-| `(del m k)`       | New map with `k` removed (no-op if absent).  |
-| `(keys m)`        | Array of keys (unspecified order).           |
-| `(values m)`      | Array of values (unspecified order).         |
+| Operation     | Description                                 |
+| ------------- | ------------------------------------------- |
+| `(put m k v)` | New map with `k → v` inserted.              |
+| `(del m k)`   | New map with `k` removed (no-op if absent). |
+| `(keys m)`    | Array of keys (unspecified order).          |
+| `(values m)`  | Array of values (unspecified order).        |
 
 ```clojure
 (put { "a" : 1 } "b" 2)        ;; => { "a" : 1  "b" : 2 }
@@ -141,11 +141,11 @@ In-place: `put!`, `del!` on a ref-of-map.
 
 The classic Lisp pair. A list is a chain of cons cells ending in `()`.
 
-| Operation        | Description                                      |
-| ---------------- | ------------------------------------------------ |
-| `(cons h t)`     | A new cell with head `h` and tail `t`.           |
-| `(car xs)`       | The head. `(car ())` is `()`.                    |
-| `(cdr xs)`       | The tail. `(cdr ())` is `()`.                    |
+| Operation    | Description                            |
+| ------------ | -------------------------------------- |
+| `(cons h t)` | A new cell with head `h` and tail `t`. |
+| `(car xs)`   | The head. `(car ())` is `()`.          |
+| `(cdr xs)`   | The tail. `(cdr ())` is `()`.          |
 
 ```clojure
 (cons 1 (cons 2 (cons 3 ())))   ;; => (1 2 3)
@@ -171,6 +171,6 @@ Tagged cons cells — a list whose head is a symbol, like `(ok value)` or
 
 ---
 
-*See also:* [Values and Types](values.md) · [Refs and Mutability](refs.md) ·
+_See also:_ [Values and Types](values.md) · [Refs and Mutability](refs.md) ·
 [The Standard Library](stdlib.md) · [Errors and Exceptions](errors.md) ·
-*SPEC.md* §10
+_SPEC.md_ §10

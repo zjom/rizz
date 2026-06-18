@@ -1,7 +1,7 @@
 # Special Forms
 
 A **special form** is a list whose head is a reserved keyword, dispatched by the
-evaluator *before* normal function application. Special forms do not follow the
+evaluator _before_ normal function application. Special forms do not follow the
 "evaluate all arguments, then call" rule — each defines its own evaluation
 behavior. That is precisely why they cannot be ordinary functions.
 
@@ -49,8 +49,8 @@ function a multi-step body:
 ```
 
 The crucial property of `do` is that **it is not a scope boundary**. A later
-form sees the `let`/`fn` bindings of earlier forms, *and those bindings leak out
-to the surrounding form too*:
+form sees the `let`/`fn` bindings of earlier forms, _and those bindings leak out
+to the surrounding form too_:
 
 ```clojure
 (do (let a 1) (let b 2))
@@ -84,21 +84,20 @@ Quoting is how you get your hands on code-as-data — the foundation of
 Quasiquote is "quote with holes." `` `X `` is mostly literal, but:
 
 - `,X` (unquote) — evaluate `X` and drop its value in.
-- `,@X` (unquote-splice) — evaluate `X` to a **cons list** and **splice** its
+- `,@X` (unquote-splice) — evaluate `X` to a **sequence** and **splice** its
   elements into the surrounding list.
 
 ```clojure
 (let n 2)
-`(a ,n c)                ;; => (a 2 c)
-`(1 ,(+ 1 1) ,@'(3 4 5)) ;; => (1 2 3 4 5)
+`(a ,n c)                   ;; => (a 2 c)
+`(1 ,(+ 1 1) ,@(range 3 6)) ;; => (1 2 3 4 5)
+`(0 ,@'(1 2) 3)             ;; => (0 1 2 3)
 ```
 
-Splicing flattens a cons list specifically — an array splices as a *single*
-element, not flattened, so reach for a list (or `'(...)`) when you want the
-elements spread. Splicing only makes sense as an *element of a list*;
-`` `,@xs `` with no enclosing list is a type error. Quasiquote recurses into
-nested lists, and this
-implementation does not track nested-quasiquote depth — an unquote always
+Both cons lists and arrays splice element-wise, and an empty one contributes
+nothing. Splicing only makes sense as an _element of a list_; `` `,@xs `` with
+no enclosing list is a type error. Quasiquote recurses into nested lists, and
+this implementation does not track nested-quasiquote depth — an unquote always
 applies to the nearest enclosing quasiquote.
 
 Quasiquote is the workhorse of macro definitions, where you assemble an
@@ -111,7 +110,7 @@ expansion out of literal structure plus spliced-in argument forms. See
 (eval FORM)
 ```
 
-`eval` evaluates `FORM` once to get a datum, then evaluates *that datum* as code
+`eval` evaluates `FORM` once to get a datum, then evaluates _that datum_ as code
 in the current environment:
 
 ```clojure
@@ -126,6 +125,6 @@ almost always clearer.
 
 ---
 
-*See also:* [The Evaluation Model](evaluation.md) ·
+_See also:_ [The Evaluation Model](evaluation.md) ·
 [Control Flow](control-flow.md) · [Macros and Metaprogramming](macros.md) ·
-[Errors and Exceptions](errors.md) · *SPEC.md* §5
+[Errors and Exceptions](errors.md) · _SPEC.md_ §5

@@ -8,8 +8,8 @@ why macros discard their bindings.
 
 The core rule is:
 
-> Evaluating a form takes an **environment in** and returns a **value** *and a
-> (possibly extended) environment out*.
+> Evaluating a form takes an **environment in** and returns a **value** _and a
+> (possibly extended) environment out_.
 
 In pseudo-notation: `eval(form, env) → (value, env')`.
 
@@ -82,7 +82,7 @@ ref is peeled and the call proceeds against the contents.
 ## Argument evaluation threads the environment
 
 Arguments to a single call are evaluated left to right, and bindings made by an
-earlier argument are visible to later arguments of the *same* call:
+earlier argument are visible to later arguments of the _same_ call:
 
 ```clojure
 (+ (let x 5) x)    ;; => 10   — the second arg sees x from the first
@@ -115,18 +115,18 @@ Two consequences worth stating plainly:
 
 - **Calls are scope boundaries.** A function's internal `let`/`fn` bindings
   never leak back to the caller.
-- The only way to share *mutable* state across a call boundary is to capture a
+- The only way to share _mutable_ state across a call boundary is to capture a
   [`ref`](refs.md), because the ref is a cell whose identity is captured, not
   its contents.
 
-The exception to "calls are boundaries" is `do`, which is *not* a boundary —
+The exception to "calls are boundaries" is `do`, which is _not_ a boundary —
 its bindings leak to the enclosing form on purpose. That is the whole point of
 `do`, and [Special Forms](special-forms.md) covers it.
 
 ## Reserved identifiers
 
 Because the special-form check happens before lookup, the keywords are reserved
-*in head position* — you cannot redefine what `(let ...)` means by binding
+_in head position_ — you cannot redefine what `(let ...)` means by binding
 `let`:
 
 ```clojure
@@ -147,12 +147,12 @@ open   load   load-quoted   try   exception
 [Documentation](documentation.md).) The reader-macro prefixes `'`, `` ` ``, `,`,
 `,@` expand to `quote`, `quasi`, `unquote`, `unquote-splice`.
 
-Everything *not* in that list — including `+`, `cond`, `for`, `while` — is an
+Everything _not_ in that list — including `+`, `cond`, `for`, `while` — is an
 ordinary binding you can shadow. Notably the control-flow forms like `cond` and
 `while` are [macros](macros.md) defined in the prelude, not reserved keywords.
 
 ---
 
-*See also:* [Special Forms](special-forms.md) ·
+_See also:_ [Special Forms](special-forms.md) ·
 [Bindings and Functions](functions.md) · [Refs and Mutability](refs.md) ·
-[Reserved Identifiers](../appendix/reserved.md) · *SPEC.md* §4
+[Reserved Identifiers](../appendix/reserved.md) · _SPEC.md_ §4

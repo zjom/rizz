@@ -3,8 +3,7 @@
 The standard library is partly Rust builtins and partly rizz code (the prelude's
 `_.rz`). [Collections](collections.md) covered the collection operations; this
 chapter covers the rest: arithmetic, comparison, equality, strings, reflection,
-and the function combinators. The [Standard Library
-Reference](../appendix/stdlib-reference.md) appendix has the consolidated tables;
+and the function combinators. The [Standard Library Reference](../appendix/stdlib-reference.md) appendix has the consolidated tables;
 here we focus on usage.
 
 Remember that boolean-ish results are `1` (true) and `0` (false).
@@ -14,16 +13,16 @@ Remember that boolean-ish results are `1` (true) and `0` (false).
 All arithmetic is binary and requires both operands to be the **same** numeric
 kind — see [Values and Types](values.md) on the no-coercion rule.
 
-| Operation        | Notes                                                          |
-| ---------------- | -------------------------------------------------------------- |
-| `+` `-` `*` `/`  | Also spelled `sum` `sub` `mul` `div`. Int overflow/÷0 error.   |
-| `mod`            | Least nonnegative remainder.                                   |
-| `cmp`            | `-1`, `0`, or `1` (float versions for floats). NaN errors.     |
-| `<` `<=` `>` `>=`| Also `lt` `lte` `gt` `gte`.                                    |
-| `min` `max`      | Of N numbers (same kind) or one array/list. NaN errors.       |
-| `clamp`          | `(clamp x lo hi)` constrains `x` to `[lo, hi]`.                |
-| `int-of`         | Float→int (round, ties to even), parse a string, int→int.     |
-| `float-of`       | Int→float, parse a string, float→float.                       |
+| Operation         | Notes                                                        |
+| ----------------- | ------------------------------------------------------------ |
+| `+` `-` `*` `/`   | Also spelled `sum` `sub` `mul` `div`. Int overflow/÷0 error. |
+| `mod`             | Least nonnegative remainder.                                 |
+| `cmp`             | `-1`, `0`, or `1` (float versions for floats). NaN errors.   |
+| `<` `<=` `>` `>=` | Also `lt` `lte` `gt` `gte`.                                  |
+| `min` `max`       | Of N numbers (same kind) or one array/list. NaN errors.      |
+| `clamp`           | `(clamp x lo hi)` constrains `x` to `[lo, hi]`.              |
+| `int-of`          | Float→int (round, ties to even), parse a string, int→int.    |
+| `float-of`        | Int→float, parse a string, float→float.                      |
 
 ```clojure
 (+ 2 3)            ;; => 5
@@ -41,11 +40,11 @@ kind — see [Values and Types](values.md) on the no-coercion rule.
 
 ## Equality and boolean
 
-| Operation     | Notes                              |
-| ------------- | ---------------------------------- |
-| `=` / `eq`    | Structural equality.               |
-| `!=` / `neq`  | Structural inequality.             |
-| `!` / `not`   | Negate truthiness → `1` or `0`.    |
+| Operation    | Notes                           |
+| ------------ | ------------------------------- |
+| `=` / `eq`   | Structural equality.            |
+| `!=` / `neq` | Structural inequality.          |
+| `!` / `not`  | Negate truthiness → `1` or `0`. |
 
 ```clojure
 (= [1 2] [1 2])    ;; => 1
@@ -54,21 +53,21 @@ kind — see [Values and Types](values.md) on the no-coercion rule.
 (! "anything")     ;; => 0
 ```
 
-The short-circuiting `and` / `or` are prelude *macros*, covered in
+The short-circuiting `and` / `or` are prelude _macros_, covered in
 [Control Flow](control-flow.md).
 
 ## Strings
 
-| Operation              | Description                                                  |
-| ---------------------- | ------------------------------------------------------------ |
-| `to-str` / `str-of`    | Stringify any value (nested strings get quoted).             |
-| `str-upper`            | Uppercase.                                                   |
-| `str-lower`            | Lowercase.                                                   |
-| `str-trim`             | Strip surrounding whitespace.                                |
-| `str-split`            | Split into an array; `""` separator → per character.         |
-| `str-join`             | Join an array/list with a separator.                         |
-| `str-replace`          | Replace all occurrences of a substring.                      |
-| `str->int`             | Parse a decimal integer, or `()` on failure.                 |
+| Operation           | Description                                          |
+| ------------------- | ---------------------------------------------------- |
+| `to-str` / `str-of` | Stringify any value (nested strings get quoted).     |
+| `str-upper`         | Uppercase.                                           |
+| `str-lower`         | Lowercase.                                           |
+| `str-trim`          | Strip surrounding whitespace.                        |
+| `str-split`         | Split into an array; `""` separator → per character. |
+| `str-join`          | Join an array/list with a separator.                 |
+| `str-replace`       | Replace all occurrences of a substring.              |
+| `str->int`          | Parse a decimal integer, or `()` on failure.         |
 
 ```clojure
 (str-upper "hi")               ;; => "HI"
@@ -90,13 +89,13 @@ The short-circuiting `and` / `or` are prelude *macros*, covered in
 
 ## Reflection
 
-| Operation         | Description                                                       |
-| ----------------- | ---------------------------------------------------------------- |
-| `(typeof v)`      | The type as an ident: `int`, `str`, `array`, `ref`, `closure`, … |
-| `(is v ty)`       | Returns `v` if its type is `ty`, else `()`.                      |
-| `(empty-of v)`    | A zero/empty value of the same kind as `v`.                      |
-| `(id v)`          | Identity — returns `v` unchanged.                                |
-| `(show v)`        | The doc string attached to a callable, or `()`.                  |
+| Operation      | Description                                                      |
+| -------------- | ---------------------------------------------------------------- |
+| `(typeof v)`   | The type as an ident: `int`, `str`, `array`, `ref`, `closure`, … |
+| `(is v ty)`    | Returns `v` if its type is `ty`, else `()`.                      |
+| `(empty-of v)` | A zero/empty value of the same kind as `v`.                      |
+| `(id v)`       | Identity — returns `v` unchanged.                                |
+| `(show v)`     | The doc string attached to a callable, or `()`.                  |
 
 `is` is a type guard. Because it returns the value (truthy) on a match and `()`
 (falsy) on a miss, it slots straight into `if`, `cond`, `match`, and `filter`:
@@ -130,17 +129,17 @@ The prelude defines a set of higher-order helpers in rizz itself. They are
 ordinary values — pass them around, partially apply them, store them in
 collections.
 
-| Combinator       | Equivalent to                          |
-| ---------------- | -------------------------------------- |
-| `(compose F G H)`| `(fn _ (x) (F (G (H x))))` — right to left |
-| `(pipe F G H)`   | `(fn _ (x) (H (G (F x))))` — left to right  |
-| `(const V)`      | a function of any args that returns `V` |
-| `(flip F)`       | `(fn _ (a b) (F b a))`                 |
-| `(partial F A)`  | `(fn _ (b) (F A b))`                   |
-| `(complement P)` | `(fn _ (x) (! (P x)))`                 |
-| `(on F G)`       | `(fn _ (a b) (F (G a) (G b)))`         |
-| `(juxt F G)`     | `(fn _ (x) [(F x) (G x)])`             |
-| `(tap F X)`      | run `(F X)` for effect, return `X`     |
+| Combinator        | Equivalent to                              |
+| ----------------- | ------------------------------------------ |
+| `(compose F G H)` | `(fn _ (x) (F (G (H x))))` — right to left |
+| `(pipe F G H)`    | `(fn _ (x) (H (G (F x))))` — left to right |
+| `(const V)`       | a function of any args that returns `V`    |
+| `(flip F)`        | `(fn _ (a b) (F b a))`                     |
+| `(partial F A)`   | `(fn _ (b) (F A b))`                       |
+| `(complement P)`  | `(fn _ (x) (! (P x)))`                     |
+| `(on F G)`        | `(fn _ (a b) (F (G a) (G b)))`             |
+| `(juxt F G)`      | `(fn _ (x) [(F x) (G x)])`                 |
+| `(tap F X)`       | run `(F X)` for effect, return `X`         |
 
 ```clojure
 (let inc    (fn _ (x) (+ x 1)))
@@ -167,6 +166,6 @@ disturbing the value flowing through.
 
 ---
 
-*See also:* [Values and Types](values.md) · [Collections](collections.md) ·
+_See also:_ [Values and Types](values.md) · [Collections](collections.md) ·
 [Control Flow](control-flow.md) · [Documentation](documentation.md) ·
-[Standard Library Reference](../appendix/stdlib-reference.md) · *SPEC.md* §10
+[Standard Library Reference](../appendix/stdlib-reference.md) · _SPEC.md_ §10

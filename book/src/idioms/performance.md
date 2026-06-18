@@ -13,7 +13,7 @@ crashing the host process, the evaluator caps nesting:
 - A per-thread recursion limit (default **10,000** nested evaluations) raises a
   `RecursionLimit` error instead of overflowing the stack.
 - The physical stack is grown in segments as depth increases, so legitimate deep
-  recursion *within* the limit won't overflow even on a small host thread.
+  recursion _within_ the limit won't overflow even on a small host thread.
 
 The practical upshot: **don't iterate large sequences with self-recursion.**
 
@@ -27,7 +27,7 @@ The practical upshot: **don't iterate large sequences with self-recursion.**
 (fn sum (xs) (reduce + 0 xs))
 ```
 
-`reduce`, `for`, and `loop` iterate *without* recursion and are the right tools
+`reduce`, `for`, and `loop` iterate _without_ recursion and are the right tools
 for long sequences. Note that `while` is itself a **recursive macro**, so a
 `while` that spins for a very large number of iterations is subject to the same
 limit — prefer `for`/`reduce` when you are walking a known sequence.
@@ -53,17 +53,17 @@ a                      ;; => [1 2 3]   — untouched
 b                      ;; => [1 2 3 4]
 ```
 
-Because non-mutating updates are already cheap, you rarely *need* the in-place
+Because non-mutating updates are already cheap, you rarely _need_ the in-place
 `!`-operations for performance — reach for them when you specifically want a
 single cell to be observably mutated (a shared counter, an accumulator), not as a
 blanket optimization.
 
 ## Persistent vs. in-place: a quick model
 
-| Style                          | Cost                          | Use when                              |
-| ------------------------------ | ----------------------------- | ------------------------------------- |
-| `push` / `put` (persistent)    | new structure, shared interior | building values, functional pipelines |
-| `push!` / `put!` (in a ref)    | mutate one cell in place       | a counter/accumulator you mutate often |
+| Style                       | Cost                           | Use when                               |
+| --------------------------- | ------------------------------ | -------------------------------------- |
+| `push` / `put` (persistent) | new structure, shared interior | building values, functional pipelines  |
+| `push!` / `put!` (in a ref) | mutate one cell in place       | a counter/accumulator you mutate often |
 
 For a tight accumulation loop, a single `let!` ref mutated with `push!` avoids
 allocating an intermediate collection per step. For everything else, the
@@ -99,6 +99,6 @@ accumulated bindings warm.
 
 ---
 
-*See also:* [Refs and Mutability](../language/refs.md) ·
+_See also:_ [Refs and Mutability](../language/refs.md) ·
 [Control Flow](../language/control-flow.md) ·
-[Error Handling](../embedding/errors.md) · *SPEC.md* §13
+[Error Handling](../embedding/errors.md) · _SPEC.md_ §13

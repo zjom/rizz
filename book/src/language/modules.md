@@ -3,7 +3,7 @@
 A rizz program can grow past one file. The module system is three special forms
 — `open`, `load`, and `load-quoted` — that load a sibling source file and do
 different things with the result. There is no separate "module" declaration: any
-`.rz` file is loadable, and its top-level bindings *are* its exports.
+`.rz` file is loadable, and its top-level bindings _are_ its exports.
 
 ## The three loaders
 
@@ -17,11 +17,11 @@ different things with the result. There is no separate "module" declaration: any
 All three read the file at `PATH` and (for `open`/`load`) evaluate its top-level
 forms in a fresh **module environment**. They differ in what they hand back:
 
-- **`open`** — *merges* all of the module's top-level bindings into the caller's
+- **`open`** — _merges_ all of the module's top-level bindings into the caller's
   environment, and returns the value of the module's last form.
 - **`load`** — merges nothing; returns the module's bindings as a **map** keyed
   by identifier, so you can inspect or destructure the module as a value.
-- **`load-quoted`** — does *not* evaluate the file; returns its top-level forms
+- **`load-quoted`** — does _not_ evaluate the file; returns its top-level forms
   as **unevaluated data** (a list of S-expressions), for metaprogramming.
 
 `PATH` may be a string (`"math"`) or a bare identifier that spells a valid
@@ -78,13 +78,13 @@ This hands you the parsed-but-unevaluated source, for tooling and
 
 - If `PATH` has no extension, `.rz` is appended.
 - A **relative** path resolves against the directory of the file doing the
-  loading — its *anchor*. The entry point sets the initial anchor (to the script
+  loading — its _anchor_. The entry point sets the initial anchor (to the script
   file's directory), and every `open` re-anchors to the opened file's directory.
   With no anchor, the process working directory is used.
 - An **absolute** path is used verbatim.
 
 The re-anchoring matters: a module can `(open "sibling")` and have it resolve
-relative to *that module*, not relative to whoever loaded it. Modules stay
+relative to _that module_, not relative to whoever loaded it. Modules stay
 portable regardless of who imports them.
 
 ## The module environment
@@ -94,14 +94,14 @@ A loaded module evaluates against a **fresh copy of the prelude** — so `+`,
 definitions. `open` always loads against a clean scope. A name you defined in
 the caller before calling `open` is invisible inside the module.
 
-(When you embed rizz in Rust, host builtins you install *are* visible to loaded
+(When you embed rizz in Rust, host builtins you install _are_ visible to loaded
 modules, because the runtime seeds modules with the base environment. See
 [Custom Builtins](../embedding/builtins.md).)
 
 ## What `open` leaks back
 
 - **Every** top-level binding the module introduced becomes visible in the
-  caller — including `_`-prefixed ones. The `_` prefix is a *naming convention*
+  caller — including `_`-prefixed ones. The `_` prefix is a _naming convention_
   for "private"; `open` does not enforce it. If you want true namespacing, use a
   `PREFIX`.
 - On a name collision, the **module's** binding wins (it overwrites the
@@ -120,6 +120,6 @@ raise within the same evaluation.
 
 ---
 
-*See also:* [The Evaluation Model](evaluation.md) ·
+_See also:_ [The Evaluation Model](evaluation.md) ·
 [Errors and Exceptions](errors.md) · [Custom Builtins](../embedding/builtins.md) ·
-*SPEC.md* §8
+_SPEC.md_ §8

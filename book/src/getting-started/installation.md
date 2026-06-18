@@ -112,6 +112,6 @@ in [Working with Values](../embedding/values.md).
 
 ---
 
-*See also:* [Your First Program](first-program.md) ·
+_See also:_ [Your First Program](first-program.md) ·
 [The Evaluation Model](../language/evaluation.md) ·
 [Embedding Overview](../embedding/overview.md)

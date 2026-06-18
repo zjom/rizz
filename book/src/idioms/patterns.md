@@ -96,11 +96,11 @@ When a function might receive either kind, normalize at the entrance with
 
 ## Reserved words can't be shadowed in head position
 
-You can bind the *value* of a name like `if`, but `(if ...)` in head position is
+You can bind the _value_ of a name like `if`, but `(if ...)` in head position is
 always the special form ([Evaluation](../language/evaluation.md)). Don't name a
 function `if`, `let`, `fn`, `do`, `quote`, `eval`, `open`, `try`, or `exception`
-and expect to call it — pick a non-reserved name. (The control-flow *macros* like
-`cond` and `while` are not reserved and *can* be shadowed, but doing so is still
+and expect to call it — pick a non-reserved name. (The control-flow _macros_ like
+`cond` and `while` are not reserved and _can_ be shadowed, but doing so is still
 a good way to confuse a reader.)
 
 ## Let the falsy-miss convention work for you
@@ -124,6 +124,6 @@ branch, or `for` body expects.
 
 ---
 
-*See also:* [Idioms](idioms.md) · [Performance](performance.md) ·
+_See also:_ [Idioms](idioms.md) · [Performance](performance.md) ·
 [Refs and Mutability](../language/refs.md) ·
 [Errors and Exceptions](../language/errors.md)

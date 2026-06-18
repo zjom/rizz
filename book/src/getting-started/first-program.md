@@ -57,16 +57,14 @@ greeting             ;; => "hello"
 (square 6)           ;; => 36
 ```
 
-The body is a single expression. When you need several steps, wrap them in
-[`do`](../language/special-forms.md), which evaluates each form in order and
-returns the last:
+A body can be several expressions: they are evaluated in order, and the value
+of the last one is the result.
 
 ```clojure
 (fn describe (n)
-  (do
-    (let doubled (* n 2))
-    (let plus-one (+ doubled 1))
-    plus-one))
+  (let doubled (* n 2))
+  (let plus-one (+ doubled 1))
+  plus-one)
 (describe 5)         ;; => 11
 ```
 
@@ -125,6 +123,6 @@ experiment. Either way, you now have everything you need to follow along.
 
 ---
 
-*See also:* [Syntax](../language/syntax.md) ·
+_See also:_ [Syntax](../language/syntax.md) ·
 [Bindings and Functions](../language/functions.md) ·
 [Special Forms](../language/special-forms.md)

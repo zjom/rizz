@@ -1,6 +1,6 @@
 # Custom Builtins
 
-The whole point of embedding rizz is to give scripts access to *your*
+The whole point of embedding rizz is to give scripts access to _your_
 application. You do that by installing **native functions** — Rust closures
 exposed to rizz code as callable values. This chapter shows how to write them,
 how to choose the right flavor, and how to wire them into a runtime.
@@ -44,12 +44,12 @@ function see the environment, and can it change it — plus whether arguments
 arrive evaluated. Pick the **first** one that fits; granting more power than you
 need costs clarity and a static guarantee.
 
-| Variant     | Sees env? | Returned env propagates? | Args evaluated? | Use for                                     |
-| ----------- | :-------: | :----------------------: | :-------------: | ------------------------------------------- |
-| `pure`      |    no     |           n/a            |       yes       | `+`, `len`, `car` — operate on args only    |
-| `with_env`  |    yes    |            no            |       yes       | higher-order fns that call a callable arg   |
-| `impure`    |    yes    |           yes            |       yes       | loader-style fns that extend the caller env |
-| `macro_`    |    yes    |            no            |     **no**      | control structures over raw arg forms       |
+| Variant    | Sees env? | Returned env propagates? | Args evaluated? | Use for                                     |
+| ---------- | :-------: | :----------------------: | :-------------: | ------------------------------------------- |
+| `pure`     |    no     |           n/a            |       yes       | `+`, `len`, `car` — operate on args only    |
+| `with_env` |    yes    |            no            |       yes       | higher-order fns that call a callable arg   |
+| `impure`   |    yes    |           yes            |       yes       | loader-style fns that extend the caller env |
+| `macro_`   |    yes    |            no            |     **no**      | control structures over raw arg forms       |
 
 1. **Operates only on its arguments?** Use `pure`. This is the overwhelming
    majority of builtins.
@@ -75,7 +75,7 @@ NativeFn::macro_(name, nargs, |args, env| { ... })   // args are raw, unevaluate
 ## Arity is a lower bound
 
 The `nargs` argument is the **minimum** arity. The runtime guarantees your
-closure receives *at least* that many arguments — but allows more. Passing
+closure receives _at least_ that many arguments — but allows more. Passing
 `nargs = 0` opts out of checking entirely, which is the idiom for variadic
 functions. If you need a strict upper bound, check `args.len()` yourself and
 return a `RuntimeError::ArityMismatch`.
@@ -102,7 +102,7 @@ None => Err(RuntimeError::type_mismatch("greet", "str", &args[0])),
 
 For application-specific failures you can surface a host error through
 `RuntimeError::Other(anyhow::Error)` — see [Error Handling](errors.md). And if
-your builtin should raise a *catchable* rizz exception rather than abort, return
+your builtin should raise a _catchable_ rizz exception rather than abort, return
 `RuntimeError::Raised { value }` with a tagged-cons value (the same shape
 `(raise ...)` produces).
 
@@ -134,7 +134,7 @@ let mut rt = Runtime::with_env(env);
 assert_eq!(*rt.eval(b"(answer)".as_ref()).unwrap(), Value::Int(42));
 ```
 
-> **Collision rule:** in `install`, *your* bindings win over the prelude's, so you
+> **Collision rule:** in `install`, _your_ bindings win over the prelude's, so you
 > can both add new names and override standard ones. To get prelude-wins
 > behavior instead, write `rizz::prelude::env().union(your_env)` yourself.
 
@@ -143,7 +143,7 @@ assert_eq!(*rt.eval(b"(answer)".as_ref()).unwrap(), Value::Int(42));
 `Runtime::with_env` pins a snapshot of the construction-time env as the **base
 env**, and every `(open ...)`d [module](../language/modules.md) is seeded with
 it. That means host builtins are visible inside loaded modules transparently —
-*but* top-level user definitions made through the runtime are not, matching the
+_but_ top-level user definitions made through the runtime are not, matching the
 rule that modules load against a clean scope. Install everything a module might
 need at construction time, not incrementally afterward.
 
@@ -161,5 +161,5 @@ assert_eq!(*rt.eval(b"(* (six) 7)".as_ref()).unwrap(), Value::Int(42));
 
 ---
 
-*See also:* [Working with Values](values.md) · [Error Handling](errors.md) ·
+_See also:_ [Working with Values](values.md) · [Error Handling](errors.md) ·
 [Modules](../language/modules.md) · [A Worked Example](worked-example.md)
