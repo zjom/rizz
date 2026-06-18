@@ -1,0 +1,24 @@
+[book]
+title = "The rizz Programming Language"
+authors = ["zjom"]
+description = "A hands-on guide to rizz: a small, embeddable Lisp written in Rust."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../target/book"
+
+[output.html]
+git-repository-url = "https://github.com/zjom/rizz"
+edit-url-template = "https://github.com/zjom/rizz/edit/main/book/src/{path}"
+default-theme = "rust"
+# Teaches the bundled highlight.js a rizz grammar (mirrors tree-sitter-rizz's
+# highlights.scm) so ```clojure-fenced rizz code is syntax-highlighted.
+additional-js = ["theme/rizz-highlight.js"]
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+runnable = false
