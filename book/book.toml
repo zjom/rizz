@@ -9,6 +9,9 @@ src = "src"
 build-dir = "../target/book"
 
 [output.html]
+# Served as a GitHub *project* page under /rizz/, so the 404 page's <base href>
+# (and any other root-anchored URLs) must point at the subpath, not the domain root.
+site-url = "/rizz/"
 git-repository-url = "https://github.com/zjom/rizz"
 edit-url-template = "https://github.com/zjom/rizz/edit/main/book/src/{path}"
 default-theme = "rust"
